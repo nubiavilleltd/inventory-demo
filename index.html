@@ -702,6 +702,7 @@
             editingAddressId: null,
             editingUnitId: null,
             isEditing: false,
+             _timingManuallySet: false,
             // Top-level tab
             activeTab: 'orders',   // 'orders' | 'inventory' | 'dispatch'
             dispatchPool: [],
@@ -932,6 +933,7 @@
             state.currentScenario = key;
             state.currentPage = 'order-creation';
             state.activeModal = null;
+            state._timingManuallySet = false;
         }
 
         /* ============ STATUS BAR ============ */
@@ -1022,6 +1024,18 @@
               <option value="Main Warehouse" ${o.pickupLocation === 'Main Warehouse' ? 'selected' : ''}>Main Warehouse</option>
               <option value="Ikeja Store" ${o.pickupLocation === 'Ikeja Store' ? 'selected' : ''}>Ikeja Store</option>
             </select>
+          </div>
+          <div class="col">
+            <label>Pickup Timing *</label>
+            <div class="toggle-group">
+              <button class="toggle-btn ${o.timing === 'Immediate' ? 'active' : ''}" data-timing="Immediate" ${locked ? 'disabled' : ''}>Immediate</button>
+              <button class="toggle-btn ${o.timing === 'Scheduled' ? 'active' : ''}" data-timing="Scheduled" ${locked ? 'disabled' : ''}>Scheduled</button>
+            </div>
+            <div style="font-size:11px; color:#666; margin-top:4px;">
+              ${o.timing === 'Immediate'
+                ? '💡 Customer is taking the item now. Stock is hard-blocked.'
+                : '💡 Customer picks up later. Stock is soft-warned, reserved at Ready.'}
+            </div>
           </div>
         </div>
       ` : `
@@ -1135,12 +1149,7 @@
         </div>
       </div>
 
-      ${o.fulfillment === 'Pickup' ? `
-        <label class="mt-8">Pickup Timing *</label>
-        <div class="toggle-group">
-          <button class="toggle-btn ${o.timing === 'Immediate' ? 'active' : ''}" data-timing="Immediate" ${locked ? 'disabled' : ''}>Immediate</button>
-          <button class="toggle-btn ${o.timing === 'Scheduled' ? 'active' : ''}" data-timing="Scheduled" ${locked ? 'disabled' : ''}>Scheduled</button>
-        </div>
+           ${o.fulfillment === 'Pickup' ? `
       ` : `
         <label class="mt-12">${o.deliveryMode === 'Courier' ? 'Recipient Address *' : 'Delivery Address *'}</label>
         <div style="display:flex; gap:8px; align-items:center;">
@@ -1212,7 +1221,21 @@
         <span class="badge ${stateBadge(o)}">${stateLabel(o)}</span>
       </div>
       <div class="row mt-8">
-        <div class="col"><label>Invoice</label><strong>${o.invoiceNumber || '—'}</strong></div>
+                <div class="col">
+          <label>Invoice</label>
+          <strong style="${o.invoiceStatus === 'voided' ? 'text-decoration:line-through; color:#888;' : ''}">${o.invoiceNumber || '—'}</strong>
+          ${o.invoiceHistory && o.invoiceHistory.length > 0 ? `
+            <div style="font-size:11px; color:#888; margin-top:4px;">
+              ${o.invoiceHistory.map(h => `
+                <div>
+                  <span style="text-decoration:line-through;">${h.number}</span>
+                  · voided ${formatDate(h.voidedAt.split('T')[0])}
+                  ${h.reason ? '· ' + h.reason : ''}
+                </div>
+              `).join('')}
+            </div>
+          ` : ''}
+        </div>
         <div class="col"><label>Fulfillment</label><strong>${o.fulfillment} (${o.timing})</strong></div>
         <div class="col"><label>Scheduled</label><strong>${formatDate(o.scheduledDate)}</strong></div>
       </div>
@@ -1305,6 +1328,9 @@
 
     <div class="card">
       <div class="card-title">Actions</div>
+            ${['draft', 'submitted'].includes(o.state) ? `
+        <button class="btn-primary" id="editOrderBtn">Edit Order</button>
+      ` : ''}
 
       ${o.fulfillment === 'Pickup' && o.state === 'confirmed' ? `
         <button class="btn-primary" id="markReadyBtn">Mark as Ready for Pickup</button>
@@ -1384,8 +1410,20 @@
             document.querySelectorAll('[data-fulfillment]').forEach(b => b.addEventListener('click', () => {
                 o.fulfillment = b.dataset.fulfillment; render();
             }));
-            document.querySelectorAll('[data-timing]').forEach(b => b.addEventListener('click', () => {
-                o.timing = b.dataset.timing; render();
+                        document.querySelectorAll('[data-timing]').forEach(b => b.addEventListener('click', () => {
+                o.timing = b.dataset.timing;
+                state._timingManuallySet = true;
+                // Mismatch check: Immediate + future date is contradictory
+                if (o.timing === 'Immediate' && o.scheduledDate && o.scheduledDate > todayISO()) {
+                    if (!confirm(
+                        `You set Pickup Timing = Immediate but the scheduled date is ${formatDate(o.scheduledDate)} (in the future).\n\n` +
+                        `Immediate means the customer is collecting today.\n\n` +
+                        `Keep Immediate anyway? (Click Cancel to switch to Scheduled.)`
+                    )) {
+                        o.timing = 'Scheduled';
+                    }
+                }
+                render();
             }));
             document.querySelectorAll('[data-qty]').forEach(inp => inp.addEventListener('change', e => {
                 o.items[+e.target.dataset.qty].qty = Math.max(1, +e.target.value || 1); render();
@@ -1394,7 +1432,47 @@
                 o.items.splice(+b.dataset.remove, 1); render();
             }));
             document.getElementById('addProductBtn')?.addEventListener('click', () => { state.activeModal = 'add-product'; render(); });
-            document.getElementById('saveDraftBtn')?.addEventListener('click', () => alert('Saved as draft.'));
+                        document.getElementById('saveDraftBtn')?.addEventListener('click', () => alert('Saved as draft.'));
+
+            // ===== EDIT FLOW =====
+            document.getElementById('cancelEditBtn')?.addEventListener('click', () => {
+                state.isEditing = false;
+                state.currentPage = 'order-details';
+                render();
+            });
+
+            document.getElementById('saveChangesBtn')?.addEventListener('click', () => {
+                const o = state.order;
+
+                // Re-validate stock (same rules as new order)
+                const stockResult = validateOrderStock();
+                if (stockResult.blocked) { alert(stockResult.message); return; }
+                if (stockResult.warning) {
+                    if (!confirm(stockResult.message + '\n\nProceed anyway?')) return;
+                }
+
+                if (o.state === 'submitted') {
+                    // Void the old invoice and generate a new one
+                    o.invoiceHistory = o.invoiceHistory || [];
+                    if (o.invoiceNumber) {
+                        o.invoiceHistory.push({
+                            number: o.invoiceNumber,
+                            status: 'voided',
+                            voidedAt: new Date().toISOString(),
+                            reason: 'Order edited',
+                        });
+                    }
+                    const oldNumber = o.invoiceNumber;
+                    o.invoiceNumber = genNum('INV');
+                    logTimeline(`Order edited. Invoice ${oldNumber} voided. New invoice ${o.invoiceNumber} issued.`);
+                } else {
+                    logTimeline('Draft updated.');
+                }
+
+                state.isEditing = false;
+                state.currentPage = 'order-details';
+                render();
+            });
             document.getElementById('submitOrderBtn')?.addEventListener('click', () => submitOrder(false));
             document.getElementById('submitPayBtn')?.addEventListener('click', () => submitOrder(true));
             document.getElementById('markCollectedBtn')?.addEventListener('click', () => { state.currentPage = 'success'; render(); });
@@ -1434,8 +1512,26 @@
             render();   // ← re-render so stock badges update
         });
         // Scheduled Date
+               // Scheduled Date
         document.getElementById('scheduledDateInput')?.addEventListener('change', e => {
             state.order.scheduledDate = e.target.value;
+
+            // Auto-default Timing from the date, unless the operator has overridden it manually
+            if (!state._timingManuallySet) {
+                state.order.timing = (state.order.scheduledDate === todayISO()) ? 'Immediate' : 'Scheduled';
+            } else {
+                // Operator has overridden — still warn on obvious mismatch
+                if (state.order.timing === 'Immediate' && state.order.scheduledDate > todayISO()) {
+                    if (!confirm(
+                        `Pickup Timing is set to Immediate but the scheduled date is now ${formatDate(state.order.scheduledDate)} (in the future).\n\n` +
+                        `Switch to Scheduled?`
+                    )) {
+                        // operator chose to keep Immediate — leave it alone
+                    } else {
+                        state.order.timing = 'Scheduled';
+                    }
+                }
+            }
             render();
         });
         // Invoice Date
@@ -1475,6 +1571,12 @@
         /* ============ HANDLERS: ORDER DETAILS ============ */
               function attachOrderDetailsHandlers() {
             document.getElementById('recordPaymentBtn')?.addEventListener('click', () => { state.activeModal = 'payment'; render(); });
+            // Edit Order
+            document.getElementById('editOrderBtn')?.addEventListener('click', () => {
+                state.isEditing = true;
+                state.currentPage = 'order-creation';
+                render();
+            });
 
             // Mark Ready for Pickup
             document.getElementById('markReadyBtn')?.addEventListener('click', () => {
