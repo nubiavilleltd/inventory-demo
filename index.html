@@ -453,6 +453,13 @@
   </div>
 
   <script>
+
+
+    /* ============ BUSINESS RULES ============ */
+    // Standard number of days from invoice date to due date.
+    // Applies to all orders until per-customer terms are introduced.
+    const DEFAULT_PAYMENT_TERMS_DAYS = 7;
+
     /* ============ DATA ============ */
     const PRODUCTS = [
       { id: 'p1', name: 'MacBook Pro 2021', price: 200000, stock: 10 },
@@ -1239,21 +1246,6 @@ DISPATCH DASHBOARD DEMO SEED
       `}
     </div>
 
-      <div class="card">
-      <div class="card-title">Invoicing Information</div>
-         <div class="row">
-        <div class="col"><label>Invoice Date *</label><input type="date" id="invoiceDateInput" value="${o.invoiceDate}" ${locked ? 'disabled' : ''}></div>
-        <div class="col"><label>Due Date *</label><input type="date" id="dueDateInput" value="${o.dueDate}" ${locked ? 'disabled' : ''}></div>
-      </div>
-           ${cust.type === 'Company' ? `
-        <div style="font-size:12px; color:#555; margin-top:8px;">
-          Billing address is taken from the customer's default saved address.
-        </div>
-      ` : ''}
-      <label class="mt-12">Invoice Notes</label>
-      <textarea id="invoiceNotesInput" placeholder="Payment terms, bank account details, remarks..." ${locked ? 'disabled' : ''}>${o.invoiceNotes || ''}</textarea>
-    </div>
-
     ${locked ? `
       <div class="card">
         <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -1571,11 +1563,6 @@ DISPATCH DASHBOARD DEMO SEED
       });
 
 
-      // Invoice notes
-      document.getElementById('invoiceNotesInput')?.addEventListener('input', e => {
-        state.order.invoiceNotes = e.target.value;
-      });
-
       // Delivery address selector
       document.getElementById('deliveryAddressSelect')?.addEventListener('change', e => {
         state.order.deliveryAddressId = e.target.value;
@@ -1606,11 +1593,7 @@ DISPATCH DASHBOARD DEMO SEED
         }
         render();
       });
-      // Invoice Date
-      document.getElementById('invoiceDateInput')?.addEventListener('change', e => {
-        state.order.invoiceDate = e.target.value;
-        render()
-      });
+     
 
       // Due Date
       document.getElementById('dueDateInput')?.addEventListener('change', e => {
@@ -1757,8 +1740,15 @@ DISPATCH DASHBOARD DEMO SEED
       }
 
       // Continue with submission
+      o.invoiceDate = todayISO();
+
+      // Due date = invoice date + standard payment terms.
+      const dueDate = new Date();
+      dueDate.setDate(dueDate.getDate() + DEFAULT_PAYMENT_TERMS_DAYS);
+      o.dueDate = dueDate.toISOString().split('T')[0];
+
       o.invoiceNumber = genNum('INV');
-      logTimeline(`Invoice ${o.invoiceNumber} generated`);
+      logTimeline(`Invoice ${o.invoiceNumber} generated (Due: ${formatDate(o.dueDate)})`);
 
       const t = calcTotals(o);
 
