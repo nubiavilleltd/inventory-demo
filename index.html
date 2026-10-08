@@ -683,6 +683,7 @@
         description: 'Customer orders now, picks up later. Payment deferred.',
         pickupLocation: 'Main Warehouse',
         customerId: 'c2', fulfillment: 'Pickup', timing: 'Scheduled',
+        scheduledOffsetDays: 3,
         items: [{ productId: 'p2', qty: 3 }], startingState: 'draft',
       },
       cancelcredit: {
@@ -708,6 +709,7 @@
         title: 'Partial Payment → Balance',
         description: 'Customer pays a deposit, then settles the balance.',
         customerId: 'c2', fulfillment: 'Pickup', timing: 'Scheduled',
+        scheduledOffsetDays: 3,
         items: [{ productId: 'p3', qty: 1 }], startingState: 'draft',
       },
       overpay: {
@@ -745,7 +747,6 @@
       editingAddressId: null,
       editingUnitId: null,
       isEditing: false,
-      _timingManuallySet: false,
       // Top-level tab
       activeTab: 'orders',   // 'orders' | 'inventory' | 'dispatch'
       dispatchPool: [],
@@ -915,7 +916,7 @@ DISPATCH DASHBOARD DEMO SEED
     }
 
     /* ============ INIT ============ */
-    function initScenario(key) {
+     function initScenario(key) {
       const s = SCENARIOS[key];
       if (!s) return;
 
@@ -923,20 +924,32 @@ DISPATCH DASHBOARD DEMO SEED
       const customer = JSON.parse(JSON.stringify(getCustomer(s.customerId)));
       state.customer = customer;
 
+      // Compute the scheduled date from the offset (defaults to today)
+      const scheduledDate = (() => {
+        if (!s.scheduledOffsetDays) return todayISO();
+        const d = new Date();
+        d.setDate(d.getDate() + s.scheduledOffsetDays);
+        return d.toISOString().split('T')[0];
+      })();
+
+      // Derive timing:
+      //   Pickup  → today = Immediate, future = Scheduled
+      //   Delivery → always Scheduled
+      const derivedTiming = (s.fulfillment === 'Delivery')
+        ? 'Scheduled'
+        : (scheduledDate === todayISO() ? 'Immediate' : 'Scheduled');
+
       const order = {
         orderNumber: genNum('ORD'), invoiceNumber: null,
-        customerId: customer.id, fulfillment: s.fulfillment, timing: s.timing,
-        pickupLocation: s.pickupLocation || 'VI Store', scheduledDate: todayISO(),
+        customerId: customer.id, fulfillment: s.fulfillment, timing: derivedTiming,
+        pickupLocation: s.pickupLocation || 'VI Store', scheduledDate,
         deliveryMode: s.deliveryMode || 'Company Fleet',
         items: s.items.map(i => ({ ...i })),
         discount: 0, discountType: 'None', discountValue: 0, creditApplied: 0,
         invoiceDate: todayISO(), dueDate: todayISO(),
         payments: [], state: s.startingState, timeline: [],
-        // Pickup-specific fields
-        // Pickup-specific fields
         pickupExpiryDate: null,
         pickedUpBy: null,
-        // Delivery-specific fields
         dispatchInfo: null,
         actualDeliveryDate: null,
       };
@@ -967,7 +980,6 @@ DISPATCH DASHBOARD DEMO SEED
       state.currentScenario = key;
       state.currentPage = 'order-creation';
       state.activeModal = null;
-      state._timingManuallySet = false;
     }
 
     /* ============ STATUS BAR ============ */
@@ -1049,7 +1061,7 @@ DISPATCH DASHBOARD DEMO SEED
         </div>
       </div>
 
-      ${o.fulfillment === 'Pickup' ? `
+            ${o.fulfillment === 'Pickup' ? `
         <div class="row mt-8">
           <div class="col">
             <label>Pickup Location *</label>
@@ -1060,15 +1072,12 @@ DISPATCH DASHBOARD DEMO SEED
             </select>
           </div>
           <div class="col">
-            <label>Pickup Timing *</label>
-            <div class="toggle-group">
-              <button class="toggle-btn ${o.timing === 'Immediate' ? 'active' : ''}" data-timing="Immediate" ${locked ? 'disabled' : ''}>Immediate</button>
-              <button class="toggle-btn ${o.timing === 'Scheduled' ? 'active' : ''}" data-timing="Scheduled" ${locked ? 'disabled' : ''}>Scheduled</button>
-            </div>
+            <label>Scheduled Pickup Date *</label>
+            <input type="date" id="scheduledDateInput" value="${o.scheduledDate}" ${locked ? 'disabled' : ''}>
             <div style="font-size:11px; color:#666; margin-top:4px;">
               ${o.timing === 'Immediate'
-            ? '💡 Customer is taking the item now. Stock is hard-blocked.'
-            : '💡 Customer picks up later. Stock is soft-warned, reserved at Ready.'}
+                ? '💡 Pickup today — Stock is hard-blocked.'
+                : '💡 Future pickup — Stock is soft-warned, reserved at Ready.'}
             </div>
           </div>
         </div>
@@ -1082,8 +1091,15 @@ DISPATCH DASHBOARD DEMO SEED
             </select>
             <div style="font-size:11px; color:#666; margin-top:4px;">
               ${o.deliveryMode === 'Courier'
-          ? '💡 Courier & tracking number captured at dispatch.'
-          : '💡 Driver & vehicle assigned at dispatch.'}
+                ? '💡 Courier & tracking number captured at dispatch.'
+                : '💡 Driver & vehicle assigned at dispatch.'}
+            </div>
+          </div>
+          <div class="col">
+            <label>Scheduled Delivery Date *</label>
+            <input type="date" id="scheduledDateInput" value="${o.scheduledDate}" ${locked ? 'disabled' : ''}>
+            <div style="font-size:11px; color:#666; margin-top:4px;">
+              💡 Delivery is always scheduled — driver/courier assigned at dispatch.
             </div>
           </div>
         </div>
@@ -1173,15 +1189,8 @@ DISPATCH DASHBOARD DEMO SEED
     </div>
   </div>
 
-       <div class="card">
+             <div class="card">
       <div class="card-title">Fulfillment Details</div>
-
-      <div class="row">
-        <div class="col">
-          <label>Scheduled Date *</label>
-          <input type="date" id="scheduledDateInput" value="${o.scheduledDate}" ${locked ? 'disabled' : ''}>
-        </div>
-      </div>
 
            ${o.fulfillment === 'Pickup' ? `
       ` : `
@@ -1466,23 +1475,19 @@ DISPATCH DASHBOARD DEMO SEED
         render();
       });
       document.querySelectorAll('[data-fulfillment]').forEach(b => b.addEventListener('click', () => {
-        o.fulfillment = b.dataset.fulfillment; render();
-      }));
-      document.querySelectorAll('[data-timing]').forEach(b => b.addEventListener('click', () => {
-        o.timing = b.dataset.timing;
-        state._timingManuallySet = true;
-        // Mismatch check: Immediate + future date is contradictory
-        if (o.timing === 'Immediate' && o.scheduledDate && o.scheduledDate > todayISO()) {
-          if (!confirm(
-            `You set Pickup Timing = Immediate but the scheduled date is ${formatDate(o.scheduledDate)} (in the future).\n\n` +
-            `Immediate means the customer is collecting today.\n\n` +
-            `Keep Immediate anyway? (Click Cancel to switch to Scheduled.)`
-          )) {
-            o.timing = 'Scheduled';
-          }
+        o.fulfillment = b.dataset.fulfillment;
+
+        // Recompute timing on fulfillment change:
+        //   Delivery → Scheduled (always)
+        //   Pickup   → derive from scheduledDate
+        if (o.fulfillment === 'Delivery') {
+          o.timing = 'Scheduled';
+        } else {
+          o.timing = (o.scheduledDate === todayISO()) ? 'Immediate' : 'Scheduled';
         }
         render();
       }));
+      // Timing is derived from the Scheduled Date (see scheduledDateInput handler below).
       document.querySelectorAll('[data-qty]').forEach(inp => inp.addEventListener('change', e => {
         o.items[+e.target.dataset.qty].qty = Math.max(1, +e.target.value || 1); render();
       }));
@@ -1564,26 +1569,17 @@ DISPATCH DASHBOARD DEMO SEED
         logTimeline(`Pickup location set to ${e.target.value}`);
         render();   // ← re-render so stock badges update
       });
-      // Scheduled Date
-      // Scheduled Date
+      // Scheduled Date — drives the derived timing
       document.getElementById('scheduledDateInput')?.addEventListener('change', e => {
         state.order.scheduledDate = e.target.value;
 
-        // Auto-default Timing from the date, unless the operator has overridden it manually
-        if (!state._timingManuallySet) {
-          state.order.timing = (state.order.scheduledDate === todayISO()) ? 'Immediate' : 'Scheduled';
+        // Derive timing:
+        //   Pickup  → today = Immediate, future = Scheduled
+        //   Delivery → always Scheduled
+        if (state.order.fulfillment === 'Delivery') {
+          state.order.timing = 'Scheduled';
         } else {
-          // Operator has overridden — still warn on obvious mismatch
-          if (state.order.timing === 'Immediate' && state.order.scheduledDate > todayISO()) {
-            if (!confirm(
-              `Pickup Timing is set to Immediate but the scheduled date is now ${formatDate(state.order.scheduledDate)} (in the future).\n\n` +
-              `Switch to Scheduled?`
-            )) {
-              // operator chose to keep Immediate — leave it alone
-            } else {
-              state.order.timing = 'Scheduled';
-            }
-          }
+          state.order.timing = (state.order.scheduledDate === todayISO()) ? 'Immediate' : 'Scheduled';
         }
         render();
       });
