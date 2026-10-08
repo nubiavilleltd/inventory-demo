@@ -460,6 +460,10 @@
     // Applies to all orders until per-customer terms are introduced.
     const DEFAULT_PAYMENT_TERMS_DAYS = 7;
 
+    // Number of days a customer's credit balance remains valid from issuance.
+    // Auto-applied to any new order. Non-deferrable, non-removable.
+    const CREDIT_VALIDITY_DAYS = 60;
+
     /* ============ DATA ============ */
     const PRODUCTS = [
       { id: 'p1', name: 'MacBook Pro 2021', price: 200000, stock: 10 },
@@ -468,17 +472,17 @@
       { id: 'p4', name: 'Office Chair', price: 85000, stock: 15 },
     ];
 
-    const CUSTOMERS = [
+       const CUSTOMERS = [
       {
         id: 'c1', name: 'John Doe', phone: '08012345678', email: 'john@example.com',
-        type: 'Individual', credit: 0, wantsPromotions: false,
+        type: 'Individual', credit: 0, creditExpiryDate: null, wantsPromotions: false,
         addresses: [
           { id: 'addr-c1-1', label: 'Home', street: '7 Residential Close, Lekki, Lagos', isDefault: true },
         ],
       },
       {
         id: 'c2', name: 'Restaurant ABC', phone: '08087654321', email: 'abc@example.com',
-        type: 'Company', credit: 0, wantsPromotions: true,
+        type: 'Company', credit: 0, creditExpiryDate: null, wantsPromotions: true,
         addresses: [
           { id: 'addr-c2-1', label: 'Head Office', street: '123 Main St, Victoria Island, Lagos', isDefault: true },
           { id: 'addr-c2-2', label: 'Warehouse', street: '45 Industrial Ave, Ikeja, Lagos', isDefault: false },
@@ -486,14 +490,21 @@
       },
       {
         id: 'c3', name: 'Airtel Nig', phone: '08011112222', email: 'airtel@example.com',
-        type: 'Company', credit: 0, wantsPromotions: false,
+        type: 'Company', credit: 0, creditExpiryDate: null, wantsPromotions: false,
         addresses: [
           { id: 'addr-c3-1', label: 'Head Office', street: '1 Airtel Way, Ikoyi, Lagos', isDefault: true },
         ],
       },
       {
         id: 'c4', name: 'Chidinma Okafor', phone: '08033334444', email: 'chidinma@example.com',
-        type: 'Individual', credit: 200000, wantsPromotions: false,
+        type: 'Individual', credit: 200000,
+        // Demo: expires 60 days from "now" so the display has a real date
+        creditExpiryDate: (() => {
+          const d = new Date();
+          d.setDate(d.getDate() + 60);
+          return d.toISOString().split('T')[0];
+        })(),
+        wantsPromotions: false,
         addresses: [
           { id: 'addr-c4-1', label: 'Home', street: '12 Marina Road, Lagos Island, Lagos', isDefault: true },
         ],
@@ -727,7 +738,7 @@
       },
       withcredit: {
         title: 'Customer With Existing Credit',
-        description: 'Customer has ₦200,000 credit. Building a new order. Apply credit at checkout.',
+        description: 'Customer has ₦200,000 credit. It applies automatically to this order; the balance is what they pay.',
         customerId: 'c4', fulfillment: 'Pickup', timing: 'Immediate',
         items: [{ productId: 'p3', qty: 1 }], startingState: 'draft',
       },
@@ -859,6 +870,52 @@
       if (state.order) state.order.timeline.push({ time: new Date().toISOString(), event });
     }
 
+    // Auto-apply customer credit to an order.
+    //   - Applies min(credit, outstanding).
+    //   - No deferral, no removal — credit is always consumed.
+    //   - Remainder stays on the customer account.
+    //   - Logs to the timeline once per application.
+    //
+    
+    // Never re-applies if the order already has creditApplied set (idempotent
+    // until the customer changes; see customerSelect handler).
+    function autoApplyCredit(order, customer) {
+      if (!order || !customer) return;
+      if (order.creditApplied && order.creditApplied > 0) return; // already applied
+
+      const available = customer.credit || 0;
+      if (available <= 0) return;
+
+      const t = calcTotals(order);
+      const toApply = Math.min(available, t.outstanding);
+      if (toApply <= 0) return;
+
+      // Move the credit
+      customer.credit = available - toApply;
+      order.creditApplied = (order.creditApplied || 0) + toApply;
+
+      // Ensure the customer has an expiry date (set once on first credit issuance)
+      if (!customer.creditExpiryDate && customer.credit > 0) {
+        const d = new Date();
+        d.setDate(d.getDate() + CREDIT_VALIDITY_DAYS);
+        customer.creditExpiryDate = d.toISOString().split('T')[0];
+      }
+
+      // Mirror the reduced credit back to the master customer list
+      const master = getCustomer(customer.id);
+      if (master) {
+        master.credit = customer.credit;
+        master.creditExpiryDate = customer.creditExpiryDate;
+      }
+
+      const remaining = customer.credit;
+      logTimeline(
+        remaining > 0
+          ? `Credit applied: ${money(toApply)}. Remaining credit: ${money(remaining)}.`
+          : `Credit applied: ${money(toApply)}. Credit fully used.`
+      );
+    }
+
     function isOverdue(order) {
       if (!order.pickupExpiryDate) return false;
       return new Date(order.pickupExpiryDate) < new Date();
@@ -962,6 +1019,10 @@ DISPATCH DASHBOARD DEMO SEED
         dispatchInfo: null,
         actualDeliveryDate: null,
       };
+
+        // Auto-apply any existing customer credit to this order.
+      // No-op if the customer has no credit.
+      autoApplyCredit(order, customer);
 
       // Scenario-specific historical events (real things that happened before
       // the operator arrived). Demo markers are not logged — the scenario
@@ -1176,18 +1237,17 @@ DISPATCH DASHBOARD DEMO SEED
       ${o.discount && o.discount > 0 ? `<div class="summary-row"><span>Discount${o.discountType === 'Percentage' ? ` (${o.discountValue}%)` : ''}</span><span>-${money(o.discount)}</span></div>` : ''}
       ${o.creditApplied && o.creditApplied > 0
           ? `<div class="summary-row green">
-             <span>Credit Applied</span>
-             <span>
-               -${money(o.creditApplied)}
-               ${!locked ? `<button data-undo-credit="1" style="padding:0 6px; margin-left:8px; font-size:11px;">×</button>` : ''}
-             </span>
+             <span>Credit Applied (auto)</span>
+             <span>-${money(o.creditApplied)}</span>
            </div>`
           : ''}
       <div class="summary-row total"><span>Grand Total</span><span>${money(t.total)}</span></div>
       ${t.paid > 0 ? `<div class="summary-row green"><span>Paid</span><span>-${money(t.paid)}</span></div>` : ''}
       ${t.outstanding > 0 ? `<div class="summary-row red"><span>Amount Due</span><span>${money(t.outstanding)}</span></div>` : ''}
-      ${!o.creditApplied && cust.credit > 0 && t.outstanding > 0 && !locked && !paid
-          ? `<button class="btn-primary mt-8" id="applyCreditBtn" style="width:100%;">Apply Credit (${money(Math.min(cust.credit, t.outstanding))})</button>`
+      ${cust.credit > 0
+          ? `<div style="font-size:11px; color:#666; margin-top:6px;">
+               Remaining credit on this customer: ${money(cust.credit)}${cust.creditExpiryDate ? ' · Expires ' + formatDate(cust.creditExpiryDate) : ''}
+             </div>`
           : ''}
     </div>
   </div>
@@ -1298,6 +1358,9 @@ DISPATCH DASHBOARD DEMO SEED
       <div class="credit-card">
         <div class="credit-card-label">Credit Balance</div>
         <div class="credit-card-value">${money(cust.credit)}</div>
+        ${cust.creditExpiryDate
+          ? `<div style="font-size:11px; color:#166534; margin-top:4px;">Expires ${formatDate(cust.creditExpiryDate)}</div>`
+          : ''}
       </div>`: ''}
 
     <div class="card">
@@ -1476,9 +1539,25 @@ DISPATCH DASHBOARD DEMO SEED
     /* ============ HANDLERS: ORDER CREATION ============ */
     function attachOrderCreationHandlers() {
       const o = state.order;
-      document.getElementById('customerSelect')?.addEventListener('change', e => {
+        document.getElementById('customerSelect')?.addEventListener('change', e => {
         const c = getCustomer(e.target.value);
-        if (c) state.customer = { ...c };
+        if (!c) return;
+
+        // Restore any credit that was applied on behalf of the previous customer
+        const prev = state.customer;
+        if (prev && prev.id !== c.id && state.order.creditApplied > 0) {
+          const prevMaster = getCustomer(prev.id);
+          if (prevMaster) prevMaster.credit = (prevMaster.credit || 0) + state.order.creditApplied;
+          state.order.creditApplied = 0;
+        }
+
+        // Fresh customer object (deep copy from master)
+        state.customer = JSON.parse(JSON.stringify(c));
+        state.order.customerId = state.customer.id;
+
+        // Auto-apply credit for the new customer
+        autoApplyCredit(state.order, state.customer);
+
         render();
       });
       document.querySelectorAll('[data-fulfillment]').forEach(b => b.addEventListener('click', () => {
@@ -1599,8 +1678,7 @@ DISPATCH DASHBOARD DEMO SEED
         state.editingAddressId = selectedId;
         state.activeModal = 'edit-address'; render();
       });
-      document.getElementById('applyCreditBtn')?.addEventListener('click', applyCredit);
-      document.querySelector('[data-undo-credit]')?.addEventListener('click', removeCredit);
+      // (applyCreditBtn and undo-credit handlers removed — credit is auto-applied and non-removable.)
 
       // Discount handlers
       document.getElementById('discountTypeSelect')?.addEventListener('change', e => {
@@ -1707,9 +1785,10 @@ DISPATCH DASHBOARD DEMO SEED
           fulfillment: 'Pickup', timing: 'Immediate', pickupLocation: 'VI Store',
           scheduledDate: todayISO(), items: [{ productId: 'p3', qty: 1 }],
           discount: 0, invoiceDate: todayISO(), dueDate: todayISO(),
-          payments: [], state: 'draft',
+          payments: [], state: 'draft', creditApplied: 0,
           timeline: [{ time: new Date().toISOString(), event: 'Order created' }],
         };
+        autoApplyCredit(state.order, state.customer);
         state.currentPage = 'order-creation';
         render();
       });
@@ -2038,8 +2117,23 @@ DISPATCH DASHBOARD DEMO SEED
         const o = state.order, cust = state.customer;
         const t = calcTotals(o);
 
-        if (t.paid > 0) { cust.credit += t.paid; logTimeline(`Cancelled. Credit ${money(t.paid)}`); }
-        else logTimeline('Cancelled (no payment).');
+        if (t.paid > 0) {
+          cust.credit += t.paid;
+          if (!cust.creditExpiryDate) {
+            const d = new Date();
+            d.setDate(d.getDate() + CREDIT_VALIDITY_DAYS);
+            cust.creditExpiryDate = d.toISOString().split('T')[0];
+          }
+          // Mirror to master
+          const master = getCustomer(cust.id);
+          if (master) {
+            master.credit = cust.credit;
+            master.creditExpiryDate = cust.creditExpiryDate;
+          }
+          logTimeline(`Cancelled. Credit ${money(t.paid)} issued. Expires ${formatDate(cust.creditExpiryDate)}.`);
+        } else {
+          logTimeline('Cancelled (no payment).');
+        }
 
         // Release any soft-reserved stock (Delivery flow)
         if (o.softReservation) {
@@ -2356,36 +2450,10 @@ DISPATCH DASHBOARD DEMO SEED
       });
     }
 
-
-    function applyCredit() {
-      const o = state.order, cust = state.customer;
-      const t = calcTotals(o);
-      const toApply = Math.min(cust.credit, t.outstanding);
-      if (toApply <= 0) return;
-
-      // Reduce customer credit
-      cust.credit -= toApply;
-
-      // Track on order (as a modifier)
-      o.creditApplied = (o.creditApplied || 0) + toApply;
-
-      logTimeline(`Credit applied: ${money(toApply)}`);
-      render();
-    }
-
-    function removeCredit() {
-      const o = state.order, cust = state.customer;
-      if (!o.creditApplied || o.creditApplied <= 0) return;
-
-      // Return the credit to the customer
-      cust.credit += o.creditApplied;
-      logTimeline(`Credit removed: ${money(o.creditApplied)}`);
-
-      o.creditApplied = 0;
-      render();
-    }
+    // (applyCredit and removeCredit removed — credit is now auto-applied and non-removable.)
 
 
+   
     /* ============ EDIT ADDRESS MODAL ============ */
     function renderEditAddressModal() {
       const cust = state.customer;
