@@ -564,7 +564,7 @@
           // Demo: expires 60 days from "now" so the display has a real date
           creditExpiryDate: (() => {
             const d = new Date();
-            d.setDate(d.getDate() + 60);
+            d.setDate(d.getDate() + CREDIT_VALIDITY_DAYS);
             return d.toISOString().split("T")[0];
           })(),
           wantsPromotions: false,
@@ -1921,41 +1921,38 @@ DISPATCH DASHBOARD DEMO SEED
                 : ""
             }
 
-      ${
-        o.fulfillment === "Pickup" && o.state === "confirmed"
-          ? `
+          ${o.fulfillment === 'Pickup' && o.state === 'confirmed' ? `
         <button class="btn-primary" id="markReadyBtn">Mark as Ready for Pickup</button>
-        <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>`
-          : ""
-      }
+        <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>`: ''}
 
-      ${
-        o.fulfillment === "Pickup" && o.state === "ready"
-          ? `
+      ${o.fulfillment === 'Pickup' && o.state === 'ready' ? `
         <button class="btn-primary" id="markCollectedBtn">Mark as Collected</button>
-        ${isOverdue(o) ? `<button id="extendExpiryBtn">Extend Expiry</button>` : ""}
-        <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>`
-          : ""
-      }
+        ${isOverdue(o) ? `<button id="extendExpiryBtn">Extend Expiry</button>` : ''}
+        <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>`: ''}
 
-      ${
-        o.fulfillment === "Delivery" && o.state === "confirmed"
-          ? `
+      ${o.fulfillment === 'Delivery' && o.state === 'confirmed' ? `
         <button class="btn-primary" id="dispatchOrderBtn">Dispatch Order</button>
-        <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>`
-          : ""
-      }
+        <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>`: ''}
 
-      ${
-        o.fulfillment === "Delivery" && o.state === "out-for-delivery"
-          ? `
+      ${o.fulfillment === 'Delivery' && o.state === 'out-for-delivery' ? `
         <button class="btn-primary" id="confirmDeliveryBtn">Confirm Delivery</button>
-        <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>`
-          : ""
-      }
+        <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>`: ''}
 
-      ${o.state === "cancelled" ? `<button class="btn-primary" id="newOrderBtn">Create New Order</button>` : ""}
-      ${["collected", "completed", "delivered"].includes(o.state) ? `<button class="btn-primary" id="printReceiptBtn">Print Receipt</button>` : ""}
+      ${o.state === 'partial' ? `
+        <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>`: ''}
+
+      ${o.state === 'submitted' ? `
+        <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>`: ''}
+
+      ${o.state === 'cancelled' ? `<button class="btn-primary" id="newOrderBtn">Create New Order</button>` : ''}
+
+      ${['collected', 'completed', 'delivered'].includes(o.state) ? `
+        <button class="btn-primary" id="printReceiptBtn">Print Receipt</button>
+        <button disabled title="Completed orders cannot be cancelled." style="opacity:0.5; cursor:not-allowed;">Cancel Order</button>
+        <div style="font-size:11px; color:#888; margin-top:6px;">
+          Cancellation is not available at this stage. The order has been fulfilled.
+        </div>
+      ` : ''}
     </div>
 
     ${
@@ -2725,9 +2722,17 @@ DISPATCH DASHBOARD DEMO SEED
         logTimeline(`Payment: ${money(appliedAmount)} via ${method}`);
 
         if (creditCreated > 0) {
-          cust.credit += creditCreated;
-          logTimeline(`Overpayment ${money(creditCreated)} → Credit`);
+        cust.credit += creditCreated;
+        const d = new Date();
+        d.setDate(d.getDate() + CREDIT_VALIDITY_DAYS);
+        cust.creditExpiryDate = d.toISOString().split('T')[0];
+        const master = getCustomer(cust.id);
+        if (master) {
+          master.credit = cust.credit;
+          master.creditExpiryDate = cust.creditExpiryDate;
         }
+        logTimeline(`Overpayment ${money(creditCreated)} → Credit. Expires ${formatDate(cust.creditExpiryDate)}.`);
+      }
         if (!o.invoiceNumber) o.invoiceNumber = genNum("INV");
 
         // Soft-reserve stock if this payment pushes the order to paid
@@ -2779,28 +2784,74 @@ DISPATCH DASHBOARD DEMO SEED
       }
 
       /* ============ CANCEL MODAL ============ */
-      function renderCancelModal() {
-        const o = state.order,
-          t = calcTotals(o);
-        return `
+         function renderCancelModal() {
+      const o = state.order;
+      const cust = state.customer;
+      const t = calcTotals(o);
+
+      // Cash paid + credit consumed — the total that will be returned as credit.
+      const cashPaid = t.paid;
+      const creditConsumed = o.creditApplied || 0;
+      const totalReturned = cashPaid + creditConsumed;
+
+      // State-specific warning
+      let stateWarning = '';
+      if (o.state === 'ready') {
+        stateWarning = `
+          <div style="padding:8px; border:2px dashed #991b1b; border-radius:4px; font-size:12px; color:#991b1b; margin-top:12px;">
+            ⚠ This order has stock reserved for pickup at <strong>${o.pickupLocation}</strong>.
+            Cancelling will release that stock back to inventory.
+          </div>`;
+      } else if (o.state === 'out-for-delivery') {
+        const dispatchInfo = o.dispatchInfo || {};
+        const tripLabel = o.deliveryMode === 'Company Fleet'
+          ? `${dispatchInfo.driver || '—'} / ${dispatchInfo.vehicle || '—'}`
+          : `${dispatchInfo.courier || '—'} (${dispatchInfo.trackingNumber || '—'})`;
+        stateWarning = `
+          <div style="padding:8px; border:2px dashed #991b1b; border-radius:4px; font-size:12px; color:#991b1b; margin-top:12px;">
+            ⚠ This order is out for delivery (${tripLabel}).
+            Cancelling will release the reserved stock and free the driver/vehicle.
+            The customer should be told the delivery has been called off.
+          </div>`;
+      } else if (o.state === 'partial') {
+        stateWarning = `
+          <div style="padding:8px; border:2px dashed #92400e; border-radius:4px; font-size:12px; color:#92400e; margin-top:12px;">
+            This order has a partial payment. The amount paid will be returned as store credit.
+          </div>`;
+      }
+
+      // Credit return summary
+      let creditReturn = '';
+      if (totalReturned > 0) {
+        const parts = [];
+        if (cashPaid > 0) parts.push(`${money(cashPaid)} cash`);
+        if (creditConsumed > 0) parts.push(`${money(creditConsumed)} credit`);
+        creditReturn = `
+          <div class="credit-card mt-12">
+            <div class="credit-card-label">Credit to be created (${parts.join(' + ')})</div>
+            <div class="credit-card-value">${money(totalReturned)}</div>
+            <div style="font-size:11px; color:#166534; margin-top:4px;">
+              Fresh ${CREDIT_VALIDITY_DAYS}-day expiry applied.
+            </div>
+          </div>`;
+      }
+
+      return `
     <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
       <div class="modal">
         <div class="modal-header">Cancel Order <button class="close-x" onclick="closeModal()">×</button></div>
         <div class="modal-body">
           <p>Cancel <strong>${o.orderNumber}</strong>?</p>
-          ${
-            t.paid > 0
-              ? `<div class="credit-card mt-12">
-            <div class="credit-card-label">Credit to be created</div>
-            <div class="credit-card-value">${money(t.paid)}</div>
-          </div>`
-              : ""
-          }
+          ${stateWarning}
+          ${creditReturn}
           <label class="mt-12">Reason *</label>
           <select id="cancelReason">
             <option value="">Select reason</option>
-            <option>Customer Changed Mind</option><option>Duplicate Order</option>
-            <option>Payment Failed</option><option>Other</option>
+            <option>Customer Changed Mind</option>
+            <option>Duplicate Order</option>
+            <option>Payment Failed</option>
+            <option>Out of Stock</option>
+            <option>Other</option>
           </select>
         </div>
         <div class="modal-footer">
@@ -2810,68 +2861,64 @@ DISPATCH DASHBOARD DEMO SEED
       </div>
     </div>
   `;
-      }
+    }
 
-      function attachCancelHandlers() {
-        document
-          .getElementById("confirmCancelBtn")
-          ?.addEventListener("click", () => {
-            const reason = document.getElementById("cancelReason").value;
-            if (!reason) return alert("Select a reason.");
-            const o = state.order,
-              cust = state.customer;
-            const t = calcTotals(o);
 
-            // On cancel (Design A), everything the customer "paid" for this order
-            // is returned as store credit — both cash paid and store credit that
-            // was auto-applied. Otherwise the customer loses the credit that was
-            // consumed at order creation.
-            const cashPaid = t.paid;
-            const creditConsumed = o.creditApplied || 0;
-            const totalReturned = cashPaid + creditConsumed;
+        function attachCancelHandlers() {
+      document.getElementById('confirmCancelBtn')?.addEventListener('click', () => {
+        const reason = document.getElementById('cancelReason').value;
+        if (!reason) return alert('Select a reason.');
 
-            if (totalReturned > 0) {
-              cust.credit += totalReturned;
+        const o = state.order, cust = state.customer;
+        const t = calcTotals(o);
 
-              if (!cust.creditExpiryDate) {
-                const d = new Date();
-                d.setDate(d.getDate() + CREDIT_VALIDITY_DAYS);
-                cust.creditExpiryDate = d.toISOString().split("T")[0];
-              }
+        // -------- 1. Money: cash paid + credit consumed → fresh credit --------
+        const cashPaid = t.paid;
+        const creditConsumed = o.creditApplied || 0;
+        const totalReturned = cashPaid + creditConsumed;
 
-              // Mirror to master
-              const master = getCustomer(cust.id);
-              if (master) {
-                master.credit = cust.credit;
-                master.creditExpiryDate = cust.creditExpiryDate;
-              }
+        if (totalReturned > 0) {
+          cust.credit += totalReturned;
 
-              const parts = [];
-              if (cashPaid > 0) parts.push(`${money(cashPaid)} cash`);
-              if (creditConsumed > 0)
-                parts.push(`${money(creditConsumed)} credit`);
-              logTimeline(
-                `Cancelled. Credit ${money(totalReturned)} issued (${parts.join(" + ")}). Expires ${formatDate(cust.creditExpiryDate)}.`,
-              );
-            } else {
-              logTimeline("Cancelled (no payment).");
-            }
+          // Always reset expiry on new credit issuance (fresh 60-day window).
+          const d = new Date();
+          d.setDate(d.getDate() + CREDIT_VALIDITY_DAYS);
+          cust.creditExpiryDate = d.toISOString().split('T')[0];
 
-            // Release any soft-reserved stock (Delivery flow)
-            if (o.softReservation) {
-              releaseSoftReservation(o);
-            }
+          // Mirror to master
+          const master = getCustomer(cust.id);
+          if (master) {
+            master.credit = cust.credit;
+            master.creditExpiryDate = cust.creditExpiryDate;
+          }
 
-            // Release pickup-reserved stock (units flipped to Reserved)
-            if (o.state === "ready") {
-              releasePickupReservation(o);
-            }
+          const parts = [];
+          if (cashPaid > 0) parts.push(`${money(cashPaid)} cash`);
+          if (creditConsumed > 0) parts.push(`${money(creditConsumed)} credit`);
+          logTimeline(`Cancelled (${reason}). Credit ${money(totalReturned)} issued (${parts.join(' + ')}). Expires ${formatDate(cust.creditExpiryDate)}.`);
+        } else {
+          logTimeline(`Cancelled (${reason}). No payment to return.`);
+        }
 
-            o.state = "cancelled";
-            state.activeModal = null;
-            render();
-          });
-      }
+        // -------- 2. Stock: release reservations per state --------
+        if (o.softReservation) {
+          releaseSoftReservation(o);
+        }
+        if (o.state === 'ready') {
+          releasePickupReservation(o);
+        }
+        if (o.state === 'out-for-delivery') {
+          releaseDeliveryReservation(o);
+        }
+
+        // -------- 3. Move to Cancelled --------
+        o.state = 'cancelled';
+        state.activeModal = null;
+        render();
+      });
+    }
+      
+      
       /* ============ ADD PRODUCT MODAL ============ */
       function renderAddProductModal() {
         return `
@@ -5280,6 +5327,80 @@ DISPATCH WIZARD HELPERS
 
         logTimeline("Pickup reservation released.");
       }
+
+
+
+    // Release stock that was hard-reserved for a Delivery order being cancelled
+    // while Out for Delivery. Also frees any assigned driver/vehicle.
+    function releaseDeliveryReservation(order) {
+      order.items.forEach(item => {
+        const product = getInvProduct(item.productId);
+        if (!product) return;
+
+        if (product.trackingType === 'Individual') {
+          // Units reserved for this order → back to Available.
+          // Location is preserved — they never actually left the warehouse
+          // in the demo (the trip hasn't been completed).
+          UNITS.forEach(u => {
+            if (u.reservedForOrder === order.orderNumber && u.status === 'Reserved') {
+              u.status = 'Available';
+              u.reservedForOrder = null;
+              u.softReservedFor = null;
+            }
+          });
+          logMovement(item.productId, null, 'reservation_release', item.qty, order.orderNumber);
+        } else {
+          // Stock quantity: decrement reserved on every stock row that has some.
+          let remaining = item.qty;
+          STOCK
+            .filter(s => s.productId === item.productId && s.reserved > 0)
+            .forEach(row => {
+              if (remaining <= 0) return;
+              const toRelease = Math.min(row.reserved, remaining);
+              row.reserved -= toRelease;
+              remaining -= toRelease;
+            });
+          logMovement(item.productId, null, 'reservation_release', item.qty, order.orderNumber);
+        }
+      });
+
+      // Free the driver/vehicle that was assigned to this order.
+      if (order.dispatchInfo) {
+        const { driver, vehicle } = order.dispatchInfo;
+        if (driver) {
+          const d = DRIVERS.find(x => x.name === driver);
+          if (d && d.status === 'On Trip') {
+            // Only mark Available if no other in-transit order uses this driver.
+            const stillAssigned = state.inTransitOrders.some(o =>
+              o.orderNumber !== order.orderNumber &&
+              o.dispatchInfo &&
+              o.dispatchInfo.driver === driver
+            );
+            if (!stillAssigned) d.status = 'Available';
+          }
+        }
+        if (vehicle) {
+          const v = VEHICLES.find(x => x.plate === vehicle);
+          if (v && v.status === 'On Trip') {
+            const stillAssigned = state.inTransitOrders.some(o =>
+              o.orderNumber !== order.orderNumber &&
+              o.dispatchInfo &&
+              o.dispatchInfo.vehicle === vehicle
+            );
+            if (!stillAssigned) v.status = 'Available';
+          }
+        }
+      }
+
+      // Remove from in-transit if present
+      state.inTransitOrders = state.inTransitOrders.filter(x => x.orderNumber !== order.orderNumber);
+
+      logTimeline('Delivery reservation released. Driver/vehicle freed.');
+    }
+
+
+
+
 
       // Walk-in path: no reservation step happened.
       // Flip N Available units → Sold, and decrement onHand for stock quantities.
