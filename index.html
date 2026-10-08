@@ -947,7 +947,7 @@ DISPATCH DASHBOARD DEMO SEED
         ? 'Scheduled'
         : (scheduledDate === todayISO() ? 'Immediate' : 'Scheduled');
 
-      const order = {
+            const order = {
         orderNumber: genNum('ORD'), invoiceNumber: null,
         customerId: customer.id, fulfillment: s.fulfillment, timing: derivedTiming,
         pickupLocation: s.pickupLocation || 'VI Store', scheduledDate,
@@ -955,14 +955,17 @@ DISPATCH DASHBOARD DEMO SEED
         items: s.items.map(i => ({ ...i })),
         discount: 0, discountType: 'None', discountValue: 0, creditApplied: 0,
         invoiceDate: todayISO(), dueDate: todayISO(),
-        payments: [], state: s.startingState, timeline: [],
+        payments: [], state: s.startingState,
+        timeline: [{ time: new Date().toISOString(), event: 'Order created' }],
         pickupExpiryDate: null,
         pickedUpBy: null,
         dispatchInfo: null,
         actualDeliveryDate: null,
       };
 
-      // Scenario-specific starting conditions
+      // Scenario-specific historical events (real things that happened before
+      // the operator arrived). Demo markers are not logged — the scenario
+      // banner at the top of Order Creation already describes the setup.
       if (key === 'cancelcredit') {
         const { total } = calcTotals(order);
         order.invoiceNumber = genNum('INV');
@@ -973,15 +976,6 @@ DISPATCH DASHBOARD DEMO SEED
           receiptNumber: genNum('RCT'), status: 'recorded',
         });
         order.timeline.push({ time: new Date().toISOString(), event: 'Order submitted and paid' });
-      }
-
-      if (key === 'partialpay') {
-        // Scenario starts fresh; operator will record deposit then balance.
-        order.timeline.push({ time: new Date().toISOString(), event: 'Scenario loaded: Partial Payment' });
-      }
-
-      if (key === 'overpay') {
-        order.timeline.push({ time: new Date().toISOString(), event: 'Scenario loaded: Overpayment' });
       }
 
       state.order = order;
@@ -1715,7 +1709,8 @@ DISPATCH DASHBOARD DEMO SEED
           fulfillment: 'Pickup', timing: 'Immediate', pickupLocation: 'VI Store',
           scheduledDate: todayISO(), items: [{ productId: 'p3', qty: 1 }],
           discount: 0, invoiceDate: todayISO(), dueDate: todayISO(),
-          payments: [], state: 'draft', timeline: [],
+          payments: [], state: 'draft',
+          timeline: [{ time: new Date().toISOString(), event: 'Order created' }],
         };
         state.currentPage = 'order-creation';
         render();
