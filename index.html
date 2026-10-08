@@ -747,6 +747,7 @@
       editingAddressId: null,
       editingUnitId: null,
       isEditing: false,
+      successContext: null,
       // Top-level tab
       activeTab: 'orders',   // 'orders' | 'inventory' | 'dispatch'
       dispatchPool: [],
@@ -980,6 +981,7 @@ DISPATCH DASHBOARD DEMO SEED
       state.currentScenario = key;
       state.currentPage = 'order-creation';
       state.activeModal = null;
+      state.successContext = null;
     }
 
     /* ============ STATUS BAR ============ */
@@ -1431,40 +1433,61 @@ DISPATCH DASHBOARD DEMO SEED
     }
 
     /* ============ SUCCESS PAGE ============ */
-    function renderSuccess(c) {
+         function renderSuccess(c) {
       const o = state.order;
       const t = calcTotals(o);
+      const ctx = state.successContext || {
+        title: 'Order Recorded',
+        subtitle: `${o.orderNumber} · ${money(t.paid)} received`,
+        documentType: t.outstanding > 0 ? 'Invoice' : 'Receipt',
+      };
+      const doc = ctx.documentType; // 'Invoice' | 'Receipt'
+
       c.innerHTML = `
     <div class="card success-screen">
       <div class="success-icon">✅</div>
-      <div class="success-title">Order Recorded</div>
-      <div style="color:#555; margin-bottom:16px;">${o.orderNumber} · ${money(t.paid)} received</div>
-      <button class="btn-primary" id="completeAndPrintBtn">Complete & Print Receipt</button>
-      <button id="completeWhatsappBtn">Complete & Send WhatsApp</button>
-      <button id="completeNoReceiptBtn">Complete (No Receipt)</button>
+      <div class="success-title">${ctx.title}</div>
+      <div style="color:#555; margin-bottom:16px;">${ctx.subtitle}</div>
+
+      <div style="font-size:12px; color:#666; margin-bottom:8px;">
+        Send ${doc.toLowerCase()} to the customer:
+      </div>
+
+      <div style="display:flex; flex-wrap:wrap; gap:8px; justify-content:center;">
+        <button class="btn-primary" data-success-channel="print">Print ${doc}</button>
+        <button class="btn-primary" data-success-channel="email">Email ${doc}</button>
+        <button class="btn-primary" data-success-channel="print+email">Print + Email</button>
+        <button data-success-channel="none">No ${doc}</button>
+      </div>
     </div>
   `;
-      setTimeout(() => {
-        document.getElementById('completeAndPrintBtn')?.addEventListener('click', () => completeOrder('Print'));
-        document.getElementById('completeWhatsappBtn')?.addEventListener('click', () => completeOrder('WhatsApp'));
-        document.getElementById('completeNoReceiptBtn')?.addEventListener('click', () => completeOrder('None'));
-      }, 0);
+
+      document.querySelectorAll('[data-success-channel]').forEach(btn => {
+        btn.addEventListener('click', () => handleSuccessAction(btn.dataset.successChannel));
+      });
     }
 
-    function completeOrder(via) {
+           function handleSuccessAction(channel) {
       const o = state.order;
+      const ctx = state.successContext || {};
+      const doc = ctx.documentType || (calcTotals(o).outstanding > 0 ? 'Invoice' : 'Receipt');
 
-      // Walk-in Immediate Pickup: no reservation happened.
-      // Deduct from Available stock directly.
-      if (o.fulfillment === 'Pickup' && o.timing === 'Immediate' && !o.pickedUpBy) {
-        deductStockDirectlyForPickup(o);
-      }
+      // Log the document delivery
+      const channelLabel = {
+        'print': `Print ${doc}`,
+        'email': `Email ${doc}`,
+        'print+email': `Print + Email ${doc}`,
+        'none': `No ${doc}`,
+      }[channel] || channel;
+      logTimeline(`Document: ${channelLabel}`);
 
-      o.state = 'completed';
-      logTimeline(`Order completed. Receipt: ${via}`);
+      // Return to Order Details. Order state and stock were already finalised
+      // when the milestone action ran — this screen is purely about delivery.
+      state.successContext = null;
       state.currentPage = 'order-details';
       render();
     }
+
 
     /* ============ HANDLERS: ORDER CREATION ============ */
     function attachOrderCreationHandlers() {
@@ -1653,7 +1676,7 @@ DISPATCH DASHBOARD DEMO SEED
         if (needsModal) {
           state.activeModal = 'picked-up-by';
           render();
-        } else {
+      } else {
           o.pickedUpBy = { name: cust.name, relationship: 'Self', phone: cust.phone };
           o.state = 'collected';
           logTimeline('Marked as Collected (walk-in)');
@@ -1664,6 +1687,14 @@ DISPATCH DASHBOARD DEMO SEED
           // Auto-complete
           o.state = 'completed';
           logTimeline('Order auto-completed');
+
+          state.successContext = {
+            title: 'Order Collected',
+            subtitle: `${o.orderNumber} · Thank you`,
+            documentType: 'Receipt',
+            isWalkin: false,
+          };
+          state.currentPage = 'success';
           render();
         }
       });
@@ -1739,11 +1770,20 @@ DISPATCH DASHBOARD DEMO SEED
         o.state = 'confirmed';
         logTimeline('Order submitted (paid via credit)');
 
-        if (o.timing === 'Immediate' && o.fulfillment === 'Pickup') {
-          state.currentPage = 'success';
-        } else {
-          state.currentPage = 'order-details';
+        const isWalkin = (o.timing === 'Immediate' && o.fulfillment === 'Pickup');
+
+        // Walk-in Immediate: no reservation step happens. Deduct stock now.
+        if (isWalkin) {
+          deductStockDirectlyForPickup(o);
         }
+
+        state.successContext = {
+          title: isWalkin ? 'Order Completed' : 'Payment Recorded',
+          subtitle: `${o.orderNumber} · Covered by credit`,
+          documentType: 'Receipt',
+          isWalkin,
+        };
+        state.currentPage = 'success';
         render();
         return;
       }
@@ -1751,7 +1791,14 @@ DISPATCH DASHBOARD DEMO SEED
       if (!recordPayment) {
         o.state = 'submitted';
         logTimeline('Order submitted (unpaid)');
-        state.currentPage = 'order-details'; render();
+        state.successContext = {
+          title: 'Order Submitted',
+          subtitle: `${o.orderNumber} · Invoice generated`,
+          documentType: 'Invoice',
+          isWalkin: false,
+        };
+        state.currentPage = 'success';
+        render();
       } else {
         state.activeModal = 'payment'; render();
       }
@@ -1943,14 +1990,32 @@ DISPATCH DASHBOARD DEMO SEED
       o.state = newT.outstanding <= 0 ? 'confirmed' : 'partial';
       logTimeline(`State: ${stateLabel(o)}`);
 
-      state.activeModal = null;
+         state.activeModal = null;
 
-      // Walk-in shortcut
-      if (o.state === 'confirmed' && o.timing === 'Immediate' && o.fulfillment === 'Pickup') {
-        state.currentPage = 'success';
+      // Determine which milestone we just hit
+      const isWalkin = (o.state === 'confirmed' && o.timing === 'Immediate' && o.fulfillment === 'Pickup');
+
+      if (isWalkin) {
+        // Walk-in Immediate Pickup: no reservation step happened.
+        // Deduct stock now — the customer is walking out with the goods.
+        deductStockDirectlyForPickup(o);
+
+        state.successContext = {
+          title: 'Order Completed',
+          subtitle: `${o.orderNumber} · ${money(appliedAmount)} received`,
+          documentType: 'Receipt',
+          isWalkin: true,
+        };
       } else {
-        state.currentPage = 'order-details';
+        state.successContext = {
+          title: 'Payment Recorded',
+          subtitle: `${o.orderNumber} · ${money(appliedAmount)} received`,
+          documentType: 'Receipt',
+          isWalkin: false,
+        };
       }
+
+      state.currentPage = 'success';
       render();
     }
 
@@ -2448,7 +2513,7 @@ DISPATCH DASHBOARD DEMO SEED
 
         if (!name) return alert('Enter who is picking up.');
 
-        const o = state.order;
+               const o = state.order;
         o.pickedUpBy = { name, phone, relationship, idVerified };
         o.state = 'collected';
         logTimeline(`Collected by ${name} (${relationship})`);
@@ -2461,6 +2526,13 @@ DISPATCH DASHBOARD DEMO SEED
         logTimeline('Order completed');
 
         state.activeModal = null;
+        state.successContext = {
+          title: 'Order Collected',
+          subtitle: `${o.orderNumber} · Thank you`,
+          documentType: 'Receipt',
+          isWalkin: false,
+        };
+        state.currentPage = 'success';
         render();
       });
     }
