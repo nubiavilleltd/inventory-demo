@@ -2310,43 +2310,15 @@ DISPATCH DASHBOARD DEMO SEED
             render();
           });
 
-        // Mark as Collected
-        document
-          .getElementById("markCollectedBtn")
-          ?.addEventListener("click", () => {
-            const o = state.order,
-              cust = state.customer;
-
-            const needsModal =
-              o.timing === "Scheduled" || calcTotals(o).total >= 500000;
-            if (needsModal) {
-              state.activeModal = "picked-up-by";
-              render();
-            } else {
-              o.pickedUpBy = {
-                name: cust.name,
-                relationship: "Self",
-                phone: cust.phone,
-              };
-              o.state = "collected";
-              logTimeline("Marked as Collected (walk-in)");
-
-              // Deduct reserved stock
-              finalizePickupStock(o);
-
-              // Auto-complete
-              o.state = "completed";
-              logTimeline("Order auto-completed");
-
-              state.successContext = {
-                title: "Order Collected",
-                subtitle: `${o.orderNumber} · Thank you`,
-                documentType: "Receipt",
-                isWalkin: false,
-              };
-              state.currentPage = "success";
-              render();
-            }
+          // Mark as Collected — always opens the collection modal.
+          // The button only appears on Scheduled Pickup in "ready" state;
+          // Immediate Pickup runs through the collection modal via recordPayment.
+          document.getElementById('markCollectedBtn')?.addEventListener('click', () => {
+            state.collectionSelections = {};
+            state.collectionUnitSearch = '';
+            state.collectionChangingUnitsFor = null;
+            state.activeModal = 'picked-up-by';
+            render();
           });
 
         // Extend Expiry
