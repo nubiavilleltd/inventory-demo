@@ -4499,7 +4499,7 @@ INVENTORY LIST PAGE
                 <td>${s.sold}</td>
                 <td><span class="badge ${getStockStatusBadge(status)}">${status}</span></td>
                 <td style="white-space:nowrap;">
-                  <button onclick="state.activeModal='receive-stock'; state.inventoryProductId='${p.id}'; render();">Receive</button>
+                  <button onclick="state.activeModal='receive-stock'; state.inventoryProductId='${p.id}'; render();">Check In</button>
                   <button onclick="state.inventoryView='product'; state.inventoryProductId='${p.id}'; render();">View</button>
                 </td>
               </tr>
@@ -4651,7 +4651,7 @@ INVENTORY LIST PAGE
         <div style="text-align:right;">
           <span class="badge ${getStockStatusBadge(status)}">${status}</span>
           <div style="margin-top:8px;">
-            <button class="btn-primary" onclick="state.activeModal='receive-stock'; render();">+ Receive Stock</button>
+            <button class="btn-primary" onclick="state.activeModal='receive-stock'; render();">+ Check In Stock</button>
             <button onclick="state.activeModal='adjust-stock'; render();">Adjust Stock</button>
           </div>
         </div>
@@ -4725,7 +4725,7 @@ RECEIVE STOCK MODAL
         return `
     <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
       <div class="modal">
-        <div class="modal-header">Receive Stock <button class="close-x" onclick="closeModal()">×</button></div>
+        <div class="modal-header">Check In Stock <button class="close-x" onclick="closeModal()">×</button></div>
         <div class="modal-body">
 
          <label>Product *</label>
@@ -4751,7 +4751,7 @@ RECEIVE STOCK MODAL
                 : `
             <input type="hidden" id="receiveLocation" value="${LOCATIONS[0].id}">
             <div style="font-size:12px; color:#555; margin-top:12px;">
-              Receiving into <strong>${LOCATIONS[0].name}</strong>.
+              Checking in to <strong>${LOCATIONS[0].name}</strong>.
             </div>
           `
             }
@@ -4785,7 +4785,7 @@ RECEIVE STOCK MODAL
         </div>
         <div class="modal-footer">
           <button onclick="closeModal()">Cancel</button>
-          <button class="btn-primary" id="confirmReceiveBtn">Receive Stock</button>
+          <button class="btn-primary" id="confirmReceiveBtn">Check In Stock</button>
         </div>
       </div>
     </div>
