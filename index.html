@@ -1865,20 +1865,27 @@ DISPATCH DASHBOARD DEMO SEED
             : ""
         }
 
-      ${
-        o.fulfillment === "Pickup" && o.state === "collected" && o.pickedUpBy
-          ? `
+            ${o.fulfillment === 'Pickup' && ['collected', 'completed'].includes(o.state) && o.pickedUpBy ? `
       <div class="card">
         <div class="card-title">Pickup Confirmation</div>
         <div class="row">
-          <div class="col"><label>Picked Up By</label><strong>${o.pickedUpBy.name || "—"}</strong></div>
-          <div class="col"><label>Relationship</label><strong>${o.pickedUpBy.relationship || "—"}</strong></div>
-          <div class="col"><label>Phone</label><strong>${o.pickedUpBy.phone || "—"}</strong></div>
+          <div class="col"><label>Picked Up By</label><strong>${o.pickedUpBy.name || '—'}</strong></div>
+          <div class="col"><label>Phone</label><strong>${o.pickedUpBy.phone || '—'}</strong></div>
+          ${o.timing !== 'Immediate' ? `
+            <div class="col"><label>Order Reference</label>
+              ${o.pickedUpBy.orderRefVerified
+                ? `<span class="badge badge-paid">Verified</span>`
+                : `<span class="badge badge-unpaid">Not verified</span>`}
+            </div>
+            <div class="col"><label>Photo ID</label>
+              ${o.pickedUpBy.idPresented
+                ? `<span class="badge badge-paid">Presented</span>`
+                : `<span class="badge badge-draft">Not presented</span>`}
+            </div>
+          ` : ''}
         </div>
       </div>
-    `
-          : ""
-      }
+    ` : ''}
 
     ${
       o.fulfillment === "Delivery" &&
@@ -3477,10 +3484,39 @@ DISPATCH DASHBOARD DEMO SEED
         });
       }
 
-      // If we're in Change Units drill-in mode, render that instead
+            // If we're in Change Units drill-in mode, render that instead
       if (state.collectionChangingUnitsFor) {
         return renderCollectionChangeUnitsView();
       }
+
+      // Compute whether the collection can be confirmed
+      let allSatisfied = true;
+      const shortfalls = [];
+
+      o.items.forEach(item => {
+        const product = getInvProduct(item.productId);
+        if (!product) return;
+
+        if (product.trackingType === 'Individual') {
+          const selected = state.collectionSelections[item.productId] || [];
+          if (selected.length !== item.qty) {
+            allSatisfied = false;
+            const atLoc = UNITS.filter(u =>
+              u.productId === item.productId &&
+              u.locationId === pickupLoc &&
+              (u.status === 'Available' || (u.status === 'Reserved' && u.reservedForOrder === o.orderNumber))
+            ).length;
+            shortfalls.push(`${product.name}: ${selected.length} of ${item.qty} selected (${atLoc} available at ${o.pickupLocation})`);
+          }
+        } else {
+          const s = getStockSummary(item.productId, pickupLoc);
+          const availableHere = s.available + (s.reserved || 0);
+          if (availableHere < item.qty) {
+            allSatisfied = false;
+            shortfalls.push(`${product.name}: needs ${item.qty}, only ${availableHere} on hand at ${o.pickupLocation}`);
+          }
+        }
+      });
 
       return `
     <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
@@ -3549,15 +3585,46 @@ DISPATCH DASHBOARD DEMO SEED
           <label class="mt-12">Phone Number</label>
           <input type="text" id="pickupPhone" value="${cust.phone}">
 
-          <label class="mt-12" style="display:flex; align-items:center; gap:8px;">
-            <input type="checkbox" id="pickupIdVerified" style="width:auto;">
-            ID Verified
-          </label>
+                      ${!isImmediate ? `
+            <label class="mt-12" style="display:flex; align-items:flex-start; gap:8px; font-size:12px; line-height:1.3;">
+              <input type="checkbox" id="pickupOrderRefVerified" style="width:auto; margin-top:2px;">
+              <span>Order reference verified *<br><span style="color:#666;">Customer presented the order reference before collection.</span></span>
+            </label>
+
+            <label class="mt-12" style="display:flex; align-items:flex-start; gap:8px; font-size:12px; line-height:1.3;">
+              <input type="checkbox" id="pickupIdPresented" style="width:auto; margin-top:2px;">
+              <span>Photo ID presented<br><span style="color:#666;">Optional. Recommended for high-value orders.</span></span>
+            </label>
+
+            ${calcTotals(o).total >= 500000 ? `
+              <div style="font-size:11px; color:#92400e; margin-top:8px; padding:6px 8px; border:1px dashed #92400e; border-radius:4px;">
+                💡 High-value order — ID check strongly recommended.
+              </div>
+            ` : ''}
+          ` : ''}
 
         </div>
+
+        ${!allSatisfied ? `
+          <div style="margin: 0 12px 12px; padding:10px; border:2px dashed #991b1b; border-radius:4px; background:#fee2e2;">
+            <div style="font-weight:bold; font-size:12px; color:#991b1b; margin-bottom:6px;">
+              ⚠ Collection cannot be completed
+            </div>
+            <div style="font-size:11px; color:#991b1b; line-height:1.4;">
+              ${shortfalls.map(s => `• ${s}`).join('<br>')}
+            </div>
+            <div style="font-size:11px; color:#666; margin-top:8px;">
+              Reduce the order quantity (via Edit Order), restock, or cancel the order.
+            </div>
+          </div>
+        ` : ''}
+
         <div class="modal-footer">
           <button onclick="closeModal()">Cancel</button>
-          <button class="btn-primary" id="confirmPickupBtn">Confirm Pickup</button>
+          <button class="btn-primary" id="confirmPickupBtn"
+            ${(!allSatisfied) ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ''}>
+            Confirm Pickup
+          </button>
         </div>
       </div>
     </div>
@@ -3568,12 +3635,16 @@ DISPATCH DASHBOARD DEMO SEED
 
 
           function attachPickedUpByHandlers() {
-      document.getElementById('confirmPickupBtn')?.addEventListener('click', () => {
+                document.getElementById('confirmPickupBtn')?.addEventListener('click', () => {
+        const o0 = state.order;
+        const isImmediate = (o0.timing === 'Immediate');
         const name = document.getElementById('pickupName').value.trim();
         const phone = document.getElementById('pickupPhone').value.trim();
-        const idVerified = document.getElementById('pickupIdVerified').checked;
+        const orderRefVerified = isImmediate ? true : document.getElementById('pickupOrderRefVerified')?.checked === true;
+        const idPresented = isImmediate ? false : document.getElementById('pickupIdPresented')?.checked === true;
 
         if (!name) return alert('Enter who is picking up.');
+        if (!isImmediate && !orderRefVerified) return alert('Confirm that the order reference has been verified.');
 
         const o = state.order;
 
@@ -3634,9 +3705,17 @@ DISPATCH DASHBOARD DEMO SEED
         });
 
         // -------- 2. Record the picked-up-by info --------
-        o.pickedUpBy = { name, phone, idVerified };
+                // -------- 2. Record the picked-up-by info --------
+        o.pickedUpBy = { name, phone, orderRefVerified, idPresented };
         o.state = 'collected';
-        logTimeline(`Collected by ${name}`);
+
+        // Log with verification detail
+        const logParts = [`Collected by ${name}`];
+        if (!isImmediate) {
+          logParts.push(orderRefVerified ? 'Order reference verified' : 'Order reference NOT verified');
+          if (idPresented) logParts.push('Photo ID presented');
+        }
+        logTimeline(logParts.join(' · '));
 
         // -------- 3. Complete the order --------
         o.state = 'completed';
