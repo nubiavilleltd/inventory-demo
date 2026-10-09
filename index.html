@@ -405,14 +405,88 @@
         margin-top: 12px;
       }
 
-      .file-upload {
-        border: 2px dashed #1a1a1a;
-        border-radius: 4px;
-        padding: 12px;
-        text-align: center;
-        background: #fdfdfd;
-        cursor: pointer;
-      }
+          .file-upload {
+      border: 2px dashed #1a1a1a;
+      border-radius: 4px;
+      padding: 12px;
+      text-align: center;
+      background: #fdfdfd;
+      cursor: pointer;
+    }
+
+    /* Combobox */
+    .combobox {
+      position: relative;
+    }
+
+    .combobox-input {
+      display: flex;
+      align-items: center;
+      border: 2px solid #1a1a1a;
+      border-radius: 4px;
+      background: #fff;
+      padding: 0;
+      height: 34px;
+      cursor: text;
+    }
+
+    .combobox-input input {
+      flex: 1;
+      border: none;
+      outline: none;
+      padding: 6px 8px;
+      font-family: inherit;
+      font-size: 13px;
+      background: transparent;
+      height: 100%;
+    }
+
+    .combobox-caret {
+      padding: 0 10px;
+      font-size: 10px;
+      color: #666;
+      user-select: none;
+      cursor: pointer;
+    }
+
+    .combobox-panel {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      background: #fff;
+      border: 2px solid #1a1a1a;
+      border-radius: 4px;
+      margin-top: 2px;
+      max-height: 220px;
+      overflow-y: auto;
+      z-index: 50;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+    }
+
+    .combobox-item {
+      padding: 6px 10px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .combobox-item:hover,
+    .combobox-item.active {
+      background: #dbeafe;
+    }
+
+    .combobox-item.create-new {
+      border-top: 1px dashed #ccc;
+      color: #166534;
+      font-style: italic;
+    }
+
+    .combobox-empty {
+      padding: 8px 10px;
+      font-size: 12px;
+      color: #888;
+      font-style: italic;
+    }
     </style>
   </head>
 
@@ -484,6 +558,27 @@
       // Number of days a customer's credit balance remains valid from issuance.
       // Auto-applied to any new order. Non-deferrable, non-removable.
       const CREDIT_VALIDITY_DAYS = 60;
+
+
+       // Default catalogue options for product setup.
+    // Operators can add a new value via "Other" in the modal.
+    // In production these become admin-managed reference tables.
+    const PRODUCT_CATEGORIES = [
+      'Electronics',
+      'Food',
+      'Furniture',
+      'Clothing',
+      'Stationery',
+    ];
+    const PRODUCT_UNITS = [
+      'Unit',
+      'Piece',
+      'Carton',
+      'Pack',
+      'Box',
+      'Kg',
+      'Litre',
+    ];
 
       /* ============ DATA ============ */
       const PRODUCTS = [
@@ -1063,6 +1158,9 @@
         collectionSelections: {},
         collectionUnitSearch: '',
         collectionChangingUnitsFor: null,
+        // Combobox working state (which panel is open, active item index)
+        openCombobox: null,      // element id of the currently-open combobox
+        comboboxActive: -1,
         // Top-level tab
         activeTab: "orders", // 'orders' | 'inventory' | 'dispatch'
         dispatchPool: [],
@@ -2600,14 +2698,15 @@ DISPATCH DASHBOARD DEMO SEED
         }
       }
 
-    function closeModal() {
+        function closeModal() {
       state.activeModal = null;
       state.collectionSelections = {};
       state.collectionUnitSearch = '';
       state.collectionChangingUnitsFor = null;
+      state.openCombobox = null;
+      state.comboboxActive = -1;
       render();
     }
-
       /* ============ PAYMENT MODAL ============ */
       function renderPaymentModal() {
         const o = state.order,
@@ -4906,6 +5005,194 @@ RECEIVE STOCK MODAL
           });
       }
 
+      
+
+            /* ============================================================
+       COMBOBOX
+       A text input with a dropdown list. Typing filters the list.
+       Free text is accepted as a custom value (used by Category
+       and Unit of Measure in product setup).
+       ============================================================ */
+
+    // Render a combobox.
+    //   id          — the input's DOM id (also used as the state key)
+    //   options     — array of strings (suggestions)
+    //   value       — current value (string)
+    //   placeholder — placeholder text for the input
+    function renderCombobox(id, options, value, placeholder) {
+      const isOpen = state.openCombobox === id;
+      const typed = value || '';
+      const query = typed.toLowerCase();
+      // Filter: show options that contain the typed text (or all if nothing typed)
+      const filtered = options.filter(o =>
+        !query || o.toLowerCase().includes(query)
+      );
+      // Has the operator typed something that doesn't exactly match an option?
+      const exactMatch = options.some(o => o.toLowerCase() === query);
+      const showCreate = typed.length > 0 && !exactMatch;
+
+      return `
+        <div class="combobox" data-combobox="${id}">
+          <div class="combobox-input" onclick="openCombobox('${id}')">
+            <input type="text"
+              id="${id}"
+              value="${value || ''}"
+              placeholder="${placeholder}"
+              autocomplete="off"
+              onfocus="openCombobox('${id}')"
+              oninput="onComboboxInput('${id}')"
+              onkeydown="onComboboxKeydown(event, '${id}')"
+              onblur="onComboboxBlur(event, '${id}')">
+            <div class="combobox-caret" onclick="toggleCombobox('${id}', event)">▼</div>
+          </div>
+          ${isOpen ? `
+            <div class="combobox-panel">
+              ${filtered.length === 0 && !showCreate
+                ? `<div class="combobox-empty">No matches. Type a value to use it.</div>`
+                : ''}
+              ${filtered.map((o, idx) => `
+                <div class="combobox-item ${state.comboboxActive === idx ? 'active' : ''}"
+                  onmousedown="selectComboboxValue('${id}', ${JSON.stringify(o).replace(/"/g, '&quot;')})">
+                  ${o}
+                </div>
+              `).join('')}
+              ${showCreate ? `
+                <div class="combobox-item create-new"
+                  onmousedown="selectComboboxValue('${id}', ${JSON.stringify(typed).replace(/"/g, '&quot;')})">
+                  Use "${typed}"
+                </div>
+              ` : ''}
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }
+
+    function openCombobox(id) {
+      state.openCombobox = id;
+      state.comboboxActive = -1;
+      render();
+    }
+
+    function toggleCombobox(id, event) {
+      event.stopPropagation();
+      if (state.openCombobox === id) {
+        state.openCombobox = null;
+      } else {
+        state.openCombobox = id;
+      }
+      state.comboboxActive = -1;
+      render();
+    }
+
+    function onComboboxInput(id) {
+      // Input value already lives in the DOM. We just need to re-render so the
+      // filtered panel updates, but we must preserve focus and value.
+      const input = document.getElementById(id);
+      const value = input?.value || '';
+      const selStart = input?.selectionStart;
+      const selEnd = input?.selectionEnd;
+
+      state.openCombobox = id;
+      state.comboboxActive = -1;
+      render();
+
+      // Restore focus and caret position
+      setTimeout(() => {
+        const newInput = document.getElementById(id);
+        if (newInput) {
+          newInput.focus();
+          try { newInput.setSelectionRange(selStart, selEnd); } catch (e) {}
+        }
+      }, 0);
+    }
+
+    function onComboboxKeydown(event, id) {
+      const options = optionsForCombobox(id);
+      const typed = event.target.value || '';
+      const query = typed.toLowerCase();
+      const filtered = options.filter(o => !query || o.toLowerCase().includes(query));
+      const exactMatch = options.some(o => o.toLowerCase() === query);
+      const showCreate = typed.length > 0 && !exactMatch;
+
+      const totalItems = filtered.length + (showCreate ? 1 : 0);
+
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        state.openCombobox = id;
+        state.comboboxActive = Math.min(state.comboboxActive + 1, totalItems - 1);
+        render();
+        refocusCombobox(id);
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        state.comboboxActive = Math.max(state.comboboxActive - 1, 0);
+        render();
+        refocusCombobox(id);
+      } else if (event.key === 'Enter') {
+        if (state.comboboxActive >= 0 && state.comboboxActive < totalItems) {
+          event.preventDefault();
+          const value = (state.comboboxActive < filtered.length)
+            ? filtered[state.comboboxActive]
+            : typed;
+          selectComboboxValue(id, value);
+        }
+      } else if (event.key === 'Escape') {
+        state.openCombobox = null;
+        state.comboboxActive = -1;
+        render();
+        refocusCombobox(id);
+      }
+    }
+
+    function onComboboxBlur(event, id) {
+      // Small delay so an mousedown on a panel item can fire first.
+      setTimeout(() => {
+        // If focus has moved somewhere else and the panel is still open, close it.
+        if (state.openCombobox === id) {
+          state.openCombobox = null;
+          state.comboboxActive = -1;
+          render();
+        }
+      }, 150);
+    }
+
+    function refocusCombobox(id) {
+      setTimeout(() => {
+        const input = document.getElementById(id);
+        if (input) {
+          input.focus();
+          // Put caret at end
+          const len = input.value.length;
+          try { input.setSelectionRange(len, len); } catch (e) {}
+        }
+      }, 0);
+    }
+
+    // Map combobox ids to their option lists.
+    function optionsForCombobox(id) {
+      if (id === 'npCategory') return PRODUCT_CATEGORIES;
+      if (id === 'npUnit') return PRODUCT_UNITS;
+      return [];
+    }
+
+       function selectComboboxValue(id, value) {
+      const input = document.getElementById(id);
+      if (input) input.value = value;
+
+      // Remove the panel directly instead of a full re-render.
+      // A full re-render destroys the DOM node mid-click, which causes the
+      // browser to drop the click and the selection never appears to take.
+      const wrap = input?.closest('.combobox');
+      const panel = wrap?.querySelector('.combobox-panel');
+      if (panel) panel.remove();
+
+      state.openCombobox = null;
+      state.comboboxActive = -1;
+      // No render() — DOM and state are consistent as-is.
+      // The input's value will be read fresh next time we need it
+      // (e.g. on save or on the next combobox interaction).
+    }
+
       /* ============================================================
        NEW PRODUCT MODAL
        ============================================================ */
@@ -4923,14 +5210,20 @@ RECEIVE STOCK MODAL
           <label class="mt-12">SKU *</label>
           <input type="text" id="npSku" placeholder="e.g. MBP-2021">
 
-          <div class="row mt-12">
+                      <div class="row mt-12">
             <div class="col">
               <label>Category *</label>
-              <input type="text" id="npCategory" placeholder="Electronics">
+              <select id="npCategory">
+                <option value="">Select category</option>
+                ${PRODUCT_CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join('')}
+              </select>
             </div>
             <div class="col">
               <label>Unit of Measure *</label>
-              <input type="text" id="npUnit" placeholder="Unit, Carton, Kg...">
+              <select id="npUnit">
+                <option value="">Select unit</option>
+                ${PRODUCT_UNITS.map(u => `<option value="${u}">${u}</option>`).join('')}
+              </select>
             </div>
           </div>
 
@@ -4969,51 +5262,37 @@ RECEIVE STOCK MODAL
   `;
       }
 
-      function attachNewProductHandlers() {
-        document
-          .getElementById("confirmNewProductBtn")
-          ?.addEventListener("click", () => {
-            const name = document.getElementById("npName").value.trim();
-            const sku = document.getElementById("npSku").value.trim();
-            const category = document.getElementById("npCategory").value.trim();
-            const unitOfMeasure = document
-              .getElementById("npUnit")
-              .value.trim();
-            const trackingType = document.getElementById("npTracking").value;
-            const tagPrefix = document
-              .getElementById("npTagPrefix")
-              .value.trim();
-            const price = +document.getElementById("npPrice").value || 0;
-            const minimumStock =
-              +document.getElementById("npMinStock").value || 0;
-            const description = document.getElementById("npDesc").value.trim();
+      
+           function attachNewProductHandlers() {
+      document.getElementById('confirmNewProductBtn')?.addEventListener('click', () => {
+        const name = document.getElementById('npName').value.trim();
+        const sku = document.getElementById('npSku').value.trim();
+        const category = document.getElementById('npCategory').value;
+        const unitOfMeasure = document.getElementById('npUnit').value;
+        const trackingType = document.getElementById('npTracking').value;
+        const tagPrefix = document.getElementById('npTagPrefix').value.trim();
+        const price = +document.getElementById('npPrice').value || 0;
+        const minimumStock = +document.getElementById('npMinStock').value || 0;
+        const description = document.getElementById('npDesc').value.trim();
 
-            if (!name) return alert("Enter product name.");
-            if (!sku) return alert("Enter SKU.");
-            if (!category) return alert("Enter category.");
-            if (!unitOfMeasure) return alert("Enter unit of measure.");
-            if (trackingType === "Individual" && !tagPrefix)
-              return alert("Enter a tag prefix for Individual Items.");
+        if (!name) return alert('Enter product name.');
+        if (!sku) return alert('Enter SKU.');
+        if (!category) return alert('Select a category.');
+        if (!unitOfMeasure) return alert('Select a unit of measure.');
+        if (trackingType === 'Individual' && !tagPrefix) return alert('Enter a tag prefix for Individual Items.');
 
-            const newId = "p" + (PRODUCTS_INV.length + 1);
-            PRODUCTS_INV.push({
-              id: newId,
-              name,
-              sku,
-              category,
-              unitOfMeasure,
-              trackingType,
-              tagPrefix: trackingType === "Individual" ? tagPrefix : null,
-              price,
-              minimumStock,
-              description,
-            });
+        const newId = 'p' + (PRODUCTS_INV.length + 1);
+        PRODUCTS_INV.push({
+          id: newId, name, sku, category, unitOfMeasure,
+          trackingType, tagPrefix: trackingType === 'Individual' ? tagPrefix : null,
+          price, minimumStock, description,
+        });
 
-            state.activeModal = null;
-            render();
-          });
-      }
-
+        state.activeModal = null;
+        render();
+      });
+    }
+    
       /* ============================================================
 ADJUST STOCK MODAL
 ============================================================ */
