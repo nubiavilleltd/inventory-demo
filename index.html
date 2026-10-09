@@ -1059,6 +1059,10 @@
         editingUnitId: null,
         isEditing: false,
         successContext: null,
+         // Collection modal working state: { [productId]: [unitIds] }
+        collectionSelections: {},
+        collectionUnitSearch: '',
+        collectionChangingUnitsFor: null,
         // Top-level tab
         activeTab: "orders", // 'orders' | 'inventory' | 'dispatch'
         dispatchPool: [],
@@ -2617,10 +2621,13 @@ DISPATCH DASHBOARD DEMO SEED
         }
       }
 
-      function closeModal() {
-        state.activeModal = null;
-        render();
-      }
+    function closeModal() {
+      state.activeModal = null;
+      state.collectionSelections = {};
+      state.collectionUnitSearch = '';
+      state.collectionChangingUnitsFor = null;
+      render();
+    }
 
       /* ============ PAYMENT MODAL ============ */
       function renderPaymentModal() {
@@ -2760,27 +2767,25 @@ DISPATCH DASHBOARD DEMO SEED
           o.fulfillment === "Pickup";
 
         if (isWalkin) {
-          // Walk-in Immediate Pickup: no reservation step happened.
-          // Deduct stock now — the customer is walking out with the goods.
-          deductStockDirectlyForPickup(o);
-
-          state.successContext = {
-            title: "Order Completed",
-            subtitle: `${o.orderNumber} · ${money(appliedAmount)} received`,
-            documentType: "Receipt",
-            isWalkin: true,
-          };
+          // Walk-in Immediate Pickup: the customer is at the counter.
+          // Instead of auto-completing, open the collection modal so the
+          // operator confirms which units are being handed over.
+          state.collectionSelections = {};
+          state.collectionUnitSearch = '';
+          state.collectionChangingUnitsFor = null;
+          state.activeModal = 'picked-up-by';
+          render();
+          return;
         } else {
           state.successContext = {
-            title: "Payment Recorded",
+            title: 'Payment Recorded',
             subtitle: `${o.orderNumber} · ${money(appliedAmount)} received`,
-            documentType: "Receipt",
+            documentType: 'Receipt',
             isWalkin: false,
           };
+          state.currentPage = 'success';
+          render();
         }
-
-        state.currentPage = "success";
-        render();
       }
 
       /* ============ CANCEL MODAL ============ */
@@ -3316,33 +3321,239 @@ DISPATCH DASHBOARD DEMO SEED
           });
       }
 
+
+
+
+
+          function renderCollectionChangeUnitsView() {
+      const o = state.order;
+      const productId = state.collectionChangingUnitsFor;
+      const product = getInvProduct(productId);
+      const item = o.items.find(i => i.productId === productId);
+      if (!product || !item) return '';
+
+      const pickupLoc = LOCATIONS.find(l => l.name === o.pickupLocation)?.id;
+      const selected = state.collectionSelections[productId] || [];
+
+      // Candidates: units at the pickup location that are either Reserved for
+      // this order, Available, or already selected.
+      const unitsAtLocation = UNITS.filter(u => {
+        if (u.productId !== productId) return false;
+        if (u.locationId !== pickupLoc) return false;
+        if (u.status === 'Reserved' && u.reservedForOrder === o.orderNumber) return true;
+        if (u.status === 'Available') return true;
+        return false;
+      }).sort((a, b) => {
+        if (a.receivedDate !== b.receivedDate) return a.receivedDate < b.receivedDate ? -1 : 1;
+        return a.tag < b.tag ? -1 : 1;
+      });
+
+      const search = (state.collectionUnitSearch || '').toLowerCase();
+      const filtered = unitsAtLocation.filter(u => !search || u.tag.toLowerCase().includes(search));
+
+      return `
+    <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+      <div class="modal">
+        <div class="modal-header">Change Units <button class="close-x" onclick="closeModal()">×</button></div>
+        <div class="modal-body">
+          <p style="font-size:13px;">
+            <strong>${product.name}</strong> · Select exactly ${item.qty} units from ${o.pickupLocation}
+          </p>
+          <p style="font-size:12px; color:#666; margin-top:4px;">
+            ${unitsAtLocation.length} unit${unitsAtLocation.length === 1 ? '' : 's'} available.
+          </p>
+
+          <input type="text" id="collectionUnitSearch"
+            placeholder="🔍 Search by tag..."
+            value="${state.collectionUnitSearch || ''}"
+            style="margin-top:8px;"
+            oninput="state.collectionUnitSearch=this.value; render();">
+
+          <div style="max-height:320px; overflow-y:auto; border:2px solid #1a1a1a; border-radius:4px; padding:8px; margin-top:8px;">
+            ${filtered.length === 0
+              ? `<div class="empty-state">${unitsAtLocation.length === 0 ? 'No units available.' : 'No units match your search.'}</div>`
+              : filtered.map(u => {
+                  const checked = selected.includes(u.id);
+                  return `
+                    <label style="display:flex; gap:8px; align-items:center; padding:6px 4px; border-bottom:1px dashed #ddd; font-size:12px; cursor:pointer;">
+                      <input type="checkbox" ${checked ? 'checked' : ''} style="width:auto;"
+                        onchange="toggleCollectionUnit('${productId}', '${u.id}', ${item.qty})">
+                      <span style="flex:1;">${u.tag}</span>
+                      <span style="font-size:11px; color:#888;">${u.condition || 'New'}</span>
+                      <span style="font-size:11px; color:#888;">${formatDate(u.receivedDate)}</span>
+                    </label>
+                  `;
+                }).join('')
+            }
+          </div>
+
+          <div style="margin-top:8px; font-size:12px;">
+            ${selected.length === item.qty
+              ? `<span class="green">✓ ${selected.length} of ${item.qty} selected</span>`
+              : `<span class="red">Select exactly ${item.qty}. Currently: ${selected.length}</span>`}
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button onclick="closeCollectionChangeUnits()">← Back</button>
+          <button class="btn-primary" onclick="confirmCollectionChangeUnits()" ${selected.length !== item.qty ? 'disabled' : ''}>Done</button>
+        </div>
+      </div>
+    </div>
+  `;
+    }
+
+
+
+        function openCollectionChangeUnits(productId) {
+      state.collectionChangingUnitsFor = productId;
+      state.collectionUnitSearch = '';
+      render();
+    }
+
+    function closeCollectionChangeUnits() {
+      state.collectionChangingUnitsFor = null;
+      render();
+    }
+
+    function toggleCollectionUnit(productId, unitId, maxQty) {
+      let selected = state.collectionSelections[productId] || [];
+      if (selected.includes(unitId)) {
+        selected = selected.filter(id => id !== unitId);
+      } else {
+        if (selected.length >= maxQty) {
+          alert(`You can select up to ${maxQty} units. Deselect one first.`);
+          return;
+        }
+        selected.push(unitId);
+      }
+      state.collectionSelections[productId] = selected;
+      render();
+    }
+
+    function confirmCollectionChangeUnits() {
+      const productId = state.collectionChangingUnitsFor;
+      const item = state.order.items.find(i => i.productId === productId);
+      const selected = state.collectionSelections[productId] || [];
+      if (selected.length !== item.qty) {
+        return alert(`Select exactly ${item.qty} units.`);
+      }
+      state.collectionChangingUnitsFor = null;
+      render();
+    }
+
+
       /* ============ PICKED UP BY MODAL ============ */
-      function renderPickedUpByModal() {
-        const cust = state.customer;
-        return `
+     
+          function renderPickedUpByModal() {
+      const o = state.order, cust = state.customer;
+      const isImmediate = (o.timing === 'Immediate');
+
+      // Compute units available for selection at the pickup location.
+      const pickupLoc = LOCATIONS.find(l => l.name === o.pickupLocation)?.id;
+
+      // Auto-select the reserved/available units if we haven't done so yet
+      if (Object.keys(state.collectionSelections).length === 0) {
+        o.items.forEach(item => {
+          const product = getInvProduct(item.productId);
+          if (!product) return;
+          if (product.trackingType === 'Individual') {
+            // Reserved units for this order first (Scheduled Pickup path)
+            let candidates = UNITS.filter(u =>
+              u.productId === item.productId &&
+              u.locationId === pickupLoc &&
+              u.status === 'Reserved' &&
+              u.reservedForOrder === o.orderNumber
+            );
+            // Fallback: Available units (Immediate Pickup path — no reservation yet)
+            if (candidates.length === 0) {
+              candidates = UNITS.filter(u =>
+                u.productId === item.productId &&
+                u.locationId === pickupLoc &&
+                u.status === 'Available'
+              ).slice(0, item.qty);
+            }
+            state.collectionSelections[item.productId] = candidates.slice(0, item.qty).map(u => u.id);
+          }
+        });
+      }
+
+      // If we're in Change Units drill-in mode, render that instead
+      if (state.collectionChangingUnitsFor) {
+        return renderCollectionChangeUnitsView();
+      }
+
+      return `
     <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
       <div class="modal">
         <div class="modal-header">Confirm Pickup <button class="close-x" onclick="closeModal()">×</button></div>
         <div class="modal-body">
-          <label>Picked Up By *</label>
+
+          <div style="padding:8px; border:1px dashed #999; border-radius:4px; font-size:12px; color:#555; margin-bottom:12px;">
+            ${isImmediate
+              ? 'Walk-in pickup — confirm the items being handed over now.'
+              : `Pickup from <strong>${o.pickupLocation}</strong> — confirm which items are being handed over.`}
+          </div>
+
+          <!-- Item selection -->
+          <div style="font-weight:bold; font-size:13px; margin-bottom:8px;">Items being collected</div>
+          ${o.items.map(item => {
+            const p = getInvProduct(item.productId);
+            if (!p) return '';
+
+            if (p.trackingType === 'Individual') {
+              const selected = state.collectionSelections[item.productId] || [];
+              const isReady = selected.length === item.qty;
+              return `
+                <div class="card" style="margin-bottom:8px; padding:10px;">
+                  <div>
+                    <strong>${p.name}</strong> · ×${item.qty}
+                    <span style="font-size:11px; color:#888;">[Individual Item]</span>
+                  </div>
+                  <div style="margin-top:6px; font-size:12px;">
+                    ${isReady
+                      ? `<span class="green">✓ ${selected.length} of ${item.qty} selected</span>`
+                      : `<span class="red">⚠ ${selected.length} of ${item.qty} selected</span>`}
+                  </div>
+                  <div style="margin-top:6px; font-size:11px; color:#666;">
+                    ${selected.map(id => UNITS.find(u => u.id === id)?.tag).filter(Boolean).join(', ')}
+                  </div>
+                  <div style="margin-top:6px;">
+                    <button onclick="openCollectionChangeUnits('${item.productId}')" style="font-size:12px;">Change Units</button>
+                  </div>
+                </div>
+              `;
+            } else {
+              // Stock quantity: just confirm the qty
+              const s = getStockSummary(item.productId, pickupLoc);
+              const reserved = Math.min(item.qty, s.reserved || item.qty);
+              return `
+                <div class="card" style="margin-bottom:8px; padding:10px;">
+                  <div>
+                    <strong>${p.name}</strong> · ×${item.qty}
+                    <span style="font-size:11px; color:#888;">[Stock Quantity]</span>
+                  </div>
+                  <div style="margin-top:6px; font-size:12px;" class="green">
+                    ✓ ${item.qty} ${p.unitOfMeasure}(s) will be handed over
+                  </div>
+                </div>
+              `;
+            }
+          }).join('')}
+
+          <!-- Picked Up By -->
+          <div style="font-weight:bold; font-size:13px; margin:16px 0 8px;">Picked up by</div>
+
+          <label>Name *</label>
           <input type="text" id="pickupName" value="${cust.name}">
 
           <label class="mt-12">Phone Number</label>
           <input type="text" id="pickupPhone" value="${cust.phone}">
 
-          <label class="mt-12">Relationship</label>
-          <select id="pickupRelationship">
-            <option value="Self">Self</option>
-            <option value="Staff">Staff</option>
-            <option value="Dispatch Rider">Dispatch Rider</option>
-            <option value="Family">Family</option>
-            <option value="Other">Other</option>
-          </select>
-
           <label class="mt-12" style="display:flex; align-items:center; gap:8px;">
             <input type="checkbox" id="pickupIdVerified" style="width:auto;">
             ID Verified
           </label>
+
         </div>
         <div class="modal-footer">
           <button onclick="closeModal()">Cancel</button>
@@ -3351,44 +3562,107 @@ DISPATCH DASHBOARD DEMO SEED
       </div>
     </div>
   `;
-      }
+    }
 
-      function attachPickedUpByHandlers() {
-        document
-          .getElementById("confirmPickupBtn")
-          ?.addEventListener("click", () => {
-            const name = document.getElementById("pickupName").value.trim();
-            const phone = document.getElementById("pickupPhone").value.trim();
-            const relationship =
-              document.getElementById("pickupRelationship").value;
-            const idVerified =
-              document.getElementById("pickupIdVerified").checked;
 
-            if (!name) return alert("Enter who is picking up.");
 
-            const o = state.order;
-            o.pickedUpBy = { name, phone, relationship, idVerified };
-            o.state = "collected";
-            logTimeline(`Collected by ${name} (${relationship})`);
 
-            // Deduct reserved stock
-            finalizePickupStock(o);
+          function attachPickedUpByHandlers() {
+      document.getElementById('confirmPickupBtn')?.addEventListener('click', () => {
+        const name = document.getElementById('pickupName').value.trim();
+        const phone = document.getElementById('pickupPhone').value.trim();
+        const idVerified = document.getElementById('pickupIdVerified').checked;
 
-            // Auto-complete
-            o.state = "completed";
-            logTimeline("Order completed");
+        if (!name) return alert('Enter who is picking up.');
 
-            state.activeModal = null;
-            state.successContext = {
-              title: "Order Collected",
-              subtitle: `${o.orderNumber} · Thank you`,
-              documentType: "Receipt",
-              isWalkin: false,
-            };
-            state.currentPage = "success";
-            render();
-          });
-      }
+        const o = state.order;
+
+        // -------- 1. Apply the operator's selections to stock --------
+        const pickupLoc = LOCATIONS.find(l => l.name === o.pickupLocation)?.id;
+
+        o.items.forEach(item => {
+          const product = getInvProduct(item.productId);
+          if (!product) return;
+
+          if (product.trackingType === 'Individual') {
+            const selectedIds = state.collectionSelections[item.productId] || [];
+            const originallyReserved = UNITS.filter(u =>
+              u.reservedForOrder === o.orderNumber && u.status === 'Reserved'
+            );
+
+            // Units originally reserved for this order but NOT chosen now → release to Available
+            originallyReserved.forEach(u => {
+              if (!selectedIds.includes(u.id)) {
+                u.status = 'Available';
+                u.reservedForOrder = null;
+              }
+            });
+
+            // Chosen units → Sold
+            selectedIds.forEach(uid => {
+              const u = UNITS.find(x => x.id === uid);
+              if (!u) return;
+              u.status = 'Sold';
+              u.reservedForOrder = null;
+              u.softReservedFor = null;
+            });
+
+            logMovement(item.productId, pickupLoc, 'check_out', selectedIds.length, o.orderNumber);
+          } else {
+            // Stock quantity: decrement reserved (if any) and onHand
+            let remaining = item.qty;
+
+            STOCK
+              .filter(s => s.productId === item.productId && (!pickupLoc || s.locationId === pickupLoc))
+              .forEach(row => {
+                if (remaining <= 0) return;
+                // Prefer decrementing reserved first (Scheduled Pickup path)
+                if (row.reserved > 0) {
+                  const fromReserved = Math.min(row.reserved, remaining);
+                  row.reserved -= fromReserved;
+                  row.onHand -= fromReserved;
+                  remaining -= fromReserved;
+                } else if (row.onHand > 0) {
+                  const fromOnHand = Math.min(row.onHand, remaining);
+                  row.onHand -= fromOnHand;
+                  remaining -= fromOnHand;
+                }
+              });
+
+            logMovement(item.productId, pickupLoc, 'check_out', item.qty, o.orderNumber);
+          }
+        });
+
+        // -------- 2. Record the picked-up-by info --------
+        o.pickedUpBy = { name, phone, idVerified };
+        o.state = 'collected';
+        logTimeline(`Collected by ${name}`);
+
+        // -------- 3. Complete the order --------
+        o.state = 'completed';
+        logTimeline('Order completed.');
+
+        // -------- 4. Clear working state and show success screen --------
+        state.collectionSelections = {};
+        state.collectionUnitSearch = '';
+        state.collectionChangingUnitsFor = null;
+        state.activeModal = null;
+
+        const isWalkin = (o.timing === 'Immediate' && o.fulfillment === 'Pickup');
+        state.successContext = {
+          title: isWalkin ? 'Order Completed' : 'Order Collected',
+          subtitle: isWalkin
+            ? `${o.orderNumber} · Handover confirmed`
+            : `${o.orderNumber} · Thank you`,
+          documentType: 'Receipt',
+          isWalkin: false, // stock has already been deducted during collection
+        };
+        state.currentPage = 'success';
+        render();
+      });
+    }
+      
+      
       /* ============ EXTEND EXPIRY MODAL ============ */
       function renderExtendExpiryModal() {
         const o = state.order;
