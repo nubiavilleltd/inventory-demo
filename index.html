@@ -1172,6 +1172,9 @@
         dispatchMode: "fleet", // 'fleet' | 'courier'
         // Where the single-order dispatch wizard returns after confirm/cancel
         dispatchReturnTo: "order-details", // 'order-details' | 'dashboard'
+        // Add-orders picker modal (used from within the trip wizard)
+        addOrdersPickerOpen: false,
+        addOrdersSelected: {},
 
         // Inventory page state
         inventoryView: "list",
@@ -6217,17 +6220,18 @@ TRIP PAGE (Batch Dispatch)
       // the current state of the trip.
       runTripValidation();
 
-      // If we're in Change Units mode, render the Change Units modal on top
+      // Modal stacking: Change Units or Add Orders can appear on top of the trip.
+      let overlay = "";
       if (trip.changingUnitsFor) {
-        c.innerHTML = `
-                  ${renderTripStepContent()}
-                  ${renderTripChangeUnitsModal()}
-                `;
-        attachTripHandlers();
-        return;
+        overlay = renderTripChangeUnitsModal();
+      } else if (state.addOrdersPickerOpen) {
+        overlay = renderAddOrdersPicker();
       }
 
-      c.innerHTML = renderTripStepContent();
+      c.innerHTML = `
+        ${renderTripStepContent()}
+        ${overlay}
+      `;
       attachTripHandlers();
     }
 
@@ -6343,11 +6347,163 @@ TRIP PAGE (Batch Dispatch)
         oninput="state.trip.dispatchNotes=this.value;">
     </div>
 
+        <div class="card">
+      <div class="card-title">Orders in this Trip (${trip.orders.length})</div>
+      ${
+        trip.orders.length === 0
+          ? `<div class="empty-state">No orders in this trip.</div>`
+          : trip.orders
+              .map((order) => {
+                const customer = getCustomer(order.customerId);
+                const itemCount = order.items.reduce((s, i) => s + i.qty, 0);
+                return `
+                  <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px dashed #ddd;">
+                    <div style="font-size:12px;">
+                      <strong>${order.orderNumber}</strong>
+                      <div style="color:#555;">${customer?.name || "—"} · ${itemCount} item${itemCount === 1 ? "" : "s"}</div>
+                    </div>
+                    <button title="Remove from trip"
+                      onclick="removeOrderFromTrip('${order.orderNumber}')"
+                      style="border:2px solid #1a1a1a; background:#fff; font-family:inherit; font-size:14px; font-weight:bold; line-height:1; padding:2px 8px; cursor:pointer; border-radius:4px;">
+                      ×
+                    </button>
+                  </div>
+                `;
+              })
+              .join("")
+      }
+    </div>
+
     <div class="card" style="display:flex; justify-content:flex-end; gap:8px;">
-      <button class="btn-primary" onclick="tripNext()">Next: Inventory →</button>
+      <button class="btn-primary" onclick="tripNext()" ${trip.orders.length === 0 ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ""}>Next: Inventory →</button>
     </div>
   `;
-      }
+    }
+
+
+
+          /* ---------- Add Orders Picker (used from within the trip wizard) ---------- */
+
+    function renderAddOrdersPicker() {
+      const trip = state.trip;
+      if (!trip) return "";
+
+      // Eligible: Fleet orders in the pool that aren't already in the trip.
+      const tripNumbers = new Set(trip.orders.map((o) => o.orderNumber));
+      const eligible = state.dispatchPool.filter(
+        (o) =>
+          o.deliveryMode === "Company Fleet" &&
+          !tripNumbers.has(o.orderNumber),
+      );
+
+      const selectedCount = Object.values(state.addOrdersSelected).filter(Boolean).length;
+
+      return `
+    <div class="modal-overlay" onclick="if(event.target===this)closeAddOrdersPicker()">
+      <div class="modal">
+        <div class="modal-header">Add Orders to Trip <button class="close-x" onclick="closeAddOrdersPicker()">×</button></div>
+        <div class="modal-body">
+          ${
+            eligible.length === 0
+              ? `<div class="empty-state">No other fleet orders are available to add.</div>`
+              : `
+            <p style="font-size:12px; color:#555;">
+              Select orders to include in this trip.
+            </p>
+            <div style="max-height:320px; overflow-y:auto; border:2px solid #1a1a1a; border-radius:4px; padding:8px; margin-top:8px;">
+              ${eligible
+                .map((o) => {
+                  const customer = getCustomer(o.customerId);
+                  const itemCount = o.items.reduce((s, i) => s + i.qty, 0);
+                  const checked = !!state.addOrdersSelected[o.orderNumber];
+                  return `
+                    <label style="display:flex; gap:8px; align-items:flex-start; padding:8px 4px; border-bottom:1px dashed #ddd; font-size:12px; cursor:pointer;">
+                      <input type="checkbox" ${checked ? "checked" : ""} style="width:auto; margin-top:2px;"
+                        onchange="toggleAddOrderSelection('${o.orderNumber}')">
+                      <span style="flex:1;">
+                        <strong>${o.orderNumber}</strong>
+                        <div style="color:#555;">${customer?.name || "—"} · ${itemCount} item${itemCount === 1 ? "" : "s"}</div>
+                      </span>
+                    </label>
+                  `;
+                })
+                .join("")}
+            </div>
+          `}
+        </div>
+        <div class="modal-footer">
+          <button onclick="closeAddOrdersPicker()">Cancel</button>
+          <button class="btn-primary" onclick="confirmAddOrders()" ${selectedCount === 0 ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ""}>Add ${selectedCount > 0 ? selectedCount + " " : ""}Order${selectedCount === 1 ? "" : "s"}</button>
+        </div>
+      </div>
+    </div>
+  `;
+    }
+
+    function openAddOrdersPicker() {
+      state.addOrdersPickerOpen = true;
+      state.addOrdersSelected = {};
+      render();
+    }
+
+    function closeAddOrdersPicker() {
+      state.addOrdersPickerOpen = false;
+      state.addOrdersSelected = {};
+      render();
+    }
+
+    function toggleAddOrderSelection(orderNumber) {
+      state.addOrdersSelected[orderNumber] = !state.addOrdersSelected[orderNumber];
+      render();
+    }
+
+    function confirmAddOrders() {
+      const trip = state.trip;
+      if (!trip) return;
+
+      const toAdd = Object.keys(state.addOrdersSelected).filter(
+        (k) => state.addOrdersSelected[k],
+      );
+      if (toAdd.length === 0) return;
+
+      // Deep-copy each selected pool order into the trip
+      toAdd.forEach((orderNumber) => {
+        const order = state.dispatchPool.find((o) => o.orderNumber === orderNumber);
+        if (!order) return;
+
+        // Deep copy, then clear selection flag on the copy
+        const copy = JSON.parse(JSON.stringify(order));
+        copy._selected = false;
+        trip.orders.push(copy);
+
+        // Clear the flag on the pool order too
+        order._selected = false;
+      });
+
+      // Auto-pick units for individual-item lines of newly added orders
+      trip.orders.forEach((order) => {
+        order.items.forEach((item) => {
+          const product = getInvProduct(item.productId);
+          if (!product || product.trackingType !== "Individual") return;
+
+          const key = order.orderNumber + "|" + item.productId;
+          if (!trip.orderUnitSelections[key]) {
+            trip.orderUnitSelections[key] = autoPickUnitsForTrip(
+              item.productId,
+              trip.dispatchLocationId,
+              item.qty,
+              trip,
+            );
+          }
+        });
+      });
+
+      // Reset picker state
+      state.addOrdersPickerOpen = false;
+      state.addOrdersSelected = {};
+
+      render();
+    }
 
       /* ---------- Trip Step 2: Assign Inventory ---------- */
     function renderTripStep2() {
@@ -6466,6 +6622,10 @@ TRIP PAGE (Batch Dispatch)
         `;
       })
       .join("")}
+
+     <div class="card" style="text-align:center;">
+      <button onclick="openAddOrdersPicker()">+ Add Another Order</button>
+    </div>
 
     <div class="card">
       <div style="font-size:12px;">
@@ -6979,6 +7139,8 @@ TRIP PAGE (Batch Dispatch)
 
         // 5. Clear trip state
         state.trip = null;
+        state.addOrdersPickerOpen = false;
+        state.addOrdersSelected = {};
 
         // 6. Show success (simple alert for now)
         alert(
@@ -7488,31 +7650,36 @@ DELIVERY CONFIRMATION
         const mode = selected[0].deliveryMode;
 
         // Initialize the Trip state
-        state.trip = {
-          mode,
-          orders: selected.map((o) => JSON.parse(JSON.stringify(o))), // deep copy
-          step: 1,
-          driver: "",
-          vehicle: "",
-          courier: "",
-          trackingNumber: "",
-          dispatchDate: todayISO(),
-          dispatchNotes: "",
-          dispatchLocationId:
-            LOCATIONS.find((l) => l.isDefaultDispatch)?.id || LOCATIONS[0].id,
-          // Per (orderNumber, productId): array of unit IDs
-          orderUnitSelections: {},
-          changingUnitsFor: null, // { orderNumber, productId }
-          unitSearch: "",
-          validation: {},
-          tripNumber: null,
-        };
+      state.trip = {
+        mode,
+        orders: selected.map((o) => JSON.parse(JSON.stringify(o))), // deep copy
+        step: 1,
+        driver: "",
+        vehicle: "",
+        courier: "",
+        trackingNumber: "",
+        dispatchDate: todayISO(),
+        dispatchNotes: "",
+        dispatchLocationId:
+          LOCATIONS.find((l) => l.isDefaultDispatch)?.id || LOCATIONS[0].id,
+        // Per (orderNumber, productId): array of unit IDs
+        orderUnitSelections: {},
+        changingUnitsFor: null, // { orderNumber, productId }
+        unitSearch: "",
+        validation: {},
+        tripNumber: null,
+      };
 
-        // Auto-pick units for each individual item in each order
-        autoPickAllUnits();
+      // Clear any "selected" flags on the pool — the selection has been
+      // consumed by the trip. Prevents them from appearing pre-selected if
+      // the operator returns to the dashboard later.
+      state.dispatchPool.forEach((o) => (o._selected = false));
 
-        render();
-      }
+      // Auto-pick units for each individual item in each order
+      autoPickAllUnits();
+
+      render();
+    }
 
       // Auto-pick units for every individual item in every order in the trip
       function autoPickAllUnits() {
@@ -7566,9 +7733,11 @@ DELIVERY CONFIRMATION
       }
 
       // Discard the trip in progress and return to the dashboard
-      function discardTrip() {
+    function discardTrip() {
         if (!confirm("Discard this trip? All selections will be lost.")) return;
         state.trip = null;
+        state.addOrdersPickerOpen = false;
+        state.addOrdersSelected = {};
         render();
       }
 
