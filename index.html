@@ -25,7 +25,7 @@
       .topbar,
       #mainContent {
         width: 100%;
-        max-width: 900px;
+        max-width: 1000px;
       }
 
       h1 {
@@ -405,88 +405,88 @@
         margin-top: 12px;
       }
 
-          .file-upload {
-      border: 2px dashed #1a1a1a;
-      border-radius: 4px;
-      padding: 12px;
-      text-align: center;
-      background: #fdfdfd;
-      cursor: pointer;
-    }
+      .file-upload {
+        border: 2px dashed #1a1a1a;
+        border-radius: 4px;
+        padding: 12px;
+        text-align: center;
+        background: #fdfdfd;
+        cursor: pointer;
+      }
 
-    /* Combobox */
-    .combobox {
-      position: relative;
-    }
+      /* Combobox */
+      .combobox {
+        position: relative;
+      }
 
-    .combobox-input {
-      display: flex;
-      align-items: center;
-      border: 2px solid #1a1a1a;
-      border-radius: 4px;
-      background: #fff;
-      padding: 0;
-      height: 34px;
-      cursor: text;
-    }
+      .combobox-input {
+        display: flex;
+        align-items: center;
+        border: 2px solid #1a1a1a;
+        border-radius: 4px;
+        background: #fff;
+        padding: 0;
+        height: 34px;
+        cursor: text;
+      }
 
-    .combobox-input input {
-      flex: 1;
-      border: none;
-      outline: none;
-      padding: 6px 8px;
-      font-family: inherit;
-      font-size: 13px;
-      background: transparent;
-      height: 100%;
-    }
+      .combobox-input input {
+        flex: 1;
+        border: none;
+        outline: none;
+        padding: 6px 8px;
+        font-family: inherit;
+        font-size: 13px;
+        background: transparent;
+        height: 100%;
+      }
 
-    .combobox-caret {
-      padding: 0 10px;
-      font-size: 10px;
-      color: #666;
-      user-select: none;
-      cursor: pointer;
-    }
+      .combobox-caret {
+        padding: 0 10px;
+        font-size: 10px;
+        color: #666;
+        user-select: none;
+        cursor: pointer;
+      }
 
-    .combobox-panel {
-      position: absolute;
-      top: 100%;
-      left: 0;
-      right: 0;
-      background: #fff;
-      border: 2px solid #1a1a1a;
-      border-radius: 4px;
-      margin-top: 2px;
-      max-height: 220px;
-      overflow-y: auto;
-      z-index: 50;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.15);
-    }
+      .combobox-panel {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        background: #fff;
+        border: 2px solid #1a1a1a;
+        border-radius: 4px;
+        margin-top: 2px;
+        max-height: 220px;
+        overflow-y: auto;
+        z-index: 50;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+      }
 
-    .combobox-item {
-      padding: 6px 10px;
-      font-size: 13px;
-      cursor: pointer;
-    }
+      .combobox-item {
+        padding: 6px 10px;
+        font-size: 13px;
+        cursor: pointer;
+      }
 
-    .combobox-item:hover,
-    .combobox-item.active {
-      background: #dbeafe;
-    }
+      .combobox-item:hover,
+      .combobox-item.active {
+        background: #dbeafe;
+      }
 
-    .combobox-item.create-new {
-      border-top: 1px dashed #ccc;
-      color: #166534;
-      font-style: italic;
-    }
+      .combobox-item.create-new {
+        border-top: 1px dashed #ccc;
+        color: #166534;
+        font-style: italic;
+      }
 
-    .combobox-empty {
-      padding: 8px 10px;
-      font-size: 12px;
-      color: #888;
-      font-style: italic;
-    }
+      .combobox-empty {
+        padding: 8px 10px;
+        font-size: 12px;
+        color: #888;
+        font-style: italic;
+      }
     </style>
   </head>
 
@@ -517,6 +517,12 @@
             data-tab="dispatch"
           >
             Dispatch
+          </button>
+          <button
+            class="toggle-btn"
+            data-tab="customer-portal"
+          >
+            Customer Portal
           </button>
         </div>
         <select
@@ -559,26 +565,25 @@
       // Auto-applied to any new order. Non-deferrable, non-removable.
       const CREDIT_VALIDITY_DAYS = 60;
 
-
-       // Default catalogue options for product setup.
-    // Operators can add a new value via "Other" in the modal.
-    // In production these become admin-managed reference tables.
-    const PRODUCT_CATEGORIES = [
-      'Electronics',
-      'Food',
-      'Furniture',
-      'Clothing',
-      'Stationery',
-    ];
-    const PRODUCT_UNITS = [
-      'Unit',
-      'Piece',
-      'Carton',
-      'Pack',
-      'Box',
-      'Kg',
-      'Litre',
-    ];
+      // Default catalogue options for product setup.
+      // Operators can add a new value via "Other" in the modal.
+      // In production these become admin-managed reference tables.
+      const PRODUCT_CATEGORIES = [
+        "Electronics",
+        "Food",
+        "Furniture",
+        "Clothing",
+        "Stationery",
+      ];
+      const PRODUCT_UNITS = [
+        "Unit",
+        "Piece",
+        "Carton",
+        "Pack",
+        "Box",
+        "Kg",
+        "Litre",
+      ];
 
       /* ============ DATA ============ */
       const PRODUCTS = [
@@ -597,6 +602,7 @@
           type: "Individual",
           credit: 0,
           creditExpiryDate: null,
+          creditEvents: [],
           wantsPromotions: false,
           addresses: [
             {
@@ -615,6 +621,7 @@
           type: "Company",
           credit: 0,
           creditExpiryDate: null,
+          creditEvents: [],
           wantsPromotions: true,
           addresses: [
             {
@@ -639,6 +646,7 @@
           type: "Company",
           credit: 0,
           creditExpiryDate: null,
+          creditEvents: [],
           wantsPromotions: false,
           addresses: [
             {
@@ -661,6 +669,28 @@
             const d = new Date();
             d.setDate(d.getDate() + CREDIT_VALIDITY_DAYS);
             return d.toISOString().split("T")[0];
+          })(),
+          // Demo: seed a plausible history so the portal shows a real ledger
+          creditEvents: (() => {
+            const today = new Date();
+            const formatYMD = (d) => d.toISOString().split("T")[0];
+            const earlier = (days) => {
+              const d = new Date(today);
+              d.setDate(d.getDate() - days);
+              return formatYMD(d);
+            };
+            return [
+              {
+                date: earlier(10),
+                description: "Cancelled order ORD-20260930-501",
+                amount: 500000,
+              },
+              {
+                date: earlier(7),
+                description: "Applied to order ORD-20261003-118",
+                amount: -300000,
+              },
+            ];
           })(),
           wantsPromotions: false,
           addresses: [
@@ -1154,15 +1184,26 @@
         editingUnitId: null,
         isEditing: false,
         successContext: null,
-         // Collection modal working state: { [productId]: [unitIds] }
+        // Collection modal working state: { [productId]: [unitIds] }
         collectionSelections: {},
-        collectionUnitSearch: '',
+        collectionUnitSearch: "",
         collectionChangingUnitsFor: null,
         // Combobox working state (which panel is open, active item index)
-        openCombobox: null,      // element id of the currently-open combobox
+        openCombobox: null, // element id of the currently-open combobox
         comboboxActive: -1,
         // Top-level tab
-        activeTab: "orders", // 'orders' | 'inventory' | 'dispatch'
+        // Top-level tab
+        activeTab: "orders", // 'orders' | 'inventory' | 'dispatch' | 'customer-portal'
+        // Customer credit portal state (public, self-service)
+        customerPortal: {
+          step: "email", // 'email' | 'otp' | 'view'
+          email: "",
+          otp: null,
+          verified: false,
+          customerId: null,
+          error: null,
+        },
+
         dispatchPool: [],
         // Orders currently Out for Delivery (i.e., in transit)
         inTransitOrders: [],
@@ -1290,6 +1331,20 @@
           state.order.timeline.push({ time: new Date().toISOString(), event });
       }
 
+      // Append a credit event to a customer's ledger.
+      // amount is signed: positive for issuance, negative for consumption.
+      function pushCreditEvent(customerId, description, amount) {
+        const customer = getCustomer(customerId);
+        if (!customer) return;
+
+        customer.creditEvents = customer.creditEvents || [];
+        customer.creditEvents.push({
+          date: todayISO(),
+          description,
+          amount,
+        });
+      }
+
       // Auto-apply customer credit to an order.
       //   - Applies min(credit, outstanding).
       //   - No deferral, no removal — credit is always consumed.
@@ -1327,6 +1382,13 @@
           master.credit = customer.credit;
           master.creditExpiryDate = customer.creditExpiryDate;
         }
+
+        // Ledger entry (customer-facing)
+        pushCreditEvent(
+          customer.id,
+          `Applied to order ${order.orderNumber}`,
+          -toApply,
+        );
 
         const remaining = customer.credit;
         logTimeline(
@@ -1560,6 +1622,8 @@ DISPATCH DASHBOARD DEMO SEED
           } else {
             renderDispatchDashboard(c);
           }
+        } else if (state.activeTab === "customer-portal") {
+          renderCustomerPortal(c);
         } else {
           // Orders tab
           if (state.currentPage === "order-creation") renderOrderCreation(c);
@@ -1570,6 +1634,300 @@ DISPATCH DASHBOARD DEMO SEED
         updateStatusBar();
         renderModal();
       }
+
+      /* ============================================================
+       CUSTOMER CREDIT PORTAL
+       ============================================================ */
+
+      function renderCustomerPortal(c) {
+        const p = state.customerPortal;
+
+        if (p.step === "email") {
+          c.innerHTML = renderPortalEmailStep();
+          attachPortalEmailHandlers();
+        } else if (p.step === "otp") {
+          c.innerHTML = renderPortalOTPStep();
+          attachPortalOTPHandlers();
+        } else if (p.step === "view") {
+          c.innerHTML = renderPortalViewStep();
+          attachPortalViewHandlers();
+        }
+      }
+
+      function renderPortalEmailStep() {
+        const p = state.customerPortal;
+        return `
+    <div class="card" style="max-width:520px; margin:24px auto;">
+      <div style="text-align:center; margin-bottom:16px;">
+        <h2 style="font-size:22px;">Customer Credit Portal</h2>
+        <div style="font-size:13px; color:#555; margin-top:4px;">
+          View your store credit balance
+        </div>
+      </div>
+
+      <label>Email address *</label>
+      <input type="email" id="portalEmail" value="${p.email || ""}" placeholder="you@example.com">
+
+      ${
+        p.error
+          ? `<div style="margin-top:8px; padding:8px; border:2px dashed #991b1b; border-radius:4px; color:#991b1b; font-size:12px;">
+               ${p.error}
+             </div>`
+          : ""
+      }
+
+      <div style="font-size:11px; color:#666; margin-top:8px;">
+        We'll send a 6-digit verification code to this address.
+      </div>
+
+      <div style="margin-top:16px; text-align:right;">
+        <button class="btn-primary" id="portalSendCodeBtn">Send Code</button>
+      </div>
+    </div>
+
+    <div class="card" style="max-width:520px; margin:0 auto; font-size:12px; color:#666; text-align:center;">
+      Demo hint: try <strong>chidinma@example.com</strong> (has credit) or <strong>john@example.com</strong> (no credit).
+    </div>
+  `;
+      }
+
+      function renderPortalOTPStep() {
+        const p = state.customerPortal;
+        return `
+    <div class="card" style="max-width:520px; margin:24px auto;">
+      <div style="text-align:center; margin-bottom:16px;">
+        <h2 style="font-size:22px;">Verify your email</h2>
+      </div>
+
+      <div style="font-size:13px; color:#555; margin-bottom:12px;">
+        We sent a 6-digit code to <strong>${p.email}</strong>.
+      </div>
+
+      <label>Verification code *</label>
+      <input type="text" id="portalOTP" maxlength="6" placeholder="______" style="font-size:18px; letter-spacing:6px; text-align:center;">
+
+      ${
+        p.error
+          ? `<div style="margin-top:8px; padding:8px; border:2px dashed #991b1b; border-radius:4px; color:#991b1b; font-size:12px;">
+               ${p.error}
+             </div>`
+          : ""
+      }
+
+      <div style="margin-top:12px; font-size:12px; color:#555;">
+        Didn't get it? <a href="#" id="portalResendLink" style="color:#1e40af;">Resend code</a>
+      </div>
+
+      <div style="margin-top:16px; display:flex; justify-content:space-between; align-items:center;">
+        <button id="portalChangeEmailBtn">Use a different email</button>
+        <button class="btn-primary" id="portalVerifyBtn">Verify</button>
+      </div>
+    </div>
+
+    <div class="card" style="max-width:520px; margin:0 auto; font-size:12px; color:#92400e; text-align:center; background:#fef3c7; border-color:#92400e;">
+      Demo mode: your OTP is <strong style="letter-spacing:4px;">${p.otp}</strong>
+    </div>
+  `;
+      }
+
+      function renderPortalViewStep() {
+        const p = state.customerPortal;
+        const customer = getCustomer(p.customerId);
+        if (!customer) {
+          return `<div class="card"><div class="empty-state">Customer not found.</div></div>`;
+        }
+
+        const balance = customer.credit || 0;
+        const events = (customer.creditEvents || []).slice().reverse(); // newest first
+        const hasHistory = events.length > 0;
+
+        // Balance subtitle varies depending on state
+        let subtitle = "";
+        if (balance > 0) {
+          subtitle = customer.creditExpiryDate
+            ? `Expires ${formatDate(customer.creditExpiryDate)}. This credit applies automatically to your next order. It cannot be exchanged for cash.`
+            : `This credit applies automatically to your next order. It cannot be exchanged for cash.`;
+        } else if (hasHistory) {
+          subtitle = `You have no credit remaining.`;
+        } else {
+          subtitle = `You have no store credit at this time. Credit is issued when a paid order is cancelled.`;
+        }
+
+        return `
+    <div class="card" style="max-width:640px; margin:24px auto;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div style="font-size:13px; color:#555;">
+          Signed in as <strong>${customer.email}</strong>
+        </div>
+        <button id="portalSignOutBtn">Sign out</button>
+      </div>
+    </div>
+
+    <div class="card" style="max-width:640px; margin:0 auto 12px; background:#f0fdf4; border-color:#166534;">
+      <div style="font-size:12px; color:#166534; margin-bottom:6px;">Your Store Credit</div>
+      <div style="font-size:32px; font-weight:bold; color:#166534;">${money(balance)}</div>
+      <div style="font-size:12px; color:#166534; margin-top:8px; line-height:1.5;">
+        ${subtitle}
+      </div>
+    </div>
+
+    <div class="card" style="max-width:640px; margin:0 auto 12px; padding:0;">
+      <div style="padding:12px 12px 8px; font-weight:bold;">Activity</div>
+      ${
+        !hasHistory
+          ? `<div class="empty-state" style="padding:16px;">No credit activity yet.</div>`
+          : `
+            <table>
+              <thead>
+                <tr>
+                  <th style="padding-left:12px;">Date</th>
+                  <th>Description</th>
+                  <th style="text-align:right; padding-right:12px;">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${events
+                  .map(
+                    (e) => `
+                  <tr>
+                    <td style="padding-left:12px; font-size:12px; color:#555; white-space:nowrap;">${formatDate(e.date)}</td>
+                    <td style="font-size:12px;">${e.description}</td>
+                    <td style="text-align:right; padding-right:12px; font-weight:bold; color:${e.amount >= 0 ? "#166534" : "#991b1b"};">
+                      ${e.amount >= 0 ? "+" : "−"}${money(Math.abs(e.amount))}
+                    </td>
+                  </tr>
+                `,
+                  )
+                  .join("")}
+                <tr>
+                  <td style="padding-left:12px;"></td>
+                  <td style="text-align:right; font-size:12px; color:#555;">Balance</td>
+                  <td style="text-align:right; padding-right:12px; font-weight:bold;">${money(balance)}</td>
+                </tr>
+              </tbody>
+            </table>
+          `
+      }
+    </div>
+
+    <div class="card" style="max-width:640px; margin:0 auto; font-size:12px; color:#555; text-align:center;">
+      For details on any entry, contact the store at <strong>08012345678</strong>.
+    </div>
+  `;
+      }
+
+
+            /* ---------- Portal handlers ---------- */
+
+      function attachPortalEmailHandlers() {
+        const input = document.getElementById("portalEmail");
+        input?.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") submitPortalEmail();
+        });
+        document
+          .getElementById("portalSendCodeBtn")
+          ?.addEventListener("click", submitPortalEmail);
+      }
+
+      function submitPortalEmail() {
+        const email = (document.getElementById("portalEmail").value || "")
+          .trim()
+          .toLowerCase();
+        if (!email) {
+          state.customerPortal.error = "Enter an email address.";
+          render();
+          return;
+        }
+
+        const customer = CUSTOMERS.find(
+          (c) => c.email && c.email.toLowerCase() === email,
+        );
+        if (!customer) {
+          state.customerPortal.error =
+            "We don't have an account with that email address.";
+          state.customerPortal.email = email;
+          render();
+          return;
+        }
+
+        // Generate a 6-digit OTP
+        const otp = String(Math.floor(100000 + Math.random() * 900000));
+        state.customerPortal.email = customer.email;
+        state.customerPortal.otp = otp;
+        state.customerPortal.step = "otp";
+        state.customerPortal.error = null;
+        render();
+      }
+
+      function attachPortalOTPHandlers() {
+        const input = document.getElementById("portalOTP");
+        input?.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") submitPortalOTP();
+        });
+        document
+          .getElementById("portalVerifyBtn")
+          ?.addEventListener("click", submitPortalOTP);
+        document
+          .getElementById("portalResendLink")
+          ?.addEventListener("click", (e) => {
+            e.preventDefault();
+            state.customerPortal.otp = String(
+              Math.floor(100000 + Math.random() * 900000),
+            );
+            state.customerPortal.error = null;
+            render();
+          });
+        document
+          .getElementById("portalChangeEmailBtn")
+          ?.addEventListener("click", () => {
+            state.customerPortal.step = "email";
+            state.customerPortal.otp = null;
+            state.customerPortal.error = null;
+            render();
+          });
+      }
+
+      function submitPortalOTP() {
+        const entered = (document.getElementById("portalOTP").value || "").trim();
+        const p = state.customerPortal;
+        if (entered !== p.otp) {
+          p.error = "Incorrect code. Please try again.";
+          render();
+          return;
+        }
+
+        const customer = CUSTOMERS.find(
+          (c) => c.email && c.email.toLowerCase() === p.email.toLowerCase(),
+        );
+        if (!customer) {
+          p.error = "Customer not found.";
+          render();
+          return;
+        }
+
+        p.verified = true;
+        p.customerId = customer.id;
+        p.step = "view";
+        p.error = null;
+        render();
+      }
+
+      function attachPortalViewHandlers() {
+        document
+          .getElementById("portalSignOutBtn")
+          ?.addEventListener("click", () => {
+            state.customerPortal = {
+              step: "email",
+              email: "",
+              otp: null,
+              verified: false,
+              customerId: null,
+              error: null,
+            };
+            render();
+          });
+      }
+
 
       function scenarioBanner() {
         const s = SCENARIOS[state.currentScenario];
@@ -1971,27 +2329,41 @@ DISPATCH DASHBOARD DEMO SEED
             : ""
         }
 
-            ${o.fulfillment === 'Pickup' && ['collected', 'completed'].includes(o.state) && o.pickedUpBy ? `
+            ${
+              o.fulfillment === "Pickup" &&
+              ["collected", "completed"].includes(o.state) &&
+              o.pickedUpBy
+                ? `
       <div class="card">
         <div class="card-title">Pickup Confirmation</div>
         <div class="row">
-          <div class="col"><label>Picked Up By</label><strong>${o.pickedUpBy.name || '—'}</strong></div>
-          <div class="col"><label>Phone</label><strong>${o.pickedUpBy.phone || '—'}</strong></div>
-          ${o.timing !== 'Immediate' ? `
+          <div class="col"><label>Picked Up By</label><strong>${o.pickedUpBy.name || "—"}</strong></div>
+          <div class="col"><label>Phone</label><strong>${o.pickedUpBy.phone || "—"}</strong></div>
+          ${
+            o.timing !== "Immediate"
+              ? `
             <div class="col"><label>Order Reference</label>
-              ${o.pickedUpBy.orderRefVerified
-                ? `<span class="badge badge-paid">Verified</span>`
-                : `<span class="badge badge-unpaid">Not verified</span>`}
+              ${
+                o.pickedUpBy.orderRefVerified
+                  ? `<span class="badge badge-paid">Verified</span>`
+                  : `<span class="badge badge-unpaid">Not verified</span>`
+              }
             </div>
             <div class="col"><label>Photo ID</label>
-              ${o.pickedUpBy.idPresented
-                ? `<span class="badge badge-paid">Presented</span>`
-                : `<span class="badge badge-draft">Not presented</span>`}
+              ${
+                o.pickedUpBy.idPresented
+                  ? `<span class="badge badge-paid">Presented</span>`
+                  : `<span class="badge badge-draft">Not presented</span>`
+              }
             </div>
-          ` : ''}
+          `
+              : ""
+          }
         </div>
       </div>
-    ` : ''}
+    `
+                : ""
+            }
 
     ${
       o.fulfillment === "Delivery" &&
@@ -2038,38 +2410,66 @@ DISPATCH DASHBOARD DEMO SEED
                 : ""
             }
 
-          ${o.fulfillment === 'Pickup' && o.state === 'confirmed' ? `
+          ${
+            o.fulfillment === "Pickup" && o.state === "confirmed"
+              ? `
         <button class="btn-primary" id="markReadyBtn">Mark as Ready for Pickup</button>
-        <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>`: ''}
+        <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>`
+              : ""
+          }
 
-      ${o.fulfillment === 'Pickup' && o.state === 'ready' ? `
+      ${
+        o.fulfillment === "Pickup" && o.state === "ready"
+          ? `
         <button class="btn-primary" id="markCollectedBtn">Mark as Collected</button>
-        ${isOverdue(o) ? `<button id="extendExpiryBtn">Extend Expiry</button>` : ''}
-        <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>`: ''}
+        ${isOverdue(o) ? `<button id="extendExpiryBtn">Extend Expiry</button>` : ""}
+        <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>`
+          : ""
+      }
 
-      ${o.fulfillment === 'Delivery' && o.state === 'confirmed' ? `
+      ${
+        o.fulfillment === "Delivery" && o.state === "confirmed"
+          ? `
         <button class="btn-primary" id="dispatchOrderBtn">Dispatch Order</button>
-        <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>`: ''}
+        <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>`
+          : ""
+      }
 
-      ${o.fulfillment === 'Delivery' && o.state === 'out-for-delivery' ? `
+      ${
+        o.fulfillment === "Delivery" && o.state === "out-for-delivery"
+          ? `
         <button class="btn-primary" id="confirmDeliveryBtn">Confirm Delivery</button>
-        <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>`: ''}
+        <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>`
+          : ""
+      }
 
-      ${o.state === 'partial' ? `
-        <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>`: ''}
+      ${
+        o.state === "partial"
+          ? `
+        <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>`
+          : ""
+      }
 
-      ${o.state === 'submitted' ? `
-        <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>`: ''}
+      ${
+        o.state === "submitted"
+          ? `
+        <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>`
+          : ""
+      }
 
-      ${o.state === 'cancelled' ? `<button class="btn-primary" id="newOrderBtn">Create New Order</button>` : ''}
+      ${o.state === "cancelled" ? `<button class="btn-primary" id="newOrderBtn">Create New Order</button>` : ""}
 
-      ${['collected', 'completed', 'delivered'].includes(o.state) ? `
+      ${
+        ["collected", "completed", "delivered"].includes(o.state)
+          ? `
         <button class="btn-primary" id="printReceiptBtn">Print Receipt</button>
         <button disabled title="Completed orders cannot be cancelled." style="opacity:0.5; cursor:not-allowed;">Cancel Order</button>
         <div style="font-size:11px; color:#888; margin-top:6px;">
           Cancellation is not available at this stage. The order has been fulfilled.
         </div>
-      ` : ''}
+      `
+          : ""
+      }
     </div>
 
     ${
@@ -2416,14 +2816,16 @@ DISPATCH DASHBOARD DEMO SEED
             render();
           });
 
-          // Mark as Collected — always opens the collection modal.
-          // The button only appears on Scheduled Pickup in "ready" state;
-          // Immediate Pickup runs through the collection modal via recordPayment.
-          document.getElementById('markCollectedBtn')?.addEventListener('click', () => {
+        // Mark as Collected — always opens the collection modal.
+        // The button only appears on Scheduled Pickup in "ready" state;
+        // Immediate Pickup runs through the collection modal via recordPayment.
+        document
+          .getElementById("markCollectedBtn")
+          ?.addEventListener("click", () => {
             state.collectionSelections = {};
-            state.collectionUnitSearch = '';
+            state.collectionUnitSearch = "";
             state.collectionChangingUnitsFor = null;
-            state.activeModal = 'picked-up-by';
+            state.activeModal = "picked-up-by";
             render();
           });
 
@@ -2706,15 +3108,15 @@ DISPATCH DASHBOARD DEMO SEED
         }
       }
 
-        function closeModal() {
-      state.activeModal = null;
-      state.collectionSelections = {};
-      state.collectionUnitSearch = '';
-      state.collectionChangingUnitsFor = null;
-      state.openCombobox = null;
-      state.comboboxActive = -1;
-      render();
-    }
+      function closeModal() {
+        state.activeModal = null;
+        state.collectionSelections = {};
+        state.collectionUnitSearch = "";
+        state.collectionChangingUnitsFor = null;
+        state.openCombobox = null;
+        state.comboboxActive = -1;
+        render();
+      }
       /* ============ PAYMENT MODAL ============ */
       function renderPaymentModal() {
         const o = state.order,
@@ -2815,17 +3217,19 @@ DISPATCH DASHBOARD DEMO SEED
         logTimeline(`Payment: ${money(appliedAmount)} via ${method}`);
 
         if (creditCreated > 0) {
-        cust.credit += creditCreated;
-        const d = new Date();
-        d.setDate(d.getDate() + CREDIT_VALIDITY_DAYS);
-        cust.creditExpiryDate = d.toISOString().split('T')[0];
-        const master = getCustomer(cust.id);
-        if (master) {
-          master.credit = cust.credit;
-          master.creditExpiryDate = cust.creditExpiryDate;
+          cust.credit += creditCreated;
+          const d = new Date();
+          d.setDate(d.getDate() + CREDIT_VALIDITY_DAYS);
+          cust.creditExpiryDate = d.toISOString().split("T")[0];
+          const master = getCustomer(cust.id);
+          if (master) {
+            master.credit = cust.credit;
+            master.creditExpiryDate = cust.creditExpiryDate;
+          }
+          logTimeline(
+            `Overpayment ${money(creditCreated)} → Credit. Expires ${formatDate(cust.creditExpiryDate)}.`,
+          );
         }
-        logTimeline(`Overpayment ${money(creditCreated)} → Credit. Expires ${formatDate(cust.creditExpiryDate)}.`);
-      }
         if (!o.invoiceNumber) o.invoiceNumber = genNum("INV");
 
         // Soft-reserve stock if this payment pushes the order to paid
@@ -2857,77 +3261,78 @@ DISPATCH DASHBOARD DEMO SEED
           // Instead of auto-completing, open the collection modal so the
           // operator confirms which units are being handed over.
           state.collectionSelections = {};
-          state.collectionUnitSearch = '';
+          state.collectionUnitSearch = "";
           state.collectionChangingUnitsFor = null;
-          state.activeModal = 'picked-up-by';
+          state.activeModal = "picked-up-by";
           render();
           return;
         } else {
           state.successContext = {
-            title: 'Payment Recorded',
+            title: "Payment Recorded",
             subtitle: `${o.orderNumber} · ${money(appliedAmount)} received`,
-            documentType: 'Receipt',
+            documentType: "Receipt",
             isWalkin: false,
           };
-          state.currentPage = 'success';
+          state.currentPage = "success";
           render();
         }
       }
 
       /* ============ CANCEL MODAL ============ */
-         function renderCancelModal() {
-      const o = state.order;
-      const cust = state.customer;
-      const t = calcTotals(o);
+      function renderCancelModal() {
+        const o = state.order;
+        const cust = state.customer;
+        const t = calcTotals(o);
 
-      // Cash paid + credit consumed — the total that will be returned as credit.
-      const cashPaid = t.paid;
-      const creditConsumed = o.creditApplied || 0;
-      const totalReturned = cashPaid + creditConsumed;
+        // Cash paid + credit consumed — the total that will be returned as credit.
+        const cashPaid = t.paid;
+        const creditConsumed = o.creditApplied || 0;
+        const totalReturned = cashPaid + creditConsumed;
 
-      // State-specific warning
-      let stateWarning = '';
-      if (o.state === 'ready') {
-        stateWarning = `
+        // State-specific warning
+        let stateWarning = "";
+        if (o.state === "ready") {
+          stateWarning = `
           <div style="padding:8px; border:2px dashed #991b1b; border-radius:4px; font-size:12px; color:#991b1b; margin-top:12px;">
             ⚠ This order has stock reserved for pickup at <strong>${o.pickupLocation}</strong>.
             Cancelling will release that stock back to inventory.
           </div>`;
-      } else if (o.state === 'out-for-delivery') {
-        const dispatchInfo = o.dispatchInfo || {};
-        const tripLabel = o.deliveryMode === 'Company Fleet'
-          ? `${dispatchInfo.driver || '—'} / ${dispatchInfo.vehicle || '—'}`
-          : `${dispatchInfo.courier || '—'} (${dispatchInfo.trackingNumber || '—'})`;
-        stateWarning = `
+        } else if (o.state === "out-for-delivery") {
+          const dispatchInfo = o.dispatchInfo || {};
+          const tripLabel =
+            o.deliveryMode === "Company Fleet"
+              ? `${dispatchInfo.driver || "—"} / ${dispatchInfo.vehicle || "—"}`
+              : `${dispatchInfo.courier || "—"} (${dispatchInfo.trackingNumber || "—"})`;
+          stateWarning = `
           <div style="padding:8px; border:2px dashed #991b1b; border-radius:4px; font-size:12px; color:#991b1b; margin-top:12px;">
             ⚠ This order is out for delivery (${tripLabel}).
             Cancelling will release the reserved stock and free the driver/vehicle.
             The customer should be told the delivery has been called off.
           </div>`;
-      } else if (o.state === 'partial') {
-        stateWarning = `
+        } else if (o.state === "partial") {
+          stateWarning = `
           <div style="padding:8px; border:2px dashed #92400e; border-radius:4px; font-size:12px; color:#92400e; margin-top:12px;">
             This order has a partial payment. The amount paid will be returned as store credit.
           </div>`;
-      }
+        }
 
-      // Credit return summary
-      let creditReturn = '';
-      if (totalReturned > 0) {
-        const parts = [];
-        if (cashPaid > 0) parts.push(`${money(cashPaid)} cash`);
-        if (creditConsumed > 0) parts.push(`${money(creditConsumed)} credit`);
-        creditReturn = `
+        // Credit return summary
+        let creditReturn = "";
+        if (totalReturned > 0) {
+          const parts = [];
+          if (cashPaid > 0) parts.push(`${money(cashPaid)} cash`);
+          if (creditConsumed > 0) parts.push(`${money(creditConsumed)} credit`);
+          creditReturn = `
           <div class="credit-card mt-12">
-            <div class="credit-card-label">Credit to be created (${parts.join(' + ')})</div>
+            <div class="credit-card-label">Credit to be created (${parts.join(" + ")})</div>
             <div class="credit-card-value">${money(totalReturned)}</div>
             <div style="font-size:11px; color:#166534; margin-top:4px;">
               Fresh ${CREDIT_VALIDITY_DAYS}-day expiry applied.
             </div>
           </div>`;
-      }
+        }
 
-      return `
+        return `
     <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
       <div class="modal">
         <div class="modal-header">Cancel Order <button class="close-x" onclick="closeModal()">×</button></div>
@@ -2952,64 +3357,75 @@ DISPATCH DASHBOARD DEMO SEED
       </div>
     </div>
   `;
-    }
+      }
 
+      function attachCancelHandlers() {
+        document
+          .getElementById("confirmCancelBtn")
+          ?.addEventListener("click", () => {
+            const reason = document.getElementById("cancelReason").value;
+            if (!reason) return alert("Select a reason.");
 
-        function attachCancelHandlers() {
-      document.getElementById('confirmCancelBtn')?.addEventListener('click', () => {
-        const reason = document.getElementById('cancelReason').value;
-        if (!reason) return alert('Select a reason.');
+            const o = state.order,
+              cust = state.customer;
+            const t = calcTotals(o);
 
-        const o = state.order, cust = state.customer;
-        const t = calcTotals(o);
+            // -------- 1. Money: cash paid + credit consumed → fresh credit --------
+            const cashPaid = t.paid;
+            const creditConsumed = o.creditApplied || 0;
+            const totalReturned = cashPaid + creditConsumed;
 
-        // -------- 1. Money: cash paid + credit consumed → fresh credit --------
-        const cashPaid = t.paid;
-        const creditConsumed = o.creditApplied || 0;
-        const totalReturned = cashPaid + creditConsumed;
+            if (totalReturned > 0) {
+              cust.credit += totalReturned;
 
-        if (totalReturned > 0) {
-          cust.credit += totalReturned;
+              // Always reset expiry on new credit issuance (fresh 60-day window).
+              const d = new Date();
+              d.setDate(d.getDate() + CREDIT_VALIDITY_DAYS);
+              cust.creditExpiryDate = d.toISOString().split("T")[0];
 
-          // Always reset expiry on new credit issuance (fresh 60-day window).
-          const d = new Date();
-          d.setDate(d.getDate() + CREDIT_VALIDITY_DAYS);
-          cust.creditExpiryDate = d.toISOString().split('T')[0];
+              // Mirror to master
+              const master = getCustomer(cust.id);
+              if (master) {
+                master.credit = cust.credit;
+                master.creditExpiryDate = cust.creditExpiryDate;
+              }
 
-          // Mirror to master
-          const master = getCustomer(cust.id);
-          if (master) {
-            master.credit = cust.credit;
-            master.creditExpiryDate = cust.creditExpiryDate;
-          }
+              // Ledger entry (customer-facing)
+              pushCreditEvent(
+                cust.id,
+                `Cancelled order ${o.orderNumber}`,
+                totalReturned,
+              );
 
-          const parts = [];
-          if (cashPaid > 0) parts.push(`${money(cashPaid)} cash`);
-          if (creditConsumed > 0) parts.push(`${money(creditConsumed)} credit`);
-          logTimeline(`Cancelled (${reason}). Credit ${money(totalReturned)} issued (${parts.join(' + ')}). Expires ${formatDate(cust.creditExpiryDate)}.`);
-        } else {
-          logTimeline(`Cancelled (${reason}). No payment to return.`);
-        }
+              const parts = [];
+              if (cashPaid > 0) parts.push(`${money(cashPaid)} cash`);
+              if (creditConsumed > 0)
+                parts.push(`${money(creditConsumed)} credit`);
+              logTimeline(
+                `Cancelled (${reason}). Credit ${money(totalReturned)} issued (${parts.join(" + ")}). Expires ${formatDate(cust.creditExpiryDate)}.`,
+              );
+            } else {
+              logTimeline(`Cancelled (${reason}). No payment to return.`);
+            }
 
-        // -------- 2. Stock: release reservations per state --------
-        if (o.softReservation) {
-          releaseSoftReservation(o);
-        }
-        if (o.state === 'ready') {
-          releasePickupReservation(o);
-        }
-        if (o.state === 'out-for-delivery') {
-          releaseDeliveryReservation(o);
-        }
+            // -------- 2. Stock: release reservations per state --------
+            if (o.softReservation) {
+              releaseSoftReservation(o);
+            }
+            if (o.state === "ready") {
+              releasePickupReservation(o);
+            }
+            if (o.state === "out-for-delivery") {
+              releaseDeliveryReservation(o);
+            }
 
-        // -------- 3. Move to Cancelled --------
-        o.state = 'cancelled';
-        state.activeModal = null;
-        render();
-      });
-    }
-      
-      
+            // -------- 3. Move to Cancelled --------
+            o.state = "cancelled";
+            state.activeModal = null;
+            render();
+          });
+      }
+
       /* ============ ADD PRODUCT MODAL ============ */
       function renderAddProductModal() {
         return `
@@ -3407,37 +3823,39 @@ DISPATCH DASHBOARD DEMO SEED
           });
       }
 
+      function renderCollectionChangeUnitsView() {
+        const o = state.order;
+        const productId = state.collectionChangingUnitsFor;
+        const product = getInvProduct(productId);
+        const item = o.items.find((i) => i.productId === productId);
+        if (!product || !item) return "";
 
+        const pickupLoc = LOCATIONS.find(
+          (l) => l.name === o.pickupLocation,
+        )?.id;
+        const selected = state.collectionSelections[productId] || [];
 
+        // Candidates: units at the pickup location that are either Reserved for
+        // this order, Available, or already selected.
+        const unitsAtLocation = UNITS.filter((u) => {
+          if (u.productId !== productId) return false;
+          if (u.locationId !== pickupLoc) return false;
+          if (u.status === "Reserved" && u.reservedForOrder === o.orderNumber)
+            return true;
+          if (u.status === "Available") return true;
+          return false;
+        }).sort((a, b) => {
+          if (a.receivedDate !== b.receivedDate)
+            return a.receivedDate < b.receivedDate ? -1 : 1;
+          return a.tag < b.tag ? -1 : 1;
+        });
 
+        const search = (state.collectionUnitSearch || "").toLowerCase();
+        const filtered = unitsAtLocation.filter(
+          (u) => !search || u.tag.toLowerCase().includes(search),
+        );
 
-          function renderCollectionChangeUnitsView() {
-      const o = state.order;
-      const productId = state.collectionChangingUnitsFor;
-      const product = getInvProduct(productId);
-      const item = o.items.find(i => i.productId === productId);
-      if (!product || !item) return '';
-
-      const pickupLoc = LOCATIONS.find(l => l.name === o.pickupLocation)?.id;
-      const selected = state.collectionSelections[productId] || [];
-
-      // Candidates: units at the pickup location that are either Reserved for
-      // this order, Available, or already selected.
-      const unitsAtLocation = UNITS.filter(u => {
-        if (u.productId !== productId) return false;
-        if (u.locationId !== pickupLoc) return false;
-        if (u.status === 'Reserved' && u.reservedForOrder === o.orderNumber) return true;
-        if (u.status === 'Available') return true;
-        return false;
-      }).sort((a, b) => {
-        if (a.receivedDate !== b.receivedDate) return a.receivedDate < b.receivedDate ? -1 : 1;
-        return a.tag < b.tag ? -1 : 1;
-      });
-
-      const search = (state.collectionUnitSearch || '').toLowerCase();
-      const filtered = unitsAtLocation.filter(u => !search || u.tag.toLowerCase().includes(search));
-
-      return `
+        return `
     <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
       <div class="modal">
         <div class="modal-header">Change Units <button class="close-x" onclick="closeModal()">×</button></div>
@@ -3446,202 +3864,227 @@ DISPATCH DASHBOARD DEMO SEED
             <strong>${product.name}</strong> · Select exactly ${item.qty} units from ${o.pickupLocation}
           </p>
           <p style="font-size:12px; color:#666; margin-top:4px;">
-            ${unitsAtLocation.length} unit${unitsAtLocation.length === 1 ? '' : 's'} available.
+            ${unitsAtLocation.length} unit${unitsAtLocation.length === 1 ? "" : "s"} available.
           </p>
 
           <input type="text" id="collectionUnitSearch"
             placeholder="🔍 Search by tag..."
-            value="${state.collectionUnitSearch || ''}"
+            value="${state.collectionUnitSearch || ""}"
             style="margin-top:8px;"
             oninput="state.collectionUnitSearch=this.value; render();">
 
           <div style="max-height:320px; overflow-y:auto; border:2px solid #1a1a1a; border-radius:4px; padding:8px; margin-top:8px;">
-            ${filtered.length === 0
-              ? `<div class="empty-state">${unitsAtLocation.length === 0 ? 'No units available.' : 'No units match your search.'}</div>`
-              : filtered.map(u => {
-                  const checked = selected.includes(u.id);
-                  return `
+            ${
+              filtered.length === 0
+                ? `<div class="empty-state">${unitsAtLocation.length === 0 ? "No units available." : "No units match your search."}</div>`
+                : filtered
+                    .map((u) => {
+                      const checked = selected.includes(u.id);
+                      return `
                     <label style="display:flex; gap:8px; align-items:center; padding:6px 4px; border-bottom:1px dashed #ddd; font-size:12px; cursor:pointer;">
-                      <input type="checkbox" ${checked ? 'checked' : ''} style="width:auto;"
+                      <input type="checkbox" ${checked ? "checked" : ""} style="width:auto;"
                         onchange="toggleCollectionUnit('${productId}', '${u.id}', ${item.qty})">
                       <span style="flex:1;">${u.tag}</span>
-                      <span style="font-size:11px; color:#888;">${u.condition || 'New'}</span>
+                      <span style="font-size:11px; color:#888;">${u.condition || "New"}</span>
                       <span style="font-size:11px; color:#888;">${formatDate(u.receivedDate)}</span>
                     </label>
                   `;
-                }).join('')
+                    })
+                    .join("")
             }
           </div>
 
           <div style="margin-top:8px; font-size:12px;">
-            ${selected.length === item.qty
-              ? `<span class="green">✓ ${selected.length} of ${item.qty} selected</span>`
-              : `<span class="red">Select exactly ${item.qty}. Currently: ${selected.length}</span>`}
+            ${
+              selected.length === item.qty
+                ? `<span class="green">✓ ${selected.length} of ${item.qty} selected</span>`
+                : `<span class="red">Select exactly ${item.qty}. Currently: ${selected.length}</span>`
+            }
           </div>
         </div>
         <div class="modal-footer">
           <button onclick="closeCollectionChangeUnits()">← Back</button>
-          <button class="btn-primary" onclick="confirmCollectionChangeUnits()" ${selected.length !== item.qty ? 'disabled' : ''}>Done</button>
+          <button class="btn-primary" onclick="confirmCollectionChangeUnits()" ${selected.length !== item.qty ? "disabled" : ""}>Done</button>
         </div>
       </div>
     </div>
   `;
-    }
+      }
 
+      function openCollectionChangeUnits(productId) {
+        state.collectionChangingUnitsFor = productId;
+        state.collectionUnitSearch = "";
+        render();
+      }
 
+      function closeCollectionChangeUnits() {
+        state.collectionChangingUnitsFor = null;
+        render();
+      }
 
-        function openCollectionChangeUnits(productId) {
-      state.collectionChangingUnitsFor = productId;
-      state.collectionUnitSearch = '';
-      render();
-    }
-
-    function closeCollectionChangeUnits() {
-      state.collectionChangingUnitsFor = null;
-      render();
-    }
-
-    function toggleCollectionUnit(productId, unitId, maxQty) {
-      let selected = state.collectionSelections[productId] || [];
-      if (selected.includes(unitId)) {
-        selected = selected.filter(id => id !== unitId);
-      } else {
-        if (selected.length >= maxQty) {
-          alert(`You can select up to ${maxQty} units. Deselect one first.`);
-          return;
+      function toggleCollectionUnit(productId, unitId, maxQty) {
+        let selected = state.collectionSelections[productId] || [];
+        if (selected.includes(unitId)) {
+          selected = selected.filter((id) => id !== unitId);
+        } else {
+          if (selected.length >= maxQty) {
+            alert(`You can select up to ${maxQty} units. Deselect one first.`);
+            return;
+          }
+          selected.push(unitId);
         }
-        selected.push(unitId);
+        state.collectionSelections[productId] = selected;
+        render();
       }
-      state.collectionSelections[productId] = selected;
-      render();
-    }
 
-    function confirmCollectionChangeUnits() {
-      const productId = state.collectionChangingUnitsFor;
-      const item = state.order.items.find(i => i.productId === productId);
-      const selected = state.collectionSelections[productId] || [];
-      if (selected.length !== item.qty) {
-        return alert(`Select exactly ${item.qty} units.`);
+      function confirmCollectionChangeUnits() {
+        const productId = state.collectionChangingUnitsFor;
+        const item = state.order.items.find((i) => i.productId === productId);
+        const selected = state.collectionSelections[productId] || [];
+        if (selected.length !== item.qty) {
+          return alert(`Select exactly ${item.qty} units.`);
+        }
+        state.collectionChangingUnitsFor = null;
+        render();
       }
-      state.collectionChangingUnitsFor = null;
-      render();
-    }
-
 
       /* ============ PICKED UP BY MODAL ============ */
-     
-          function renderPickedUpByModal() {
-      const o = state.order, cust = state.customer;
-      const isImmediate = (o.timing === 'Immediate');
 
-      // Compute units available for selection at the pickup location.
-      const pickupLoc = LOCATIONS.find(l => l.name === o.pickupLocation)?.id;
+      function renderPickedUpByModal() {
+        const o = state.order,
+          cust = state.customer;
+        const isImmediate = o.timing === "Immediate";
 
-      // Auto-select the reserved/available units if we haven't done so yet
-      if (Object.keys(state.collectionSelections).length === 0) {
-        o.items.forEach(item => {
+        // Compute units available for selection at the pickup location.
+        const pickupLoc = LOCATIONS.find(
+          (l) => l.name === o.pickupLocation,
+        )?.id;
+
+        // Auto-select the reserved/available units if we haven't done so yet
+        if (Object.keys(state.collectionSelections).length === 0) {
+          o.items.forEach((item) => {
+            const product = getInvProduct(item.productId);
+            if (!product) return;
+            if (product.trackingType === "Individual") {
+              // Reserved units for this order first (Scheduled Pickup path)
+              let candidates = UNITS.filter(
+                (u) =>
+                  u.productId === item.productId &&
+                  u.locationId === pickupLoc &&
+                  u.status === "Reserved" &&
+                  u.reservedForOrder === o.orderNumber,
+              );
+              // Fallback: Available units (Immediate Pickup path — no reservation yet)
+              if (candidates.length === 0) {
+                candidates = UNITS.filter(
+                  (u) =>
+                    u.productId === item.productId &&
+                    u.locationId === pickupLoc &&
+                    u.status === "Available",
+                ).slice(0, item.qty);
+              }
+              state.collectionSelections[item.productId] = candidates
+                .slice(0, item.qty)
+                .map((u) => u.id);
+            }
+          });
+        }
+
+        // If we're in Change Units drill-in mode, render that instead
+        if (state.collectionChangingUnitsFor) {
+          return renderCollectionChangeUnitsView();
+        }
+
+        // Compute whether the collection can be confirmed
+        let allSatisfied = true;
+        const shortfalls = [];
+
+        o.items.forEach((item) => {
           const product = getInvProduct(item.productId);
           if (!product) return;
-          if (product.trackingType === 'Individual') {
-            // Reserved units for this order first (Scheduled Pickup path)
-            let candidates = UNITS.filter(u =>
-              u.productId === item.productId &&
-              u.locationId === pickupLoc &&
-              u.status === 'Reserved' &&
-              u.reservedForOrder === o.orderNumber
-            );
-            // Fallback: Available units (Immediate Pickup path — no reservation yet)
-            if (candidates.length === 0) {
-              candidates = UNITS.filter(u =>
-                u.productId === item.productId &&
-                u.locationId === pickupLoc &&
-                u.status === 'Available'
-              ).slice(0, item.qty);
+
+          if (product.trackingType === "Individual") {
+            const selected = state.collectionSelections[item.productId] || [];
+            if (selected.length !== item.qty) {
+              allSatisfied = false;
+              const atLoc = UNITS.filter(
+                (u) =>
+                  u.productId === item.productId &&
+                  u.locationId === pickupLoc &&
+                  (u.status === "Available" ||
+                    (u.status === "Reserved" &&
+                      u.reservedForOrder === o.orderNumber)),
+              ).length;
+              shortfalls.push(
+                `${product.name}: ${selected.length} of ${item.qty} selected (${atLoc} available at ${o.pickupLocation})`,
+              );
             }
-            state.collectionSelections[item.productId] = candidates.slice(0, item.qty).map(u => u.id);
+          } else {
+            const s = getStockSummary(item.productId, pickupLoc);
+            const availableHere = s.available + (s.reserved || 0);
+            if (availableHere < item.qty) {
+              allSatisfied = false;
+              shortfalls.push(
+                `${product.name}: needs ${item.qty}, only ${availableHere} on hand at ${o.pickupLocation}`,
+              );
+            }
           }
         });
-      }
 
-            // If we're in Change Units drill-in mode, render that instead
-      if (state.collectionChangingUnitsFor) {
-        return renderCollectionChangeUnitsView();
-      }
-
-      // Compute whether the collection can be confirmed
-      let allSatisfied = true;
-      const shortfalls = [];
-
-      o.items.forEach(item => {
-        const product = getInvProduct(item.productId);
-        if (!product) return;
-
-        if (product.trackingType === 'Individual') {
-          const selected = state.collectionSelections[item.productId] || [];
-          if (selected.length !== item.qty) {
-            allSatisfied = false;
-            const atLoc = UNITS.filter(u =>
-              u.productId === item.productId &&
-              u.locationId === pickupLoc &&
-              (u.status === 'Available' || (u.status === 'Reserved' && u.reservedForOrder === o.orderNumber))
-            ).length;
-            shortfalls.push(`${product.name}: ${selected.length} of ${item.qty} selected (${atLoc} available at ${o.pickupLocation})`);
-          }
-        } else {
-          const s = getStockSummary(item.productId, pickupLoc);
-          const availableHere = s.available + (s.reserved || 0);
-          if (availableHere < item.qty) {
-            allSatisfied = false;
-            shortfalls.push(`${product.name}: needs ${item.qty}, only ${availableHere} on hand at ${o.pickupLocation}`);
-          }
-        }
-      });
-
-      return `
+        return `
     <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
       <div class="modal">
         <div class="modal-header">Confirm Pickup <button class="close-x" onclick="closeModal()">×</button></div>
         <div class="modal-body">
 
           <div style="padding:8px; border:1px dashed #999; border-radius:4px; font-size:12px; color:#555; margin-bottom:12px;">
-            ${isImmediate
-              ? 'Walk-in pickup — confirm the items being handed over now.'
-              : `Pickup from <strong>${o.pickupLocation}</strong> — confirm which items are being handed over.`}
+            ${
+              isImmediate
+                ? "Walk-in pickup — confirm the items being handed over now."
+                : `Pickup from <strong>${o.pickupLocation}</strong> — confirm which items are being handed over.`
+            }
           </div>
 
           <!-- Item selection -->
           <div style="font-weight:bold; font-size:13px; margin-bottom:8px;">Items being collected</div>
-          ${o.items.map(item => {
-            const p = getInvProduct(item.productId);
-            if (!p) return '';
+          ${o.items
+            .map((item) => {
+              const p = getInvProduct(item.productId);
+              if (!p) return "";
 
-            if (p.trackingType === 'Individual') {
-              const selected = state.collectionSelections[item.productId] || [];
-              const isReady = selected.length === item.qty;
-              return `
+              if (p.trackingType === "Individual") {
+                const selected =
+                  state.collectionSelections[item.productId] || [];
+                const isReady = selected.length === item.qty;
+                return `
                 <div class="card" style="margin-bottom:8px; padding:10px;">
                   <div>
                     <strong>${p.name}</strong> · ×${item.qty}
                     <span style="font-size:11px; color:#888;">[Individual Item]</span>
                   </div>
                   <div style="margin-top:6px; font-size:12px;">
-                    ${isReady
-                      ? `<span class="green">✓ ${selected.length} of ${item.qty} selected</span>`
-                      : `<span class="red">⚠ ${selected.length} of ${item.qty} selected</span>`}
+                    ${
+                      isReady
+                        ? `<span class="green">✓ ${selected.length} of ${item.qty} selected</span>`
+                        : `<span class="red">⚠ ${selected.length} of ${item.qty} selected</span>`
+                    }
                   </div>
                   <div style="margin-top:6px; font-size:11px; color:#666;">
-                    ${selected.map(id => UNITS.find(u => u.id === id)?.tag).filter(Boolean).join(', ')}
+                    ${selected
+                      .map((id) => UNITS.find((u) => u.id === id)?.tag)
+                      .filter(Boolean)
+                      .join(", ")}
                   </div>
                   <div style="margin-top:6px;">
                     <button onclick="openCollectionChangeUnits('${item.productId}')" style="font-size:12px;">Change Units</button>
                   </div>
                 </div>
               `;
-            } else {
-              // Stock quantity: just confirm the qty
-              const s = getStockSummary(item.productId, pickupLoc);
-              const reserved = Math.min(item.qty, s.reserved || item.qty);
-              return `
+              } else {
+                // Stock quantity: just confirm the qty
+                const s = getStockSummary(item.productId, pickupLoc);
+                const reserved = Math.min(item.qty, s.reserved || item.qty);
+                return `
                 <div class="card" style="margin-bottom:8px; padding:10px;">
                   <div>
                     <strong>${p.name}</strong> · ×${item.qty}
@@ -3652,8 +4095,9 @@ DISPATCH DASHBOARD DEMO SEED
                   </div>
                 </div>
               `;
-            }
-          }).join('')}
+              }
+            })
+            .join("")}
 
           <!-- Picked Up By -->
           <div style="font-weight:bold; font-size:13px; margin:16px 0 8px;">Picked up by</div>
@@ -3664,7 +4108,9 @@ DISPATCH DASHBOARD DEMO SEED
           <label class="mt-12">Phone Number</label>
           <input type="text" id="pickupPhone" value="${cust.phone}">
 
-                      ${!isImmediate ? `
+                      ${
+                        !isImmediate
+                          ? `
             <label class="mt-12" style="display:flex; align-items:flex-start; gap:8px; font-size:12px; line-height:1.3;">
               <input type="checkbox" id="pickupOrderRefVerified" style="width:auto; margin-top:2px;">
               <span>Order reference verified *<br><span style="color:#666;">Customer presented the order reference before collection.</span></span>
@@ -3675,152 +4121,192 @@ DISPATCH DASHBOARD DEMO SEED
               <span>Photo ID presented<br><span style="color:#666;">Optional. Recommended for high-value orders.</span></span>
             </label>
 
-            ${calcTotals(o).total >= 500000 ? `
+            ${
+              calcTotals(o).total >= 500000
+                ? `
               <div style="font-size:11px; color:#92400e; margin-top:8px; padding:6px 8px; border:1px dashed #92400e; border-radius:4px;">
                 💡 High-value order — ID check strongly recommended.
               </div>
-            ` : ''}
-          ` : ''}
+            `
+                : ""
+            }
+          `
+                          : ""
+                      }
 
         </div>
 
-        ${!allSatisfied ? `
+        ${
+          !allSatisfied
+            ? `
           <div style="margin: 0 12px 12px; padding:10px; border:2px dashed #991b1b; border-radius:4px; background:#fee2e2;">
             <div style="font-weight:bold; font-size:12px; color:#991b1b; margin-bottom:6px;">
               ⚠ Collection cannot be completed
             </div>
             <div style="font-size:11px; color:#991b1b; line-height:1.4;">
-              ${shortfalls.map(s => `• ${s}`).join('<br>')}
+              ${shortfalls.map((s) => `• ${s}`).join("<br>")}
             </div>
             <div style="font-size:11px; color:#666; margin-top:8px;">
               Reduce the order quantity (via Edit Order), restock, or cancel the order.
             </div>
           </div>
-        ` : ''}
+        `
+            : ""
+        }
 
         <div class="modal-footer">
           <button onclick="closeModal()">Cancel</button>
           <button class="btn-primary" id="confirmPickupBtn"
-            ${(!allSatisfied) ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ''}>
+            ${!allSatisfied ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ""}>
             Confirm Pickup
           </button>
         </div>
       </div>
     </div>
   `;
-    }
+      }
 
+      function attachPickedUpByHandlers() {
+        document
+          .getElementById("confirmPickupBtn")
+          ?.addEventListener("click", () => {
+            const o0 = state.order;
+            const isImmediate = o0.timing === "Immediate";
+            const name = document.getElementById("pickupName").value.trim();
+            const phone = document.getElementById("pickupPhone").value.trim();
+            const orderRefVerified = isImmediate
+              ? true
+              : document.getElementById("pickupOrderRefVerified")?.checked ===
+                true;
+            const idPresented = isImmediate
+              ? false
+              : document.getElementById("pickupIdPresented")?.checked === true;
 
+            if (!name) return alert("Enter who is picking up.");
+            if (!isImmediate && !orderRefVerified)
+              return alert(
+                "Confirm that the order reference has been verified.",
+              );
 
+            const o = state.order;
 
-          function attachPickedUpByHandlers() {
-                document.getElementById('confirmPickupBtn')?.addEventListener('click', () => {
-        const o0 = state.order;
-        const isImmediate = (o0.timing === 'Immediate');
-        const name = document.getElementById('pickupName').value.trim();
-        const phone = document.getElementById('pickupPhone').value.trim();
-        const orderRefVerified = isImmediate ? true : document.getElementById('pickupOrderRefVerified')?.checked === true;
-        const idPresented = isImmediate ? false : document.getElementById('pickupIdPresented')?.checked === true;
+            // -------- 1. Apply the operator's selections to stock --------
+            const pickupLoc = LOCATIONS.find(
+              (l) => l.name === o.pickupLocation,
+            )?.id;
 
-        if (!name) return alert('Enter who is picking up.');
-        if (!isImmediate && !orderRefVerified) return alert('Confirm that the order reference has been verified.');
+            o.items.forEach((item) => {
+              const product = getInvProduct(item.productId);
+              if (!product) return;
 
-        const o = state.order;
+              if (product.trackingType === "Individual") {
+                const selectedIds =
+                  state.collectionSelections[item.productId] || [];
+                const originallyReserved = UNITS.filter(
+                  (u) =>
+                    u.reservedForOrder === o.orderNumber &&
+                    u.status === "Reserved",
+                );
 
-        // -------- 1. Apply the operator's selections to stock --------
-        const pickupLoc = LOCATIONS.find(l => l.name === o.pickupLocation)?.id;
+                // Units originally reserved for this order but NOT chosen now → release to Available
+                originallyReserved.forEach((u) => {
+                  if (!selectedIds.includes(u.id)) {
+                    u.status = "Available";
+                    u.reservedForOrder = null;
+                  }
+                });
 
-        o.items.forEach(item => {
-          const product = getInvProduct(item.productId);
-          if (!product) return;
+                // Chosen units → Sold
+                selectedIds.forEach((uid) => {
+                  const u = UNITS.find((x) => x.id === uid);
+                  if (!u) return;
+                  u.status = "Sold";
+                  u.reservedForOrder = null;
+                  u.softReservedFor = null;
+                });
 
-          if (product.trackingType === 'Individual') {
-            const selectedIds = state.collectionSelections[item.productId] || [];
-            const originallyReserved = UNITS.filter(u =>
-              u.reservedForOrder === o.orderNumber && u.status === 'Reserved'
-            );
+                logMovement(
+                  item.productId,
+                  pickupLoc,
+                  "check_out",
+                  selectedIds.length,
+                  o.orderNumber,
+                );
+              } else {
+                // Stock quantity: decrement reserved (if any) and onHand
+                let remaining = item.qty;
 
-            // Units originally reserved for this order but NOT chosen now → release to Available
-            originallyReserved.forEach(u => {
-              if (!selectedIds.includes(u.id)) {
-                u.status = 'Available';
-                u.reservedForOrder = null;
+                STOCK.filter(
+                  (s) =>
+                    s.productId === item.productId &&
+                    (!pickupLoc || s.locationId === pickupLoc),
+                ).forEach((row) => {
+                  if (remaining <= 0) return;
+                  // Prefer decrementing reserved first (Scheduled Pickup path)
+                  if (row.reserved > 0) {
+                    const fromReserved = Math.min(row.reserved, remaining);
+                    row.reserved -= fromReserved;
+                    row.onHand -= fromReserved;
+                    remaining -= fromReserved;
+                  } else if (row.onHand > 0) {
+                    const fromOnHand = Math.min(row.onHand, remaining);
+                    row.onHand -= fromOnHand;
+                    remaining -= fromOnHand;
+                  }
+                });
+
+                logMovement(
+                  item.productId,
+                  pickupLoc,
+                  "check_out",
+                  item.qty,
+                  o.orderNumber,
+                );
               }
             });
 
-            // Chosen units → Sold
-            selectedIds.forEach(uid => {
-              const u = UNITS.find(x => x.id === uid);
-              if (!u) return;
-              u.status = 'Sold';
-              u.reservedForOrder = null;
-              u.softReservedFor = null;
-            });
+            // -------- 2. Record the picked-up-by info --------
+            // -------- 2. Record the picked-up-by info --------
+            o.pickedUpBy = { name, phone, orderRefVerified, idPresented };
+            o.state = "collected";
 
-            logMovement(item.productId, pickupLoc, 'check_out', selectedIds.length, o.orderNumber);
-          } else {
-            // Stock quantity: decrement reserved (if any) and onHand
-            let remaining = item.qty;
+            // Log with verification detail
+            const logParts = [`Collected by ${name}`];
+            if (!isImmediate) {
+              logParts.push(
+                orderRefVerified
+                  ? "Order reference verified"
+                  : "Order reference NOT verified",
+              );
+              if (idPresented) logParts.push("Photo ID presented");
+            }
+            logTimeline(logParts.join(" · "));
 
-            STOCK
-              .filter(s => s.productId === item.productId && (!pickupLoc || s.locationId === pickupLoc))
-              .forEach(row => {
-                if (remaining <= 0) return;
-                // Prefer decrementing reserved first (Scheduled Pickup path)
-                if (row.reserved > 0) {
-                  const fromReserved = Math.min(row.reserved, remaining);
-                  row.reserved -= fromReserved;
-                  row.onHand -= fromReserved;
-                  remaining -= fromReserved;
-                } else if (row.onHand > 0) {
-                  const fromOnHand = Math.min(row.onHand, remaining);
-                  row.onHand -= fromOnHand;
-                  remaining -= fromOnHand;
-                }
-              });
+            // -------- 3. Complete the order --------
+            o.state = "completed";
+            logTimeline("Order completed.");
 
-            logMovement(item.productId, pickupLoc, 'check_out', item.qty, o.orderNumber);
-          }
-        });
+            // -------- 4. Clear working state and show success screen --------
+            state.collectionSelections = {};
+            state.collectionUnitSearch = "";
+            state.collectionChangingUnitsFor = null;
+            state.activeModal = null;
 
-        // -------- 2. Record the picked-up-by info --------
-                // -------- 2. Record the picked-up-by info --------
-        o.pickedUpBy = { name, phone, orderRefVerified, idPresented };
-        o.state = 'collected';
+            const isWalkin =
+              o.timing === "Immediate" && o.fulfillment === "Pickup";
+            state.successContext = {
+              title: isWalkin ? "Order Completed" : "Order Collected",
+              subtitle: isWalkin
+                ? `${o.orderNumber} · Handover confirmed`
+                : `${o.orderNumber} · Thank you`,
+              documentType: "Receipt",
+              isWalkin: false, // stock has already been deducted during collection
+            };
+            state.currentPage = "success";
+            render();
+          });
+      }
 
-        // Log with verification detail
-        const logParts = [`Collected by ${name}`];
-        if (!isImmediate) {
-          logParts.push(orderRefVerified ? 'Order reference verified' : 'Order reference NOT verified');
-          if (idPresented) logParts.push('Photo ID presented');
-        }
-        logTimeline(logParts.join(' · '));
-
-        // -------- 3. Complete the order --------
-        o.state = 'completed';
-        logTimeline('Order completed.');
-
-        // -------- 4. Clear working state and show success screen --------
-        state.collectionSelections = {};
-        state.collectionUnitSearch = '';
-        state.collectionChangingUnitsFor = null;
-        state.activeModal = null;
-
-        const isWalkin = (o.timing === 'Immediate' && o.fulfillment === 'Pickup');
-        state.successContext = {
-          title: isWalkin ? 'Order Completed' : 'Order Collected',
-          subtitle: isWalkin
-            ? `${o.orderNumber} · Handover confirmed`
-            : `${o.orderNumber} · Thank you`,
-          documentType: 'Receipt',
-          isWalkin: false, // stock has already been deducted during collection
-        };
-        state.currentPage = 'success';
-        render();
-      });
-    }
-      
-      
       /* ============ EXTEND EXPIRY MODAL ============ */
       function renderExtendExpiryModal() {
         const o = state.order;
@@ -4260,7 +4746,7 @@ DISPATCH DASHBOARD DEMO SEED
 DISPATCH WIZARD HANDLERS
 ============================================================ */
 
-    function closeDispatchWizard() {
+      function closeDispatchWizard() {
         state.activeModal = null;
         state.dispatchWizard.changingUnitsFor = null;
         state.dispatchReturnTo = "order-details";
@@ -5043,38 +5529,36 @@ RECEIVE STOCK MODAL
           });
       }
 
-      
-
-            /* ============================================================
+      /* ============================================================
        COMBOBOX
        A text input with a dropdown list. Typing filters the list.
        Free text is accepted as a custom value (used by Category
        and Unit of Measure in product setup).
        ============================================================ */
 
-    // Render a combobox.
-    //   id          — the input's DOM id (also used as the state key)
-    //   options     — array of strings (suggestions)
-    //   value       — current value (string)
-    //   placeholder — placeholder text for the input
-    function renderCombobox(id, options, value, placeholder) {
-      const isOpen = state.openCombobox === id;
-      const typed = value || '';
-      const query = typed.toLowerCase();
-      // Filter: show options that contain the typed text (or all if nothing typed)
-      const filtered = options.filter(o =>
-        !query || o.toLowerCase().includes(query)
-      );
-      // Has the operator typed something that doesn't exactly match an option?
-      const exactMatch = options.some(o => o.toLowerCase() === query);
-      const showCreate = typed.length > 0 && !exactMatch;
+      // Render a combobox.
+      //   id          — the input's DOM id (also used as the state key)
+      //   options     — array of strings (suggestions)
+      //   value       — current value (string)
+      //   placeholder — placeholder text for the input
+      function renderCombobox(id, options, value, placeholder) {
+        const isOpen = state.openCombobox === id;
+        const typed = value || "";
+        const query = typed.toLowerCase();
+        // Filter: show options that contain the typed text (or all if nothing typed)
+        const filtered = options.filter(
+          (o) => !query || o.toLowerCase().includes(query),
+        );
+        // Has the operator typed something that doesn't exactly match an option?
+        const exactMatch = options.some((o) => o.toLowerCase() === query);
+        const showCreate = typed.length > 0 && !exactMatch;
 
-      return `
+        return `
         <div class="combobox" data-combobox="${id}">
           <div class="combobox-input" onclick="openCombobox('${id}')">
             <input type="text"
               id="${id}"
-              value="${value || ''}"
+              value="${value || ""}"
               placeholder="${placeholder}"
               autocomplete="off"
               onfocus="openCombobox('${id}')"
@@ -5083,153 +5567,177 @@ RECEIVE STOCK MODAL
               onblur="onComboboxBlur(event, '${id}')">
             <div class="combobox-caret" onclick="toggleCombobox('${id}', event)">▼</div>
           </div>
-          ${isOpen ? `
+          ${
+            isOpen
+              ? `
             <div class="combobox-panel">
-              ${filtered.length === 0 && !showCreate
-                ? `<div class="combobox-empty">No matches. Type a value to use it.</div>`
-                : ''}
-              ${filtered.map((o, idx) => `
-                <div class="combobox-item ${state.comboboxActive === idx ? 'active' : ''}"
-                  onmousedown="selectComboboxValue('${id}', ${JSON.stringify(o).replace(/"/g, '&quot;')})">
+              ${
+                filtered.length === 0 && !showCreate
+                  ? `<div class="combobox-empty">No matches. Type a value to use it.</div>`
+                  : ""
+              }
+              ${filtered
+                .map(
+                  (o, idx) => `
+                <div class="combobox-item ${state.comboboxActive === idx ? "active" : ""}"
+                  onmousedown="selectComboboxValue('${id}', ${JSON.stringify(o).replace(/"/g, "&quot;")})">
                   ${o}
                 </div>
-              `).join('')}
-              ${showCreate ? `
+              `,
+                )
+                .join("")}
+              ${
+                showCreate
+                  ? `
                 <div class="combobox-item create-new"
-                  onmousedown="selectComboboxValue('${id}', ${JSON.stringify(typed).replace(/"/g, '&quot;')})">
+                  onmousedown="selectComboboxValue('${id}', ${JSON.stringify(typed).replace(/"/g, "&quot;")})">
                   Use "${typed}"
                 </div>
-              ` : ''}
+              `
+                  : ""
+              }
             </div>
-          ` : ''}
+          `
+              : ""
+          }
         </div>
       `;
-    }
-
-    function openCombobox(id) {
-      state.openCombobox = id;
-      state.comboboxActive = -1;
-      render();
-    }
-
-    function toggleCombobox(id, event) {
-      event.stopPropagation();
-      if (state.openCombobox === id) {
-        state.openCombobox = null;
-      } else {
-        state.openCombobox = id;
       }
-      state.comboboxActive = -1;
-      render();
-    }
 
-    function onComboboxInput(id) {
-      // Input value already lives in the DOM. We just need to re-render so the
-      // filtered panel updates, but we must preserve focus and value.
-      const input = document.getElementById(id);
-      const value = input?.value || '';
-      const selStart = input?.selectionStart;
-      const selEnd = input?.selectionEnd;
-
-      state.openCombobox = id;
-      state.comboboxActive = -1;
-      render();
-
-      // Restore focus and caret position
-      setTimeout(() => {
-        const newInput = document.getElementById(id);
-        if (newInput) {
-          newInput.focus();
-          try { newInput.setSelectionRange(selStart, selEnd); } catch (e) {}
-        }
-      }, 0);
-    }
-
-    function onComboboxKeydown(event, id) {
-      const options = optionsForCombobox(id);
-      const typed = event.target.value || '';
-      const query = typed.toLowerCase();
-      const filtered = options.filter(o => !query || o.toLowerCase().includes(query));
-      const exactMatch = options.some(o => o.toLowerCase() === query);
-      const showCreate = typed.length > 0 && !exactMatch;
-
-      const totalItems = filtered.length + (showCreate ? 1 : 0);
-
-      if (event.key === 'ArrowDown') {
-        event.preventDefault();
+      function openCombobox(id) {
         state.openCombobox = id;
-        state.comboboxActive = Math.min(state.comboboxActive + 1, totalItems - 1);
-        render();
-        refocusCombobox(id);
-      } else if (event.key === 'ArrowUp') {
-        event.preventDefault();
-        state.comboboxActive = Math.max(state.comboboxActive - 1, 0);
-        render();
-        refocusCombobox(id);
-      } else if (event.key === 'Enter') {
-        if (state.comboboxActive >= 0 && state.comboboxActive < totalItems) {
-          event.preventDefault();
-          const value = (state.comboboxActive < filtered.length)
-            ? filtered[state.comboboxActive]
-            : typed;
-          selectComboboxValue(id, value);
-        }
-      } else if (event.key === 'Escape') {
-        state.openCombobox = null;
         state.comboboxActive = -1;
         render();
-        refocusCombobox(id);
       }
-    }
 
-    function onComboboxBlur(event, id) {
-      // Small delay so an mousedown on a panel item can fire first.
-      setTimeout(() => {
-        // If focus has moved somewhere else and the panel is still open, close it.
+      function toggleCombobox(id, event) {
+        event.stopPropagation();
         if (state.openCombobox === id) {
+          state.openCombobox = null;
+        } else {
+          state.openCombobox = id;
+        }
+        state.comboboxActive = -1;
+        render();
+      }
+
+      function onComboboxInput(id) {
+        // Input value already lives in the DOM. We just need to re-render so the
+        // filtered panel updates, but we must preserve focus and value.
+        const input = document.getElementById(id);
+        const value = input?.value || "";
+        const selStart = input?.selectionStart;
+        const selEnd = input?.selectionEnd;
+
+        state.openCombobox = id;
+        state.comboboxActive = -1;
+        render();
+
+        // Restore focus and caret position
+        setTimeout(() => {
+          const newInput = document.getElementById(id);
+          if (newInput) {
+            newInput.focus();
+            try {
+              newInput.setSelectionRange(selStart, selEnd);
+            } catch (e) {}
+          }
+        }, 0);
+      }
+
+      function onComboboxKeydown(event, id) {
+        const options = optionsForCombobox(id);
+        const typed = event.target.value || "";
+        const query = typed.toLowerCase();
+        const filtered = options.filter(
+          (o) => !query || o.toLowerCase().includes(query),
+        );
+        const exactMatch = options.some((o) => o.toLowerCase() === query);
+        const showCreate = typed.length > 0 && !exactMatch;
+
+        const totalItems = filtered.length + (showCreate ? 1 : 0);
+
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          state.openCombobox = id;
+          state.comboboxActive = Math.min(
+            state.comboboxActive + 1,
+            totalItems - 1,
+          );
+          render();
+          refocusCombobox(id);
+        } else if (event.key === "ArrowUp") {
+          event.preventDefault();
+          state.comboboxActive = Math.max(state.comboboxActive - 1, 0);
+          render();
+          refocusCombobox(id);
+        } else if (event.key === "Enter") {
+          if (state.comboboxActive >= 0 && state.comboboxActive < totalItems) {
+            event.preventDefault();
+            const value =
+              state.comboboxActive < filtered.length
+                ? filtered[state.comboboxActive]
+                : typed;
+            selectComboboxValue(id, value);
+          }
+        } else if (event.key === "Escape") {
           state.openCombobox = null;
           state.comboboxActive = -1;
           render();
+          refocusCombobox(id);
         }
-      }, 150);
-    }
+      }
 
-    function refocusCombobox(id) {
-      setTimeout(() => {
+      function onComboboxBlur(event, id) {
+        // Small delay so an mousedown on a panel item can fire first.
+        setTimeout(() => {
+          // If focus has moved somewhere else and the panel is still open, close it.
+          if (state.openCombobox === id) {
+            state.openCombobox = null;
+            state.comboboxActive = -1;
+            render();
+          }
+        }, 150);
+      }
+
+      function refocusCombobox(id) {
+        setTimeout(() => {
+          const input = document.getElementById(id);
+          if (input) {
+            input.focus();
+            // Put caret at end
+            const len = input.value.length;
+            try {
+              input.setSelectionRange(len, len);
+            } catch (e) {}
+          }
+        }, 0);
+      }
+
+      // Map combobox ids to their option lists.
+      function optionsForCombobox(id) {
+        if (id === "npCategory") return PRODUCT_CATEGORIES;
+        if (id === "npUnit") return PRODUCT_UNITS;
+        return [];
+      }
+
+      function selectComboboxValue(id, value) {
         const input = document.getElementById(id);
-        if (input) {
-          input.focus();
-          // Put caret at end
-          const len = input.value.length;
-          try { input.setSelectionRange(len, len); } catch (e) {}
-        }
-      }, 0);
-    }
+        if (input) input.value = value;
 
-    // Map combobox ids to their option lists.
-    function optionsForCombobox(id) {
-      if (id === 'npCategory') return PRODUCT_CATEGORIES;
-      if (id === 'npUnit') return PRODUCT_UNITS;
-      return [];
-    }
+        // Remove the panel directly instead of a full re-render.
+        // A full re-render destroys the DOM node mid-click, which causes the
+        // browser to drop the click and the selection never appears to take.
+        const wrap = input?.closest(".combobox");
+        const panel = wrap?.querySelector(".combobox-panel");
+        if (panel) panel.remove();
 
-       function selectComboboxValue(id, value) {
-      const input = document.getElementById(id);
-      if (input) input.value = value;
-
-      // Remove the panel directly instead of a full re-render.
-      // A full re-render destroys the DOM node mid-click, which causes the
-      // browser to drop the click and the selection never appears to take.
-      const wrap = input?.closest('.combobox');
-      const panel = wrap?.querySelector('.combobox-panel');
-      if (panel) panel.remove();
-
-      state.openCombobox = null;
-      state.comboboxActive = -1;
-      // No render() — DOM and state are consistent as-is.
-      // The input's value will be read fresh next time we need it
-      // (e.g. on save or on the next combobox interaction).
-    }
+        state.openCombobox = null;
+        state.comboboxActive = -1;
+        // No render() — DOM and state are consistent as-is.
+        // The input's value will be read fresh next time we need it
+        // (e.g. on save or on the next combobox interaction).
+      }
 
       /* ============================================================
        NEW PRODUCT MODAL
@@ -5253,14 +5761,14 @@ RECEIVE STOCK MODAL
               <label>Category *</label>
               <select id="npCategory">
                 <option value="">Select category</option>
-                ${PRODUCT_CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join('')}
+                ${PRODUCT_CATEGORIES.map((c) => `<option value="${c}">${c}</option>`).join("")}
               </select>
             </div>
             <div class="col">
               <label>Unit of Measure *</label>
               <select id="npUnit">
                 <option value="">Select unit</option>
-                ${PRODUCT_UNITS.map(u => `<option value="${u}">${u}</option>`).join('')}
+                ${PRODUCT_UNITS.map((u) => `<option value="${u}">${u}</option>`).join("")}
               </select>
             </div>
           </div>
@@ -5300,37 +5808,49 @@ RECEIVE STOCK MODAL
   `;
       }
 
-      
-           function attachNewProductHandlers() {
-      document.getElementById('confirmNewProductBtn')?.addEventListener('click', () => {
-        const name = document.getElementById('npName').value.trim();
-        const sku = document.getElementById('npSku').value.trim();
-        const category = document.getElementById('npCategory').value;
-        const unitOfMeasure = document.getElementById('npUnit').value;
-        const trackingType = document.getElementById('npTracking').value;
-        const tagPrefix = document.getElementById('npTagPrefix').value.trim();
-        const price = +document.getElementById('npPrice').value || 0;
-        const minimumStock = +document.getElementById('npMinStock').value || 0;
-        const description = document.getElementById('npDesc').value.trim();
+      function attachNewProductHandlers() {
+        document
+          .getElementById("confirmNewProductBtn")
+          ?.addEventListener("click", () => {
+            const name = document.getElementById("npName").value.trim();
+            const sku = document.getElementById("npSku").value.trim();
+            const category = document.getElementById("npCategory").value;
+            const unitOfMeasure = document.getElementById("npUnit").value;
+            const trackingType = document.getElementById("npTracking").value;
+            const tagPrefix = document
+              .getElementById("npTagPrefix")
+              .value.trim();
+            const price = +document.getElementById("npPrice").value || 0;
+            const minimumStock =
+              +document.getElementById("npMinStock").value || 0;
+            const description = document.getElementById("npDesc").value.trim();
 
-        if (!name) return alert('Enter product name.');
-        if (!sku) return alert('Enter SKU.');
-        if (!category) return alert('Select a category.');
-        if (!unitOfMeasure) return alert('Select a unit of measure.');
-        if (trackingType === 'Individual' && !tagPrefix) return alert('Enter a tag prefix for Individual Items.');
+            if (!name) return alert("Enter product name.");
+            if (!sku) return alert("Enter SKU.");
+            if (!category) return alert("Select a category.");
+            if (!unitOfMeasure) return alert("Select a unit of measure.");
+            if (trackingType === "Individual" && !tagPrefix)
+              return alert("Enter a tag prefix for Individual Items.");
 
-        const newId = 'p' + (PRODUCTS_INV.length + 1);
-        PRODUCTS_INV.push({
-          id: newId, name, sku, category, unitOfMeasure,
-          trackingType, tagPrefix: trackingType === 'Individual' ? tagPrefix : null,
-          price, minimumStock, description,
-        });
+            const newId = "p" + (PRODUCTS_INV.length + 1);
+            PRODUCTS_INV.push({
+              id: newId,
+              name,
+              sku,
+              category,
+              unitOfMeasure,
+              trackingType,
+              tagPrefix: trackingType === "Individual" ? tagPrefix : null,
+              price,
+              minimumStock,
+              description,
+            });
 
-        state.activeModal = null;
-        render();
-      });
-    }
-    
+            state.activeModal = null;
+            render();
+          });
+      }
+
       /* ============================================================
 ADJUST STOCK MODAL
 ============================================================ */
@@ -5970,79 +6490,92 @@ DISPATCH WIZARD HELPERS
         logTimeline("Pickup reservation released.");
       }
 
+      // Release stock that was hard-reserved for a Delivery order being cancelled
+      // while Out for Delivery. Also frees any assigned driver/vehicle.
+      function releaseDeliveryReservation(order) {
+        order.items.forEach((item) => {
+          const product = getInvProduct(item.productId);
+          if (!product) return;
 
-
-    // Release stock that was hard-reserved for a Delivery order being cancelled
-    // while Out for Delivery. Also frees any assigned driver/vehicle.
-    function releaseDeliveryReservation(order) {
-      order.items.forEach(item => {
-        const product = getInvProduct(item.productId);
-        if (!product) return;
-
-        if (product.trackingType === 'Individual') {
-          // Units reserved for this order → back to Available.
-          // Location is preserved — they never actually left the warehouse
-          // in the demo (the trip hasn't been completed).
-          UNITS.forEach(u => {
-            if (u.reservedForOrder === order.orderNumber && u.status === 'Reserved') {
-              u.status = 'Available';
-              u.reservedForOrder = null;
-              u.softReservedFor = null;
-            }
-          });
-          logMovement(item.productId, null, 'reservation_release', item.qty, order.orderNumber);
-        } else {
-          // Stock quantity: decrement reserved on every stock row that has some.
-          let remaining = item.qty;
-          STOCK
-            .filter(s => s.productId === item.productId && s.reserved > 0)
-            .forEach(row => {
+          if (product.trackingType === "Individual") {
+            // Units reserved for this order → back to Available.
+            // Location is preserved — they never actually left the warehouse
+            // in the demo (the trip hasn't been completed).
+            UNITS.forEach((u) => {
+              if (
+                u.reservedForOrder === order.orderNumber &&
+                u.status === "Reserved"
+              ) {
+                u.status = "Available";
+                u.reservedForOrder = null;
+                u.softReservedFor = null;
+              }
+            });
+            logMovement(
+              item.productId,
+              null,
+              "reservation_release",
+              item.qty,
+              order.orderNumber,
+            );
+          } else {
+            // Stock quantity: decrement reserved on every stock row that has some.
+            let remaining = item.qty;
+            STOCK.filter(
+              (s) => s.productId === item.productId && s.reserved > 0,
+            ).forEach((row) => {
               if (remaining <= 0) return;
               const toRelease = Math.min(row.reserved, remaining);
               row.reserved -= toRelease;
               remaining -= toRelease;
             });
-          logMovement(item.productId, null, 'reservation_release', item.qty, order.orderNumber);
-        }
-      });
+            logMovement(
+              item.productId,
+              null,
+              "reservation_release",
+              item.qty,
+              order.orderNumber,
+            );
+          }
+        });
 
-      // Free the driver/vehicle that was assigned to this order.
-      if (order.dispatchInfo) {
-        const { driver, vehicle } = order.dispatchInfo;
-        if (driver) {
-          const d = DRIVERS.find(x => x.name === driver);
-          if (d && d.status === 'On Trip') {
-            // Only mark Available if no other in-transit order uses this driver.
-            const stillAssigned = state.inTransitOrders.some(o =>
-              o.orderNumber !== order.orderNumber &&
-              o.dispatchInfo &&
-              o.dispatchInfo.driver === driver
-            );
-            if (!stillAssigned) d.status = 'Available';
+        // Free the driver/vehicle that was assigned to this order.
+        if (order.dispatchInfo) {
+          const { driver, vehicle } = order.dispatchInfo;
+          if (driver) {
+            const d = DRIVERS.find((x) => x.name === driver);
+            if (d && d.status === "On Trip") {
+              // Only mark Available if no other in-transit order uses this driver.
+              const stillAssigned = state.inTransitOrders.some(
+                (o) =>
+                  o.orderNumber !== order.orderNumber &&
+                  o.dispatchInfo &&
+                  o.dispatchInfo.driver === driver,
+              );
+              if (!stillAssigned) d.status = "Available";
+            }
+          }
+          if (vehicle) {
+            const v = VEHICLES.find((x) => x.plate === vehicle);
+            if (v && v.status === "On Trip") {
+              const stillAssigned = state.inTransitOrders.some(
+                (o) =>
+                  o.orderNumber !== order.orderNumber &&
+                  o.dispatchInfo &&
+                  o.dispatchInfo.vehicle === vehicle,
+              );
+              if (!stillAssigned) v.status = "Available";
+            }
           }
         }
-        if (vehicle) {
-          const v = VEHICLES.find(x => x.plate === vehicle);
-          if (v && v.status === 'On Trip') {
-            const stillAssigned = state.inTransitOrders.some(o =>
-              o.orderNumber !== order.orderNumber &&
-              o.dispatchInfo &&
-              o.dispatchInfo.vehicle === vehicle
-            );
-            if (!stillAssigned) v.status = 'Available';
-          }
-        }
+
+        // Remove from in-transit if present
+        state.inTransitOrders = state.inTransitOrders.filter(
+          (x) => x.orderNumber !== order.orderNumber,
+        );
+
+        logTimeline("Delivery reservation released. Driver/vehicle freed.");
       }
-
-      // Remove from in-transit if present
-      state.inTransitOrders = state.inTransitOrders.filter(x => x.orderNumber !== order.orderNumber);
-
-      logTimeline('Delivery reservation released. Driver/vehicle freed.');
-    }
-
-
-
-
 
       // Walk-in path: no reservation step happened.
       // Flip N Available units → Sold, and decrement onHand for stock quantities.
@@ -6209,31 +6742,31 @@ TRIP PAGE (Batch Dispatch)
         render();
       }
 
-    function renderTripPage(c) {
-      const trip = state.trip;
-      if (!trip) {
-        renderDispatchDashboard(c);
-        return;
-      }
+      function renderTripPage(c) {
+        const trip = state.trip;
+        if (!trip) {
+          renderDispatchDashboard(c);
+          return;
+        }
 
-      // Run validation on every render so Steps 2 and 3 always reflect
-      // the current state of the trip.
-      runTripValidation();
+        // Run validation on every render so Steps 2 and 3 always reflect
+        // the current state of the trip.
+        runTripValidation();
 
-      // Modal stacking: Change Units or Add Orders can appear on top of the trip.
-      let overlay = "";
-      if (trip.changingUnitsFor) {
-        overlay = renderTripChangeUnitsModal();
-      } else if (state.addOrdersPickerOpen) {
-        overlay = renderAddOrdersPicker();
-      }
+        // Modal stacking: Change Units or Add Orders can appear on top of the trip.
+        let overlay = "";
+        if (trip.changingUnitsFor) {
+          overlay = renderTripChangeUnitsModal();
+        } else if (state.addOrdersPickerOpen) {
+          overlay = renderAddOrdersPicker();
+        }
 
-      c.innerHTML = `
+        c.innerHTML = `
         ${renderTripStepContent()}
         ${overlay}
       `;
-      attachTripHandlers();
-    }
+        attachTripHandlers();
+      }
 
       function renderTripStepContent() {
         const trip = state.trip;
@@ -6378,27 +6911,27 @@ TRIP PAGE (Batch Dispatch)
       <button class="btn-primary" onclick="tripNext()" ${trip.orders.length === 0 ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ""}>Next: Inventory →</button>
     </div>
   `;
-    }
+      }
 
+      /* ---------- Add Orders Picker (used from within the trip wizard) ---------- */
 
+      function renderAddOrdersPicker() {
+        const trip = state.trip;
+        if (!trip) return "";
 
-          /* ---------- Add Orders Picker (used from within the trip wizard) ---------- */
+        // Eligible: Fleet orders in the pool that aren't already in the trip.
+        const tripNumbers = new Set(trip.orders.map((o) => o.orderNumber));
+        const eligible = state.dispatchPool.filter(
+          (o) =>
+            o.deliveryMode === "Company Fleet" &&
+            !tripNumbers.has(o.orderNumber),
+        );
 
-    function renderAddOrdersPicker() {
-      const trip = state.trip;
-      if (!trip) return "";
+        const selectedCount = Object.values(state.addOrdersSelected).filter(
+          Boolean,
+        ).length;
 
-      // Eligible: Fleet orders in the pool that aren't already in the trip.
-      const tripNumbers = new Set(trip.orders.map((o) => o.orderNumber));
-      const eligible = state.dispatchPool.filter(
-        (o) =>
-          o.deliveryMode === "Company Fleet" &&
-          !tripNumbers.has(o.orderNumber),
-      );
-
-      const selectedCount = Object.values(state.addOrdersSelected).filter(Boolean).length;
-
-      return `
+        return `
     <div class="modal-overlay" onclick="if(event.target===this)closeAddOrdersPicker()">
       <div class="modal">
         <div class="modal-header">Add Orders to Trip <button class="close-x" onclick="closeAddOrdersPicker()">×</button></div>
@@ -6429,7 +6962,8 @@ TRIP PAGE (Batch Dispatch)
                 })
                 .join("")}
             </div>
-          `}
+          `
+          }
         </div>
         <div class="modal-footer">
           <button onclick="closeAddOrdersPicker()">Cancel</button>
@@ -6438,88 +6972,91 @@ TRIP PAGE (Batch Dispatch)
       </div>
     </div>
   `;
-    }
+      }
 
-    function openAddOrdersPicker() {
-      state.addOrdersPickerOpen = true;
-      state.addOrdersSelected = {};
-      render();
-    }
+      function openAddOrdersPicker() {
+        state.addOrdersPickerOpen = true;
+        state.addOrdersSelected = {};
+        render();
+      }
 
-    function closeAddOrdersPicker() {
-      state.addOrdersPickerOpen = false;
-      state.addOrdersSelected = {};
-      render();
-    }
+      function closeAddOrdersPicker() {
+        state.addOrdersPickerOpen = false;
+        state.addOrdersSelected = {};
+        render();
+      }
 
-    function toggleAddOrderSelection(orderNumber) {
-      state.addOrdersSelected[orderNumber] = !state.addOrdersSelected[orderNumber];
-      render();
-    }
+      function toggleAddOrderSelection(orderNumber) {
+        state.addOrdersSelected[orderNumber] =
+          !state.addOrdersSelected[orderNumber];
+        render();
+      }
 
-    function confirmAddOrders() {
-      const trip = state.trip;
-      if (!trip) return;
+      function confirmAddOrders() {
+        const trip = state.trip;
+        if (!trip) return;
 
-      const toAdd = Object.keys(state.addOrdersSelected).filter(
-        (k) => state.addOrdersSelected[k],
-      );
-      if (toAdd.length === 0) return;
+        const toAdd = Object.keys(state.addOrdersSelected).filter(
+          (k) => state.addOrdersSelected[k],
+        );
+        if (toAdd.length === 0) return;
 
-      // Deep-copy each selected pool order into the trip
-      toAdd.forEach((orderNumber) => {
-        const order = state.dispatchPool.find((o) => o.orderNumber === orderNumber);
-        if (!order) return;
+        // Deep-copy each selected pool order into the trip
+        toAdd.forEach((orderNumber) => {
+          const order = state.dispatchPool.find(
+            (o) => o.orderNumber === orderNumber,
+          );
+          if (!order) return;
 
-        // Deep copy, then clear selection flag on the copy
-        const copy = JSON.parse(JSON.stringify(order));
-        copy._selected = false;
-        trip.orders.push(copy);
+          // Deep copy, then clear selection flag on the copy
+          const copy = JSON.parse(JSON.stringify(order));
+          copy._selected = false;
+          trip.orders.push(copy);
 
-        // Clear the flag on the pool order too
-        order._selected = false;
-      });
-
-      // Auto-pick units for individual-item lines of newly added orders
-      trip.orders.forEach((order) => {
-        order.items.forEach((item) => {
-          const product = getInvProduct(item.productId);
-          if (!product || product.trackingType !== "Individual") return;
-
-          const key = order.orderNumber + "|" + item.productId;
-          if (!trip.orderUnitSelections[key]) {
-            trip.orderUnitSelections[key] = autoPickUnitsForTrip(
-              item.productId,
-              trip.dispatchLocationId,
-              item.qty,
-              trip,
-            );
-          }
+          // Clear the flag on the pool order too
+          order._selected = false;
         });
-      });
 
-      // Reset picker state
-      state.addOrdersPickerOpen = false;
-      state.addOrdersSelected = {};
+        // Auto-pick units for individual-item lines of newly added orders
+        trip.orders.forEach((order) => {
+          order.items.forEach((item) => {
+            const product = getInvProduct(item.productId);
+            if (!product || product.trackingType !== "Individual") return;
 
-      render();
-    }
+            const key = order.orderNumber + "|" + item.productId;
+            if (!trip.orderUnitSelections[key]) {
+              trip.orderUnitSelections[key] = autoPickUnitsForTrip(
+                item.productId,
+                trip.dispatchLocationId,
+                item.qty,
+                trip,
+              );
+            }
+          });
+        });
+
+        // Reset picker state
+        state.addOrdersPickerOpen = false;
+        state.addOrdersSelected = {};
+
+        render();
+      }
 
       /* ---------- Trip Step 2: Assign Inventory ---------- */
-    function renderTripStep2() {
-      const trip = state.trip;
-      const loc = getLocation(trip.dispatchLocationId);
+      function renderTripStep2() {
+        const trip = state.trip;
+        const loc = getLocation(trip.dispatchLocationId);
 
-      // Count of orders that pass / fail
-      let passingCount = 0;
-      let failingCount = 0;
-      trip.orders.forEach((order) => {
-        if (trip.validation[order.orderNumber]?.ok) passingCount++;
-        else failingCount++;
-      });
-      const allPassing = failingCount === 0;
+        // Count of orders that pass / fail
+        let passingCount = 0;
+        let failingCount = 0;
+        trip.orders.forEach((order) => {
+          if (trip.validation[order.orderNumber]?.ok) passingCount++;
+          else failingCount++;
+        });
+        const allPassing = failingCount === 0;
 
-      return `
+        return `
     ${
       LOCATIONS.length > 1
         ? `
@@ -6645,9 +7182,8 @@ TRIP PAGE (Batch Dispatch)
       <button class="btn-primary" onclick="tripNext()" ${!allPassing ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ""}>Next: Review →</button>
     </div>
   `;
-    }
-      
-      
+      }
+
       /* ---------- Trip Change Units Modal (rendered as overlay on top of Step 2) ---------- */
       function renderTripChangeUnitsModal() {
         const trip = state.trip;
@@ -6855,17 +7391,17 @@ TRIP PAGE (Batch Dispatch)
             </div>
 
             ${
-                !ok
-                    ? `
+              !ok
+                ? `
                 <div style="margin-top:8px; padding:8px; background:#fee2e2; border-radius:4px; font-size:11px; color:#991b1b;">
                     ${reasons.map((r) => `• ${r}`).join("<br>")}
                 </div>
                 `
-                    : ""
-                }
+                : ""
+            }
             </div>
             `;
-            })
+        })
         .join("")}
     </div>
 
@@ -7154,25 +7690,26 @@ TRIP PAGE (Batch Dispatch)
         render();
       }
 
-        // Dispatch a single order directly from the Dispatch Dashboard.
-        // Used for Courier orders, which cannot be batched.
-        // The wizard returns to the Dispatch Dashboard when done.
-        function dispatchFromDashboard(orderNumber) {
-            const order = state.dispatchPool.find((o) => o.orderNumber === orderNumber);
-            if (!order) return;
+      // Dispatch a single order directly from the Dispatch Dashboard.
+      // Used for Courier orders, which cannot be batched.
+      // The wizard returns to the Dispatch Dashboard when done.
+      function dispatchFromDashboard(orderNumber) {
+        const order = state.dispatchPool.find(
+          (o) => o.orderNumber === orderNumber,
+        );
+        if (!order) return;
 
-            state.order = order;
-            state.dispatchReturnTo = "dashboard";
+        state.order = order;
+        state.dispatchReturnTo = "dashboard";
 
-            initDispatchWizard();
-            state.activeModal = "dispatch";
-            render();
-        }
+        initDispatchWizard();
+        state.activeModal = "dispatch";
+        render();
+      }
 
-
-            function renderFleetDispatchView(c, fleetOrders) {
-      if (fleetOrders.length === 0) {
-        return `
+      function renderFleetDispatchView(c, fleetOrders) {
+        if (fleetOrders.length === 0) {
+          return `
       <div class="card" style="text-align:center; padding:32px;">
         <div style="font-size:14px; color:#888;">No fleet orders ready for dispatch.</div>
         <div style="font-size:12px; color:#888; margin-top:8px;">
@@ -7180,20 +7717,20 @@ TRIP PAGE (Batch Dispatch)
         </div>
       </div>
     `;
-      }
+        }
 
-      const selected = fleetOrders.filter((o) => o._selected);
-      const selectedCount = selected.length;
+        const selected = fleetOrders.filter((o) => o._selected);
+        const selectedCount = selected.length;
 
-      const renderRow = (o) => {
-        const customer = getCustomer(o.customerId);
-        const subtotal = o.items.reduce(
-          (s, i) => s + (getProduct(i.productId)?.price || 0) * i.qty,
-          0,
-        );
-        const itemCount = o.items.reduce((s, i) => s + i.qty, 0);
+        const renderRow = (o) => {
+          const customer = getCustomer(o.customerId);
+          const subtotal = o.items.reduce(
+            (s, i) => s + (getProduct(i.productId)?.price || 0) * i.qty,
+            0,
+          );
+          const itemCount = o.items.reduce((s, i) => s + i.qty, 0);
 
-        return `
+          return `
       <tr>
         <td style="padding-left:12px;">
           <input type="checkbox" data-dispatch-check="${o.orderNumber}"
@@ -7209,9 +7746,9 @@ TRIP PAGE (Batch Dispatch)
         <td><strong>${money(subtotal)}</strong></td>
       </tr>
     `;
-      };
+        };
 
-      return `
+        return `
     <div class="card" style="padding:0;">
       <table>
         <thead>
@@ -7243,12 +7780,11 @@ TRIP PAGE (Batch Dispatch)
       </div>
     </div>
   `;
-    }
+      }
 
-
-        function renderCourierDispatchView(c, courierOrders) {
-      if (courierOrders.length === 0) {
-        return `
+      function renderCourierDispatchView(c, courierOrders) {
+        if (courierOrders.length === 0) {
+          return `
       <div class="card" style="text-align:center; padding:32px;">
         <div style="font-size:14px; color:#888;">No courier orders ready for dispatch.</div>
         <div style="font-size:12px; color:#888; margin-top:8px;">
@@ -7256,17 +7792,17 @@ TRIP PAGE (Batch Dispatch)
         </div>
       </div>
     `;
-      }
+        }
 
-      const renderRow = (o) => {
-        const customer = getCustomer(o.customerId);
-        const subtotal = o.items.reduce(
-          (s, i) => s + (getProduct(i.productId)?.price || 0) * i.qty,
-          0,
-        );
-        const itemCount = o.items.reduce((s, i) => s + i.qty, 0);
+        const renderRow = (o) => {
+          const customer = getCustomer(o.customerId);
+          const subtotal = o.items.reduce(
+            (s, i) => s + (getProduct(i.productId)?.price || 0) * i.qty,
+            0,
+          );
+          const itemCount = o.items.reduce((s, i) => s + i.qty, 0);
 
-        return `
+          return `
       <tr>
         <td>
           <div style="font-weight:bold;">${o.orderNumber}</div>
@@ -7283,9 +7819,9 @@ TRIP PAGE (Batch Dispatch)
         </td>
       </tr>
     `;
-      };
+        };
 
-      return `
+        return `
     <div class="card" style="padding:0;">
       <table>
         <thead>
@@ -7307,15 +7843,16 @@ TRIP PAGE (Batch Dispatch)
       Courier orders are dispatched individually — one tracking number per parcel. No batch selection.
     </div>
   `;
-    }
+      }
 
-      
-            function renderDispatchDashboard(c) {
-      const pool = state.dispatchPool;
-      const fleetOrders = pool.filter((o) => o.deliveryMode === "Company Fleet");
-      const courierOrders = pool.filter((o) => o.deliveryMode === "Courier");
+      function renderDispatchDashboard(c) {
+        const pool = state.dispatchPool;
+        const fleetOrders = pool.filter(
+          (o) => o.deliveryMode === "Company Fleet",
+        );
+        const courierOrders = pool.filter((o) => o.deliveryMode === "Courier");
 
-      c.innerHTML = `
+        c.innerHTML = `
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
       <div>
         <div class="toggle-group" style="margin-bottom:8px;">
@@ -7356,14 +7893,15 @@ TRIP PAGE (Batch Dispatch)
         </div>
       </div>
 
-      ${state.dispatchMode === "fleet"
-        ? renderFleetDispatchView(c, fleetOrders)
-        : renderCourierDispatchView(c, courierOrders)}
+      ${
+        state.dispatchMode === "fleet"
+          ? renderFleetDispatchView(c, fleetOrders)
+          : renderCourierDispatchView(c, courierOrders)
+      }
     `
     }
   `;
-    }
-
+      }
 
       /* ============================================================
 IN TRANSIT VIEW
@@ -7636,7 +8174,7 @@ DELIVERY CONFIRMATION
       }
 
       // Create trip from selected (placeholder for now — Trip Page comes next)
-    function createTripFromSelected() {
+      function createTripFromSelected() {
         const selected = state.dispatchPool.filter((o) => o._selected);
         if (selected.length === 0) return alert("Select at least one order.");
 
@@ -7650,36 +8188,36 @@ DELIVERY CONFIRMATION
         const mode = selected[0].deliveryMode;
 
         // Initialize the Trip state
-      state.trip = {
-        mode,
-        orders: selected.map((o) => JSON.parse(JSON.stringify(o))), // deep copy
-        step: 1,
-        driver: "",
-        vehicle: "",
-        courier: "",
-        trackingNumber: "",
-        dispatchDate: todayISO(),
-        dispatchNotes: "",
-        dispatchLocationId:
-          LOCATIONS.find((l) => l.isDefaultDispatch)?.id || LOCATIONS[0].id,
-        // Per (orderNumber, productId): array of unit IDs
-        orderUnitSelections: {},
-        changingUnitsFor: null, // { orderNumber, productId }
-        unitSearch: "",
-        validation: {},
-        tripNumber: null,
-      };
+        state.trip = {
+          mode,
+          orders: selected.map((o) => JSON.parse(JSON.stringify(o))), // deep copy
+          step: 1,
+          driver: "",
+          vehicle: "",
+          courier: "",
+          trackingNumber: "",
+          dispatchDate: todayISO(),
+          dispatchNotes: "",
+          dispatchLocationId:
+            LOCATIONS.find((l) => l.isDefaultDispatch)?.id || LOCATIONS[0].id,
+          // Per (orderNumber, productId): array of unit IDs
+          orderUnitSelections: {},
+          changingUnitsFor: null, // { orderNumber, productId }
+          unitSearch: "",
+          validation: {},
+          tripNumber: null,
+        };
 
-      // Clear any "selected" flags on the pool — the selection has been
-      // consumed by the trip. Prevents them from appearing pre-selected if
-      // the operator returns to the dashboard later.
-      state.dispatchPool.forEach((o) => (o._selected = false));
+        // Clear any "selected" flags on the pool — the selection has been
+        // consumed by the trip. Prevents them from appearing pre-selected if
+        // the operator returns to the dashboard later.
+        state.dispatchPool.forEach((o) => (o._selected = false));
 
-      // Auto-pick units for each individual item in each order
-      autoPickAllUnits();
+        // Auto-pick units for each individual item in each order
+        autoPickAllUnits();
 
-      render();
-    }
+        render();
+      }
 
       // Auto-pick units for every individual item in every order in the trip
       function autoPickAllUnits() {
@@ -7733,7 +8271,7 @@ DELIVERY CONFIRMATION
       }
 
       // Discard the trip in progress and return to the dashboard
-    function discardTrip() {
+      function discardTrip() {
         if (!confirm("Discard this trip? All selections will be lost.")) return;
         state.trip = null;
         state.addOrdersPickerOpen = false;
@@ -7843,6 +8381,14 @@ DELIVERY CONFIRMATION
 
       /* ============ RESET & BOOTSTRAP ============ */
       function resetDemo() {
+        state.customerPortal = {
+          step: "email",
+          email: "",
+          otp: null,
+          verified: false,
+          customerId: null,
+          error: null,
+        };
         initScenario(document.getElementById("scenarioSelect").value);
         render();
       }
@@ -7851,6 +8397,14 @@ DELIVERY CONFIRMATION
         document
           .getElementById("scenarioSelect")
           ?.addEventListener("change", (e) => {
+            state.customerPortal = {
+              step: "email",
+              email: "",
+              otp: null,
+              verified: false,
+              customerId: null,
+              error: null,
+            };
             initScenario(e.target.value);
             render();
           });
@@ -7875,6 +8429,17 @@ DELIVERY CONFIRMATION
                 state.dispatchView = "dashboard";
                 state.dispatchMode = "fleet";
               }
+            }
+            if (state.activeTab === "customer-portal") {
+              // Reset the portal to the email step each time the tab is opened.
+              state.customerPortal = {
+                step: "email",
+                email: "",
+                otp: null,
+                verified: false,
+                customerId: null,
+                error: null,
+              };
             }
 
             render();
