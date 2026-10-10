@@ -4472,7 +4472,7 @@ DISPATCH WIZARD HANDLERS
 
         const returnTo = state.dispatchReturnTo || "order-details";
         state.dispatchReturnTo = "order-details";
-        
+
         if (returnTo === "dashboard") {
           const dispatchedNumber = state.order.orderNumber;
 
@@ -6206,26 +6206,30 @@ TRIP PAGE (Batch Dispatch)
         render();
       }
 
-      function renderTripPage(c) {
-        const trip = state.trip;
-        if (!trip) {
-          renderDispatchDashboard(c);
-          return;
-        }
+    function renderTripPage(c) {
+      const trip = state.trip;
+      if (!trip) {
+        renderDispatchDashboard(c);
+        return;
+      }
 
-        // If we're in Change Units mode, render the Change Units modal on top
-        if (trip.changingUnitsFor) {
-          c.innerHTML = `
+      // Run validation on every render so Steps 2 and 3 always reflect
+      // the current state of the trip.
+      runTripValidation();
+
+      // If we're in Change Units mode, render the Change Units modal on top
+      if (trip.changingUnitsFor) {
+        c.innerHTML = `
                   ${renderTripStepContent()}
                   ${renderTripChangeUnitsModal()}
                 `;
-          attachTripHandlers();
-          return;
-        }
-
-        c.innerHTML = renderTripStepContent();
         attachTripHandlers();
+        return;
       }
+
+      c.innerHTML = renderTripStepContent();
+      attachTripHandlers();
+    }
 
       function renderTripStepContent() {
         const trip = state.trip;
@@ -6346,35 +6350,20 @@ TRIP PAGE (Batch Dispatch)
       }
 
       /* ---------- Trip Step 2: Assign Inventory ---------- */
-      function renderTripStep2() {
-        const trip = state.trip;
-        const loc = getLocation(trip.dispatchLocationId);
+    function renderTripStep2() {
+      const trip = state.trip;
+      const loc = getLocation(trip.dispatchLocationId);
 
-        // Count total items and completed items across all orders
-        let progressDone = 0;
-        let progressTotal = 0;
+      // Count of orders that pass / fail
+      let passingCount = 0;
+      let failingCount = 0;
+      trip.orders.forEach((order) => {
+        if (trip.validation[order.orderNumber]?.ok) passingCount++;
+        else failingCount++;
+      });
+      const allPassing = failingCount === 0;
 
-        trip.orders.forEach((order) => {
-          order.items.forEach((item) => {
-            progressTotal++;
-            const product = getInvProduct(item.productId);
-            if (!product) return;
-
-            if (product.trackingType === "Individual") {
-              const key = order.orderNumber + "|" + item.productId;
-              const selected = trip.orderUnitSelections[key] || [];
-              if (selected.length === item.qty) progressDone++;
-            } else {
-              const s = getStockSummary(
-                item.productId,
-                trip.dispatchLocationId,
-              );
-              if (s.available >= item.qty) progressDone++;
-            }
-          });
-        });
-
-        return `
+      return `
     ${
       LOCATIONS.length > 1
         ? `
@@ -6391,13 +6380,22 @@ TRIP PAGE (Batch Dispatch)
     ${trip.orders
       .map((order) => {
         const customer = getCustomer(order.customerId);
+        const v = trip.validation[order.orderNumber];
+        const ok = v?.ok;
+        const reasons = v?.reasons || [];
+
         return `
-          <div class="card">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <div class="card" style="border-color:${ok ? "#166534" : "#991b1b"};">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px;">
               <div>
                 <div style="font-weight:bold;">${order.orderNumber}</div>
                 <div style="font-size:12px; color:#555;">${customer?.name || "—"}</div>
               </div>
+              <button title="Remove from trip"
+                onclick="removeOrderFromTrip('${order.orderNumber}')"
+                style="border:2px solid #1a1a1a; background:#fff; font-family:inherit; font-size:14px; font-weight:bold; line-height:1; padding:2px 8px; cursor:pointer; border-radius:4px;">
+                ×
+              </button>
             </div>
 
             ${order.items
@@ -6453,6 +6451,17 @@ TRIP PAGE (Batch Dispatch)
                 }
               })
               .join("")}
+
+            <div style="margin-top:10px; padding-top:8px; border-top:1px dashed #ccc; font-size:12px;">
+              ${
+                ok
+                  ? `<span class="badge badge-paid">✓ Ready</span>`
+                  : `<span class="badge badge-cancelled">⚠ Cannot dispatch</span>
+                     <div style="margin-top:6px; color:#991b1b; line-height:1.4;">
+                       ${reasons.map((r) => `• ${r}`).join("<br>")}
+                     </div>`
+              }
+            </div>
           </div>
         `;
       })
@@ -6460,17 +6469,25 @@ TRIP PAGE (Batch Dispatch)
 
     <div class="card">
       <div style="font-size:12px;">
-        Progress: ${progressDone} of ${progressTotal} items assigned
+        ${passingCount} of ${trip.orders.length} order${trip.orders.length === 1 ? "" : "s"} ready.
       </div>
+      ${
+        !allPassing
+          ? `<div style="margin-top:8px; padding:8px; border:2px dashed #991b1b; border-radius:4px; background:#fee2e2; color:#991b1b; font-size:12px;">
+               ⚠ Remove or fix the highlighted orders to proceed to Review.
+             </div>`
+          : ""
+      }
     </div>
 
     <div class="card" style="display:flex; justify-content:flex-end; gap:8px;">
       <button onclick="tripBack()">← Back</button>
-            <button class="btn-primary" onclick="tripNext()">Next: Review →</button>
+      <button class="btn-primary" onclick="tripNext()" ${!allPassing ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ""}>Next: Review →</button>
     </div>
   `;
-      }
-
+    }
+      
+      
       /* ---------- Trip Change Units Modal (rendered as overlay on top of Step 2) ---------- */
       function renderTripChangeUnitsModal() {
         const trip = state.trip;
@@ -6678,22 +6695,17 @@ TRIP PAGE (Batch Dispatch)
             </div>
 
             ${
-              !ok
-                ? `
-              <div style="margin-top:8px; padding:8px; background:#fee2e2; border-radius:4px; font-size:11px; color:#991b1b;">
-                ${reasons.map((r) => `• ${r}`).join("<br>")}
-              </div>
-              <div style="margin-top:8px;">
-                <button onclick="removeOrderFromTrip('${order.orderNumber}')" class="btn-danger" style="font-size:12px;">
-                  Remove from Trip
-                </button>
-              </div>
-            `
-                : ""
-            }
-          </div>
-        `;
-        })
+                !ok
+                    ? `
+                <div style="margin-top:8px; padding:8px; background:#fee2e2; border-radius:4px; font-size:11px; color:#991b1b;">
+                    ${reasons.map((r) => `• ${r}`).join("<br>")}
+                </div>
+                `
+                    : ""
+                }
+            </div>
+            `;
+            })
         .join("")}
     </div>
 
@@ -7579,42 +7591,22 @@ DELIVERY CONFIRMATION
           trip.step = 2;
           render();
         } else if (trip.step === 2) {
-          // Count how many items are fully assigned
-          let assignedCount = 0;
-          let totalCount = 0;
+          // Validation is already up to date (run on every render).
+          // Block progression if any order fails.
+          const failing = trip.orders.filter(
+            (o) => !trip.validation[o.orderNumber]?.ok,
+          );
 
-          for (const order of trip.orders) {
-            for (const item of order.items) {
-              totalCount++;
-              const product = getInvProduct(item.productId);
-              if (!product) continue;
-
-              if (product.trackingType === "Individual") {
-                const key = order.orderNumber + "|" + item.productId;
-                const selected = trip.orderUnitSelections[key] || [];
-                if (selected.length === item.qty) assignedCount++;
-              } else {
-                const s = getStockSummary(
-                  item.productId,
-                  trip.dispatchLocationId,
-                );
-                if (s.available >= item.qty) assignedCount++;
-              }
-            }
-          }
-
-          // Soft warning if not everything is assigned
-          if (assignedCount < totalCount) {
-            const proceed = confirm(
-              `${assignedCount} of ${totalCount} items are assigned.\n\n` +
-                `Unassigned items will be shown as failures in the next step, where you can remove the affected orders.\n\n` +
-                `Proceed to Review?`,
+          if (failing.length > 0) {
+            alert(
+              `Cannot proceed to Review.\n\n` +
+                `${failing.length} order${failing.length === 1 ? "" : "s"} cannot be dispatched. ` +
+                `Remove or fix the highlighted orders first.`,
             );
-            if (!proceed) return;
+            return;
           }
 
           trip.step = 3;
-          runTripValidation();
           render();
         }
       }
