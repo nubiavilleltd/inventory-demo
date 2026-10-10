@@ -1168,6 +1168,11 @@
         inTransitOrders: [],
         // Which sub-view of the Dispatch tab is visible
         dispatchView: "dashboard", // 'dashboard' | 'in-transit'
+        // Which mode sub-tab is active on the Dispatch Dashboard
+        dispatchMode: "fleet", // 'fleet' | 'courier'
+        // Where the single-order dispatch wizard returns after confirm/cancel
+        dispatchReturnTo: "order-details", // 'order-details' | 'dashboard'
+
         // Inventory page state
         inventoryView: "list",
         inventoryProductId: null,
@@ -4252,9 +4257,10 @@ DISPATCH DASHBOARD DEMO SEED
 DISPATCH WIZARD HANDLERS
 ============================================================ */
 
-      function closeDispatchWizard() {
+    function closeDispatchWizard() {
         state.activeModal = null;
         state.dispatchWizard.changingUnitsFor = null;
+        state.dispatchReturnTo = "order-details";
         render();
       }
 
@@ -4449,7 +4455,7 @@ DISPATCH WIZARD HANDLERS
         o.state = "out-for-delivery";
         logTimeline("Order status: Out for Delivery");
 
-        // 5. Close wizard and return to Order Details
+        // 5. Close wizard and return to the appropriate view
         state.activeModal = null;
         state.dispatchWizard = {
           step: 1,
@@ -4463,7 +4469,33 @@ DISPATCH WIZARD HANDLERS
           changingUnitsFor: null,
           unitSelections: {},
         };
-        state.currentPage = "order-details";
+
+        const returnTo = state.dispatchReturnTo || "order-details";
+        state.dispatchReturnTo = "order-details";
+
+        if (returnTo === "dashboard") {
+          const dispatchedNumber = state.order.orderNumber;
+
+          // Remove from pool
+          state.dispatchPool = state.dispatchPool.filter(
+            (o) => o.orderNumber !== dispatchedNumber,
+          );
+
+          // Add to in-transit if not already there
+          if (
+            !state.inTransitOrders.find(
+              (x) => x.orderNumber === dispatchedNumber,
+            )
+          ) {
+            state.inTransitOrders.push(state.order);
+          }
+
+          // Ensure the Dispatch tab shows the Dashboard
+          state.activeTab = "dispatch";
+          state.dispatchView = "dashboard";
+        } else {
+          state.currentPage = "order-details";
+        }
         render();
       }
 
@@ -6942,53 +6974,169 @@ TRIP PAGE (Batch Dispatch)
         render();
       }
 
-      function renderDispatchDashboard(c) {
-        const pool = state.dispatchPool;
+        // Dispatch a single order directly from the Dispatch Dashboard.
+        // Used for Courier orders, which cannot be batched.
+        // The wizard returns to the Dispatch Dashboard when done.
+        function dispatchFromDashboard(orderNumber) {
+            const order = state.dispatchPool.find((o) => o.orderNumber === orderNumber);
+            if (!order) return;
 
-        // Determine which mode is currently locked (based on the first selected order)
-        const firstSelected = pool.find((o) => o._selected);
-        const lockedMode = firstSelected ? firstSelected.deliveryMode : null;
+            state.order = order;
+            state.dispatchReturnTo = "dashboard";
 
-        const renderRow = (o) => {
-          const customer = getCustomer(o.customerId);
-          const subtotal = o.items.reduce(
-            (s, i) => s + (getProduct(i.productId)?.price || 0) * i.qty,
-            0,
-          );
-          const itemCount = o.items.reduce((s, i) => s + i.qty, 0);
-          const modeClass =
-            o.deliveryMode === "Company Fleet" ? "badge-paid" : "badge-ready";
+            initDispatchWizard();
+            state.activeModal = "dispatch";
+            render();
+        }
 
-          // Disabled if: there's a locked mode, AND this order's mode doesn't match, AND this order isn't already selected
-          const disabled =
-            lockedMode && o.deliveryMode !== lockedMode && !o._selected;
 
-          return `
-                  <tr style="${disabled ? "opacity:0.4;" : ""}">
-                    <td style="padding-left:12px;">
-                      <input type="checkbox" data-dispatch-check="${o.orderNumber}"
-                        onchange="toggleDispatchSelection('${o.orderNumber}')"
-                        ${o._selected ? "checked" : ""}
-                        ${disabled ? "disabled" : ""}>
-                    </td>
-                    <td>
-                      <div style="font-weight:bold;">${o.orderNumber}</div>
-                      <div style="font-size:11px; color:#888;">${o.invoiceNumber}</div>
-                    </td>
-                    <td>${customer?.name || "—"}</td>
-                    <td><span class="badge ${modeClass}">${o.deliveryMode}</span></td>
-                    <td>${itemCount} item${itemCount === 1 ? "" : "s"}</td>
-                    <td><strong>${money(subtotal)}</strong></td>
-                    <td><span class="badge badge-paid">Ready</span></td>
-                  </tr>
-                `;
-        };
+            function renderFleetDispatchView(c, fleetOrders) {
+      if (fleetOrders.length === 0) {
+        return `
+      <div class="card" style="text-align:center; padding:32px;">
+        <div style="font-size:14px; color:#888;">No fleet orders ready for dispatch.</div>
+        <div style="font-size:12px; color:#888; margin-top:8px;">
+          Courier orders are dispatched individually — switch to the Courier tab.
+        </div>
+      </div>
+    `;
+      }
 
-        const selected = pool.filter((o) => o._selected);
-        const selectedCount = selected.length;
+      const selected = fleetOrders.filter((o) => o._selected);
+      const selectedCount = selected.length;
 
-        c.innerHTML = `
-       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+      const renderRow = (o) => {
+        const customer = getCustomer(o.customerId);
+        const subtotal = o.items.reduce(
+          (s, i) => s + (getProduct(i.productId)?.price || 0) * i.qty,
+          0,
+        );
+        const itemCount = o.items.reduce((s, i) => s + i.qty, 0);
+
+        return `
+      <tr>
+        <td style="padding-left:12px;">
+          <input type="checkbox" data-dispatch-check="${o.orderNumber}"
+            onchange="toggleDispatchSelection('${o.orderNumber}')"
+            ${o._selected ? "checked" : ""}>
+        </td>
+        <td>
+          <div style="font-weight:bold;">${o.orderNumber}</div>
+          <div style="font-size:11px; color:#888;">${o.invoiceNumber}</div>
+        </td>
+        <td>${customer?.name || "—"}</td>
+        <td>${itemCount} item${itemCount === 1 ? "" : "s"}</td>
+        <td><strong>${money(subtotal)}</strong></td>
+      </tr>
+    `;
+      };
+
+      return `
+    <div class="card" style="padding:0;">
+      <table>
+        <thead>
+          <tr>
+            <th style="padding-left:12px; width:40px;"></th>
+            <th>Order</th>
+            <th>Customer</th>
+            <th>Items</th>
+            <th>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${fleetOrders.map(renderRow).join("")}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card" style="display:flex; justify-content:space-between; align-items:center;">
+      <div style="font-size:13px;">
+        ${selectedCount} of ${fleetOrders.length} fleet order${fleetOrders.length === 1 ? "" : "s"} selected.
+      </div>
+      <div>
+        <button
+          class="btn-primary"
+          onclick="createTripFromSelected()"
+          ${selectedCount === 0 ? "disabled" : ""}>
+          Create Trip from Selected →
+        </button>
+      </div>
+    </div>
+  `;
+    }
+
+
+        function renderCourierDispatchView(c, courierOrders) {
+      if (courierOrders.length === 0) {
+        return `
+      <div class="card" style="text-align:center; padding:32px;">
+        <div style="font-size:14px; color:#888;">No courier orders ready for dispatch.</div>
+        <div style="font-size:12px; color:#888; margin-top:8px;">
+          Fleet orders are dispatched in batches — switch to the Company Fleet tab.
+        </div>
+      </div>
+    `;
+      }
+
+      const renderRow = (o) => {
+        const customer = getCustomer(o.customerId);
+        const subtotal = o.items.reduce(
+          (s, i) => s + (getProduct(i.productId)?.price || 0) * i.qty,
+          0,
+        );
+        const itemCount = o.items.reduce((s, i) => s + i.qty, 0);
+
+        return `
+      <tr>
+        <td>
+          <div style="font-weight:bold;">${o.orderNumber}</div>
+          <div style="font-size:11px; color:#888;">${o.invoiceNumber}</div>
+        </td>
+        <td>${customer?.name || "—"}</td>
+        <td>${itemCount} item${itemCount === 1 ? "" : "s"}</td>
+        <td><strong>${money(subtotal)}</strong></td>
+        <td>
+          <button class="btn-primary" style="font-size:12px; padding:4px 10px;"
+            onclick="dispatchFromDashboard('${o.orderNumber}')">
+            Dispatch
+          </button>
+        </td>
+      </tr>
+    `;
+      };
+
+      return `
+    <div class="card" style="padding:0;">
+      <table>
+        <thead>
+          <tr>
+            <th style="padding-left:12px;">Order</th>
+            <th>Customer</th>
+            <th>Items</th>
+            <th>Total</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${courierOrders.map(renderRow).join("")}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card" style="font-size:12px; color:#555;">
+      Courier orders are dispatched individually — one tracking number per parcel. No batch selection.
+    </div>
+  `;
+    }
+
+      
+            function renderDispatchDashboard(c) {
+      const pool = state.dispatchPool;
+      const fleetOrders = pool.filter((o) => o.deliveryMode === "Company Fleet");
+      const courierOrders = pool.filter((o) => o.deliveryMode === "Courier");
+
+      c.innerHTML = `
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
       <div>
         <div class="toggle-group" style="margin-bottom:8px;">
           <button class="toggle-btn active" onclick="switchDispatchView('dashboard')">Dashboard</button>
@@ -7015,43 +7163,27 @@ TRIP PAGE (Batch Dispatch)
       </div>
     `
         : `
-      <div class="card" style="padding:0;">
-        <table>
-          <thead>
-            <tr>
-              <th style="padding-left:12px; width:40px;"></th>
-              <th>Order</th>
-              <th>Customer</th>
-              <th>Mode</th>
-              <th>Items</th>
-              <th>Total</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${pool.map(renderRow).join("")}
-          </tbody>
-        </table>
-      </div>
-
-      <div class="card" style="display:flex; justify-content:space-between; align-items:center;">
-        <div style="font-size:13px;">
-          ${selectedCount} of ${pool.length} selected.
-          ${lockedMode ? `<br><span style="font-size:12px; color:#666;">Trip mode: <strong>${lockedMode}</strong></span>` : ""}
-        </div>
-        <div>
-          <button
-            class="btn-primary"
-            onclick="createTripFromSelected()"
-            ${selectedCount === 0 ? "disabled" : ""}>
-            Create Trip from Selected →
+      <div class="card" style="padding:8px; margin-bottom:12px;">
+        <div class="toggle-group">
+          <button class="toggle-btn ${state.dispatchMode === "fleet" ? "active" : ""}"
+            onclick="state.dispatchMode='fleet'; render();">
+            Company Fleet (${fleetOrders.length})
+          </button>
+          <button class="toggle-btn ${state.dispatchMode === "courier" ? "active" : ""}"
+            onclick="state.dispatchMode='courier'; render();">
+            Courier (${courierOrders.length})
           </button>
         </div>
       </div>
+
+      ${state.dispatchMode === "fleet"
+        ? renderFleetDispatchView(c, fleetOrders)
+        : renderCourierDispatchView(c, courierOrders)}
     `
     }
   `;
-      }
+    }
+
 
       /* ============================================================
 IN TRANSIT VIEW
@@ -7313,33 +7445,27 @@ DELIVERY CONFIRMATION
       }
 
       // Toggle selection for a row
+      // Only Fleet rows render a checkbox, so there's no cross-mode conflict.
       function toggleDispatchSelection(orderNumber) {
         const order = state.dispatchPool.find(
           (o) => o.orderNumber === orderNumber,
         );
         if (!order) return;
-
-        // If trying to select a new order while a mode is locked, ensure same mode
-        const firstSelected = state.dispatchPool.find((o) => o._selected);
-        if (
-          !order._selected &&
-          firstSelected &&
-          firstSelected.deliveryMode !== order.deliveryMode
-        ) {
-          alert(
-            `A trip must use a single delivery mode.\n\nTrip mode: ${firstSelected.deliveryMode}\nThis order: ${order.deliveryMode}`,
-          );
-          return;
-        }
-
         order._selected = !order._selected;
         render();
       }
 
       // Create trip from selected (placeholder for now — Trip Page comes next)
-      function createTripFromSelected() {
+    function createTripFromSelected() {
         const selected = state.dispatchPool.filter((o) => o._selected);
         if (selected.length === 0) return alert("Select at least one order.");
+
+        // Safety: only Fleet orders are selectable, but confirm it.
+        if (selected.some((o) => o.deliveryMode !== "Company Fleet")) {
+          return alert(
+            "Only Company Fleet orders can be batched. Courier orders are dispatched individually.",
+          );
+        }
 
         const mode = selected[0].deliveryMode;
 
@@ -7580,6 +7706,7 @@ DELIVERY CONFIRMATION
               // Don't reset if a trip is in progress
               if (!state.trip) {
                 state.dispatchView = "dashboard";
+                state.dispatchMode = "fleet";
               }
             }
 
