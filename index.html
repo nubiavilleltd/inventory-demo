@@ -4472,9 +4472,12 @@ DISPATCH WIZARD HANDLERS
 
         const returnTo = state.dispatchReturnTo || "order-details";
         state.dispatchReturnTo = "order-details";
-
+        
         if (returnTo === "dashboard") {
           const dispatchedNumber = state.order.orderNumber;
+
+          // Clear any checkbox selection carried over.
+          state.order._selected = false;
 
           // Remove from pool
           state.dispatchPool = state.dispatchPool.filter(
@@ -6934,6 +6937,9 @@ TRIP PAGE (Batch Dispatch)
 
         // 3b. Move them to in-transit
         trip.orders.forEach((o) => {
+          // Clear any checkbox selection carried over from the dashboard.
+          o._selected = false;
+
           // Avoid duplicates
           if (
             !state.inTransitOrders.find((x) => x.orderNumber === o.orderNumber)
