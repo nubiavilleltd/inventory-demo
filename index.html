@@ -1191,7 +1191,10 @@
         // Combobox working state (which panel is open, active item index)
         openCombobox: null, // element id of the currently-open combobox
         comboboxActive: -1,
-        // Top-level tab
+
+        // Adjust Stock modal working state
+        adjustReasonOpen: false,
+        adjustReason: "", // '' | 'stock_count' | 'damage' | 'loss' | 'return_to_supplier'
         // Top-level tab
         activeTab: "orders", // 'orders' | 'inventory' | 'dispatch' | 'customer-portal'
         // Customer credit portal state (public, self-service)
@@ -3108,13 +3111,16 @@ DISPATCH DASHBOARD DEMO SEED
         }
       }
 
-      function closeModal() {
+    function closeModal() {
         state.activeModal = null;
         state.collectionSelections = {};
         state.collectionUnitSearch = "";
         state.collectionChangingUnitsFor = null;
         state.openCombobox = null;
         state.comboboxActive = -1;
+        state.adjustReasonOpen = false;
+        state.adjustReason = "";
+        state.adjustQty = "";
         render();
       }
       /* ============ PAYMENT MODAL ============ */
@@ -5855,16 +5861,65 @@ RECEIVE STOCK MODAL
 ADJUST STOCK MODAL
 ============================================================ */
 
-      function renderAdjustStockModal() {
-        const productId = state.inventoryProductId || PRODUCTS_INV[0].id;
-        const product = getInvProduct(productId);
-        const locationId =
-          LOCATIONS.find((l) => l.isDefaultDispatch)?.id || LOCATIONS[0].id;
+         function renderAdjustStockModal() {
+      const productId = state.inventoryProductId || PRODUCTS_INV[0].id;
+      const product = getInvProduct(productId);
+      const locationId =
+        LOCATIONS.find((l) => l.isDefaultDispatch)?.id || LOCATIONS[0].id;
 
-        const s = getStockSummary(productId, locationId);
-        const unitLabel = product.unitOfMeasure || "unit";
+      const s = getStockSummary(productId, locationId);
+      const available = s.available;
+      const reserved = s.reserved || 0;
+      const unitLabel = product.unitOfMeasure || "unit";
 
-        return `
+      // Current reason
+      const reason = state.adjustReason;
+
+      // Reason metadata
+      const reasonMeta = {
+        stock_count: {
+          label: "Stock count correction",
+          description: "I counted the physical stock and it doesn't match.",
+          fieldLabel: "Counted value *",
+          fieldHint:
+            "Enter the number you physically counted. The system will reconcile the difference.",
+          isCounted: true,
+        },
+        damage: {
+          label: "Damage / write-off",
+          description: "Something broke or became unusable.",
+          fieldLabel: "Quantity *",
+          fieldHint:
+            "Enter how many are affected. The system will subtract them from the current balance.",
+          isCounted: false,
+        },
+        loss: {
+          label: "Loss / theft",
+          description: "Something went missing.",
+          fieldLabel: "Quantity *",
+          fieldHint:
+            "Enter how many are affected. The system will subtract them from the current balance.",
+          isCounted: false,
+        },
+        return_to_supplier: {
+          label: "Return to supplier",
+          description: "Sending stock back to the supplier.",
+          fieldLabel: "Quantity *",
+          fieldHint:
+            "Enter how many are being returned. The system will subtract them from the current balance.",
+          isCounted: false,
+        },
+      };
+
+      const meta = reason ? reasonMeta[reason] : null;
+
+      // Reservation breakdown line (only when there are reservations)
+      const reservationLine =
+        reserved > 0
+          ? `<br><span style="font-size:11px; color:#92400e;">${available} available · ${reserved} reserved for ${reserved === 1 ? "an order" : "orders"}</span>`
+          : "";
+
+      return `
     <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
       <div class="modal">
         <div class="modal-header">Adjust Stock <button class="close-x" onclick="closeModal()">×</button></div>
@@ -5872,78 +5927,69 @@ ADJUST STOCK MODAL
 
           <div style="padding:10px; border:1px dashed #999; border-radius:4px; margin-bottom:12px; font-size:12px;">
             <strong>${product.name}</strong> · ${getLocation(locationId)?.name}<br>
-            Current on hand: <strong>${s.total}</strong> ${unitLabel}(s)
+            Current on hand: <strong>${s.total}</strong> ${unitLabel}(s)${reservationLine}
           </div>
 
-          <label>Adjustment Type *</label>
-          <div class="toggle-group" style="width:100%;">
-            <button class="toggle-btn active" id="adjAddBtn" onclick="switchAdjustType('add')" style="flex:1;">Add Stock</button>
-            <button class="toggle-btn" id="adjRemoveBtn" onclick="switchAdjustType('remove')" style="flex:1;">Remove Stock</button>
-          </div>
-          <input type="hidden" id="adjType" value="add">
-
-            ${
-              LOCATIONS.length > 1
-                ? `
-            <label class="mt-12">Location *</label>
-            <select id="adjLocation" onchange="updateAdjustPreview()">
-              ${LOCATIONS.map((l) => {
-                const s = getStockSummary(productId, l.id);
-                return `<option value="${l.id}" ${l.id === locationId ? "selected" : ""}>
-                  ${l.name} — ${s.total} on hand
-                </option>`;
-              }).join("")}
-            </select>
-          `
-                : `
-            <input type="hidden" id="adjLocation" value="${LOCATIONS[0].id}">
-            <div style="font-size:12px; color:#555; margin-top:12px;">
-              Adjusting stock at <strong>${LOCATIONS[0].name}</strong>.
+          <label>Reason *</label>
+          <div class="combobox" style="position:relative;">
+            <div class="combobox-input" onclick="toggleAdjustReason()">
+              <input type="text" readonly
+                value="${meta ? meta.label : "Choose a reason"}"
+                style="cursor:pointer; color:${meta ? "#1a1a1a" : "#888"};">
+              <div class="combobox-caret">▼</div>
             </div>
-          `
+            ${
+              state.adjustReasonOpen
+                ? `
+              <div class="combobox-panel">
+                ${Object.keys(reasonMeta)
+                  .map(
+                    (key) => `
+                  <div class="combobox-item"
+                    style="padding:8px 10px;"
+                    onmousedown="selectAdjustReason('${key}')">
+                    <div style="font-size:13px;">${reasonMeta[key].label}</div>
+                    <div style="font-size:11px; color:#666; margin-top:2px;">${reasonMeta[key].description}</div>
+                  </div>
+                `,
+                  )
+                  .join("")}
+              </div>
+            `
+                : ""
             }
-
-          <label class="mt-12">Quantity *</label>
-          <input type="number" id="adjQty" value="1" min="1" oninput="updateAdjustPreview()">
-          <div style="font-size:11px; color:#555; margin-top:4px;">Unit: ${unitLabel}</div>
-
-          <label class="mt-12">Reason *</label>
-          <select id="adjReason">
-            <option value="">Select reason</option>
-            <option>Damage</option>
-            <option>Loss / Theft</option>
-            <option>Stock Count Correction</option>
-            <option>Return to Supplier</option>
-            <option>Other</option>
-          </select>
-
-          <div id="adjOtherReasonWrap" style="display:none;">
-            <label class="mt-12">Other Reason *</label>
-            <input type="text" id="adjOtherReason" placeholder="Describe the reason">
           </div>
 
-          <label class="mt-12">Notes</label>
-          <textarea id="adjNotes" placeholder="Optional details about this adjustment."></textarea>
+          ${
+            meta
+              ? `
+            <label class="mt-12">${meta.fieldLabel}</label>
+            <input type="number" id="adjustQty" min="1"
+              value="${state.adjustQty || ""}"
+              oninput="state.adjustQty = this.value; updateAdjustPreview();">
+            <div style="font-size:11px; color:#666; margin-top:4px;">${meta.fieldHint}</div>
+            <div id="adjustPreview" class="mt-12"></div>
+          `
+              : ""
+          }
+
+          <label class="mt-12">Note (optional)</label>
+          <textarea id="adjustNotes" placeholder="Optional details about this adjustment."></textarea>
 
         </div>
         <div class="modal-footer">
           <button onclick="closeModal()">Cancel</button>
-          <button class="btn-primary" id="confirmAdjustBtn">Adjust</button>
+          <button class="btn-primary" id="confirmAdjustBtn">Save</button>
         </div>
       </div>
     </div>
   `;
-      }
 
-      function switchAdjustType(type) {
-        document.getElementById("adjType").value = type;
-        document
-          .getElementById("adjAddBtn")
-          .classList.toggle("active", type === "add");
-        document
-          .getElementById("adjRemoveBtn")
-          .classList.toggle("active", type === "remove");
-      }
+      // Note: updateAdjustPreview() and the Save button are wired in
+      // attachAdjustStockHandlers. The preview element is populated dynamically.
+    }
+      
+    
 
       function updateAdjustPreview() {
         const productId = state.inventoryProductId;
@@ -5968,131 +6014,295 @@ ADJUST STOCK MODAL
         }
       }
 
-      function attachAdjustStockHandlers() {
-        // Reason dropdown: show "Other" text field when needed
-        const reasonSelect = document.getElementById("adjReason");
-        reasonSelect?.addEventListener("change", () => {
-          const wrap = document.getElementById("adjOtherReasonWrap");
-          wrap.style.display =
-            reasonSelect.value === "Other" ? "block" : "none";
+
+          /* ---------- Adjust Stock helpers ---------- */
+
+    function toggleAdjustReason() {
+      state.adjustReasonOpen = !state.adjustReasonOpen;
+      render();
+    }
+
+    function selectAdjustReason(key) {
+      state.adjustReason = key;
+      state.adjustReasonOpen = false;
+      state.adjustQty = "";
+      render();
+    }
+
+    function updateAdjustPreview() {
+      const preview = document.getElementById("adjustPreview");
+      if (!preview) return;
+
+      const productId = state.inventoryProductId || PRODUCTS_INV[0].id;
+      const product = getInvProduct(productId);
+      const locationId =
+        LOCATIONS.find((l) => l.isDefaultDispatch)?.id || LOCATIONS[0].id;
+      const s = getStockSummary(productId, locationId);
+      const unitLabel = product.unitOfMeasure || "unit";
+
+      const reason = state.adjustReason;
+      const qty = parseInt(state.adjustQty, 10) || 0;
+
+      if (!reason || qty <= 0) {
+        preview.innerHTML = "";
+        return;
+      }
+
+      // Compute the proposed new balance
+      let newBalance = 0;
+      let delta = 0;
+
+      if (reason === "stock_count") {
+        newBalance = qty;
+        delta = qty - s.total;
+      } else {
+        newBalance = s.total - qty;
+        delta = -qty;
+      }
+
+      // Validation 1: counted value higher than system (stock_count only)
+      if (reason === "stock_count" && qty > s.total) {
+        preview.innerHTML = `
+          <div style="padding:10px; border:2px dashed #991b1b; border-radius:4px; background:#fee2e2; font-size:12px; color:#991b1b;">
+            <div style="font-weight:bold; margin-bottom:4px;">
+              ⚠ Counted value is higher than the system balance (${s.total}).
+            </div>
+            <div>To record an increase, use Check In Stock instead.</div>
+          </div>
+        `;
+        return;
+      }
+
+      // Validation 2: reservation conflict
+      const reserved = s.reserved || 0;
+      if (newBalance < reserved) {
+        const reservations = getReservationsForProductLocation(
+          productId,
+          locationId,
+        );
+
+        const shown = reservations.slice(0, 3);
+        const more = reservations.length - shown.length;
+
+        preview.innerHTML = `
+          <div style="padding:10px; border:2px dashed #991b1b; border-radius:4px; background:#fee2e2; font-size:12px; color:#991b1b;">
+            <div style="font-weight:bold; margin-bottom:6px;">
+              ${reason === "stock_count" ? "⚠ Cannot record this count." : `⚠ Cannot remove ${qty}.`}
+            </div>
+            <div style="margin-bottom:8px;">
+              ${
+                reason === "stock_count"
+                  ? `You counted ${qty}, but ${reserved} ${unitLabel}(s) are committed to other orders:`
+                  : `Only ${s.available} ${unitLabel}(s) are free. ${reserved} are reserved for other orders:`
+              }
+            </div>
+            <div style="margin-left:12px; margin-bottom:8px; font-size:11px;">
+              ${shown
+                .map(
+                  (r) =>
+                    `${r.orderNumber} · ${getCustomer(r.customerId)?.name || "—"}`,
+                )
+                .join("<br>")}
+              ${more > 0 ? `<br>... and ${more} more` : ""}
+            </div>
+            <div>
+              ${
+                reason === "stock_count"
+                  ? "Resolve or reassign those orders first, then record the corrected count."
+                  : "Resolve those orders first, then adjust."
+              }
+            </div>
+          </div>
+        `;
+        return;
+      }
+
+      // All good — show the before/after preview
+      preview.innerHTML = `
+        <div style="padding:10px; border:1px dashed #999; border-radius:4px; font-size:13px;">
+          New balance:&nbsp;&nbsp;<strong>${s.total}</strong> → <strong>${newBalance}</strong>
+          <span style="color:#888; margin-left:8px;">(${delta >= 0 ? "+" : ""}${delta})</span>
+        </div>
+      `;
+    }
+
+    // Find all orders currently holding reservations for this product at this
+    // location. Covers:
+    //   - the current order (if it's in a reservation-bearing state)
+    //   - in-transit orders (hard reservations)
+    //   - dispatch pool orders (soft reservations from paid orders)
+    function getReservationsForProductLocation(productId, locationId) {
+      const results = [];
+
+      const holdsReservation = (o) =>
+        o.state === "out-for-delivery" ||
+        o.state === "ready" ||
+        (o.state === "confirmed" && o.fulfillment === "Delivery");
+
+      const addIfMatches = (o) => {
+        if (!o || !holdsReservation(o)) return;
+        o.items.forEach((item) => {
+          if (item.productId === productId) {
+            results.push({
+              orderNumber: o.orderNumber,
+              customerId: o.customerId,
+            });
+          }
+        });
+      };
+
+      if (state.order) addIfMatches(state.order);
+      state.inTransitOrders.forEach(addIfMatches);
+      state.dispatchPool.forEach(addIfMatches);
+
+      // De-duplicate (an order might appear twice if item listed twice)
+      const seen = new Set();
+      return results.filter((r) => {
+        if (seen.has(r.orderNumber)) return false;
+        seen.add(r.orderNumber);
+        return true;
+      });
+    }
+
+    function confirmAdjust() {
+      const productId = state.inventoryProductId;
+      const product = getInvProduct(productId);
+      const locationId =
+        LOCATIONS.find((l) => l.isDefaultDispatch)?.id || LOCATIONS[0].id;
+      const notes = document.getElementById("adjustNotes").value.trim();
+
+      const reason = state.adjustReason;
+      const qty = parseInt(state.adjustQty, 10) || 0;
+
+      // Validations
+      if (!reason) return alert("Choose a reason.");
+      if (!qty || qty <= 0) return alert("Enter a valid quantity.");
+
+      const s = getStockSummary(productId, locationId);
+
+      if (reason === "stock_count" && qty > s.total) {
+        return alert(
+          "Counted value is higher than the system balance. Use Check In Stock to increase stock.",
+        );
+      }
+
+      // Compute the reduction quantity
+      let reduceQty = 0;
+      if (reason === "stock_count") {
+        reduceQty = s.total - qty;
+      } else {
+        reduceQty = qty;
+      }
+
+      if (reduceQty === 0) {
+        // Nothing to do
+        state.activeModal = null;
+        state.adjustReason = "";
+        state.adjustQty = "";
+        state.adjustReasonOpen = false;
+        render();
+        return;
+      }
+
+      // Re-check reservation conflict
+      const newBalance = s.total - reduceQty;
+      if (newBalance < (s.reserved || 0)) {
+        return alert(
+          "This adjustment would break reservations on other orders. Resolve those orders first.",
+        );
+      }
+
+      // Movement type
+      const movementType = {
+        stock_count: "stock_count_correction",
+        damage: "damage",
+        loss: "loss",
+        return_to_supplier: "return_to_supplier",
+      }[reason];
+
+      // Apply the reduction
+      if (product.trackingType === "Individual") {
+        // Remove N units from the Available-and-not-soft-reserved pool, FIFO
+        const candidates = UNITS.filter(
+          (u) =>
+            u.productId === productId &&
+            u.locationId === locationId &&
+            u.status === "Available" &&
+            !u.softReservedFor,
+        ).sort((a, b) => {
+          if (a.receivedDate !== b.receivedDate)
+            return a.receivedDate < b.receivedDate ? -1 : 1;
+          return a.tag < b.tag ? -1 : 1;
         });
 
-        document
-          .getElementById("confirmAdjustBtn")
-          ?.addEventListener("click", () => {
-            const productId = state.inventoryProductId;
-            const product = getInvProduct(productId);
-            const locationId = document.getElementById("adjLocation").value;
-            const type = document.getElementById("adjType").value;
-            const qty = parseInt(document.getElementById("adjQty").value, 10);
-            let reason = document.getElementById("adjReason").value;
-            const otherReason =
-              document.getElementById("adjOtherReason")?.value.trim() || "";
-            const notes = document.getElementById("adjNotes").value.trim();
+        if (candidates.length < reduceQty) {
+          return alert(
+            `Only ${candidates.length} ${product.unitOfMeasure}(s) can be removed.`,
+          );
+        }
 
-            if (!qty || qty <= 0) return alert("Enter a valid quantity.");
-            if (!reason) return alert("Select a reason.");
-            if (reason === "Other" && !otherReason)
-              return alert("Enter the reason.");
-            if (reason === "Other") reason = otherReason;
+        const removalDate = todayISO();
+        const ref = genNum("ADJ");
+        candidates.slice(0, reduceQty).forEach((u) => {
+          u.status = "Removed";
+          u.removedDate = removalDate;
+          u.removedReason = reasonMetaLabel(reason);
+          u.removalReference = ref;
+        });
 
-            // Validation: cannot remove more than available
-            const s = getStockSummary(productId, locationId);
-            if (type === "remove" && qty > s.available) {
-              return alert(
-                `Cannot remove ${qty} ${product.unitOfMeasure}(s) at this location.\n\n` +
-                  `On hand: ${s.total}\n` +
-                  `Reserved: ${s.reserved}\n` +
-                  `Available: ${s.available}\n\n` +
-                  `You can only remove up to ${s.available} (the unreserved amount).`,
-              );
-            }
-            if (product.trackingType === "Individual") {
-              if (type === "add") {
-                // Add new units (adjustment-style) with generated tags
-                const prefix = product.tagPrefix || product.sku.split("-")[0];
-                const ymd = todayISO().replace(/-/g, "");
-                const existing = UNITS.filter((u) =>
-                  u.tag.startsWith(prefix + "-" + ymd),
-                );
-                let nextSeq = existing.length + 1;
-                for (let i = 0; i < qty; i++) {
-                  UNITS.push({
-                    id: "u-" + Date.now() + "-" + i,
-                    productId,
-                    tag: `${prefix}-${ymd}-${String(nextSeq + i).padStart(3, "0")}`,
-                    status: "Available",
-                    locationId,
-                    receivedDate: todayISO(),
-                  });
-                }
-              } else {
-                // Remove: mark units as 'Removed' with reason and date
-                const candidates = UNITS.filter(
-                  (u) =>
-                    u.productId === productId &&
-                    u.locationId === locationId &&
-                    u.status === "Available",
-                ).slice(0, qty);
-                if (candidates.length < qty) {
-                  return alert(
-                    `Only ${candidates.length} available to remove.`,
-                  );
-                }
-                const removalDate = todayISO();
-                const ref = genNum("ADJ");
-                candidates.forEach((u) => {
-                  u.status = "Removed";
-                  u.removedDate = removalDate;
-                  u.removedReason = reason;
-                  u.removalReference = ref;
-                });
-                logMovement(
-                  productId,
-                  locationId,
-                  "adjustment_remove",
-                  qty,
-                  ref + " · " + reason,
-                );
-                state.activeModal = null;
-                render();
-                return;
-              }
-              // Non-individual items use the movement log below
-              logMovement(
-                productId,
-                locationId,
-                type === "add" ? "adjustment_add" : "adjustment_remove",
-                qty,
-                reason,
-              );
-            } else {
-              // Stock quantity
-              let row = STOCK.find(
-                (st) =>
-                  st.productId === productId && st.locationId === locationId,
-              );
-              if (!row) {
-                if (type === "remove")
-                  return alert("No stock at this location.");
-                row = { productId, locationId, onHand: 0, reserved: 0 };
-                STOCK.push(row);
-              }
-              if (type === "remove") row.onHand -= qty;
-              else row.onHand += qty;
-              logMovement(
-                productId,
-                locationId,
-                type === "add" ? "adjustment_add" : "adjustment_remove",
-                qty,
-                reason,
-              );
-            }
-
-            state.activeModal = null;
-            render();
-          });
+        logMovement(
+          productId,
+          locationId,
+          movementType,
+          reduceQty,
+          ref + (notes ? " · " + notes : ""),
+        );
+      } else {
+        // StockQuantity: decrement onHand
+        const row = STOCK.find(
+          (st) => st.productId === productId && st.locationId === locationId,
+        );
+        if (!row) {
+          return alert("No stock at this location.");
+        }
+        row.onHand -= reduceQty;
+        logMovement(
+          productId,
+          locationId,
+          movementType,
+          reduceQty,
+          notes || null,
+        );
       }
+
+      // Reset and close
+      state.activeModal = null;
+      state.adjustReason = "";
+      state.adjustQty = "";
+      state.adjustReasonOpen = false;
+      render();
+    }
+
+    function reasonMetaLabel(reason) {
+      return (
+        {
+          stock_count: "Stock count correction",
+          damage: "Damage",
+          loss: "Loss / theft",
+          return_to_supplier: "Return to supplier",
+        }[reason] || reason
+      );
+    }
+
+          function attachAdjustStockHandlers() {
+      // Initial preview render
+      updateAdjustPreview();
+
+      document
+        .getElementById("confirmAdjustBtn")
+        ?.addEventListener("click", confirmAdjust);
+    }
+
 
       /* ============================================================
 MOVEMENT LOG PAGE
