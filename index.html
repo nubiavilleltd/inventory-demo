@@ -535,12 +535,11 @@
           <option value="deliveryfleet">4. Delivery (Company Fleet)</option>
           <option value="deliverycourier">5. Delivery (Courier)</option>
           <option value="partialpay">6. Partial Payment</option>
-          <option value="overpay">7. Overpayment → Credit</option>
-          <option value="withcredit">8. Customer With Credit</option>
+          <option value="withcredit">7. Customer With Credit</option>
           <option value="insufficient">
-            9. Insufficient Stock (Hard Block)
+            8. Insufficient Stock (Hard Block)
           </option>
-          <option value="multiunit">10. Multi-Unit Individual Items</option>
+          <option value="multiunit">9. Multi-Unit Individual Items</option>
         </select>
         <button onclick="resetDemo()">Reset</button>
       </div>
@@ -1129,16 +1128,6 @@
           timing: "Scheduled",
           scheduledOffsetDays: 3,
           items: [{ productId: "p3", qty: 1 }],
-          startingState: "draft",
-        },
-        overpay: {
-          title: "Overpayment → Credit",
-          description:
-            "Customer pays more than the invoice. Excess becomes credit.",
-          customerId: "c1",
-          fulfillment: "Pickup",
-          timing: "Immediate",
-          items: [{ productId: "p1", qty: 1 }],
           startingState: "draft",
         },
         withcredit: {
@@ -3139,9 +3128,15 @@ DISPATCH DASHBOARD DEMO SEED
             <div class="invoice-summary-item"><div class="label">Paid</div><div class="value green">${money(t.paid)}</div></div>
             <div class="invoice-summary-item"><div class="label">Outstanding</div><div class="value red">${money(t.outstanding)}</div></div>
           </div>
-          <div class="row">
+                   <div class="row">
             <div class="col"><label>Payment Date *</label><input type="date" id="payDate" value="${todayISO()}"></div>
-            <div class="col"><label>Amount (₦) *</label><input type="number" id="payAmount" value="${t.outstanding}"></div>
+            <div class="col">
+              <label>Amount (₦) *</label>
+              <input type="number" id="payAmount" value="${t.outstanding}" max="${t.outstanding}">
+              <div style="font-size:11px; color:#666; margin-top:4px;">
+                Cannot exceed the outstanding balance of ${money(t.outstanding)}.
+              </div>
+            </div>
           </div>
           <label class="mt-8">Payment Method *</label>
           <select id="payMethod">
@@ -3205,39 +3200,26 @@ DISPATCH DASHBOARD DEMO SEED
         if (!amount || amount <= 0) return alert("Enter valid amount.");
         if (!method) return alert("Select payment method.");
 
-        const t = calcTotals(o);
-        let creditCreated = 0,
-          appliedAmount = amount;
+               const t = calcTotals(o);
+
+        // No overpayment allowed. Block and return with a clear error.
         if (amount > t.outstanding) {
-          creditCreated = amount - t.outstanding;
-          appliedAmount = t.outstanding;
+          return alert(
+            `Amount cannot exceed the outstanding balance of ${money(t.outstanding)}.`,
+          );
         }
 
         o.payments.push({
           id: "pay-" + Date.now(),
           date,
-          amount: appliedAmount,
+          amount,
           method,
           reference: ref,
           receiptNumber: genNum("RCT"),
           status: "recorded",
         });
-        logTimeline(`Payment: ${money(appliedAmount)} via ${method}`);
+        logTimeline(`Payment: ${money(amount)} via ${method}`);
 
-        if (creditCreated > 0) {
-          cust.credit += creditCreated;
-          const d = new Date();
-          d.setDate(d.getDate() + CREDIT_VALIDITY_DAYS);
-          cust.creditExpiryDate = d.toISOString().split("T")[0];
-          const master = getCustomer(cust.id);
-          if (master) {
-            master.credit = cust.credit;
-            master.creditExpiryDate = cust.creditExpiryDate;
-          }
-          logTimeline(
-            `Overpayment ${money(creditCreated)} → Credit. Expires ${formatDate(cust.creditExpiryDate)}.`,
-          );
-        }
         if (!o.invoiceNumber) o.invoiceNumber = genNum("INV");
 
         // Soft-reserve stock if this payment pushes the order to paid
@@ -3275,9 +3257,9 @@ DISPATCH DASHBOARD DEMO SEED
           render();
           return;
         } else {
-          state.successContext = {
+        state.successContext = {
             title: "Payment Recorded",
-            subtitle: `${o.orderNumber} · ${money(appliedAmount)} received`,
+            subtitle: `${o.orderNumber} · ${money(amount)} received`,
             documentType: "Receipt",
             isWalkin: false,
           };
