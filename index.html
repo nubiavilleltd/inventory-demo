@@ -1202,11 +1202,10 @@
         inTransitOrders: [],
         // Which sub-view of the Dispatch tab is visible
         dispatchView: "dashboard", // 'dashboard' | 'in-transit'
-        // Which mode sub-tab is active on the Dispatch Dashboard
-        dispatchMode: "fleet", // 'fleet' | 'courier'
-        // Where the single-order dispatch wizard returns after confirm/cancel
+          // Where the single-order dispatch wizard returns after confirm/cancel
         dispatchReturnTo: "order-details", // 'order-details' | 'dashboard'
-        // Add-orders picker modal (used from within the trip wizard)
+        // 'single' | 'trip' — controls Step 1 rendering (Courier availability, etc.)
+        dispatchContext: "single",
         addOrdersPickerOpen: false,
         addOrdersSelected: {},
 
@@ -1992,32 +1991,18 @@ DISPATCH DASHBOARD DEMO SEED
         </div>
       `
                 : `
-        <div class="row mt-8">
+               <div class="row mt-8">
           <div class="col">
-            <label>Delivery Mode *</label>
-            <select id="deliveryModeSelect" ${locked ? "disabled" : ""}>
-              <option ${o.deliveryMode === "Company Fleet" ? "selected" : ""}>Company Fleet</option>
-              <option ${o.deliveryMode === "Courier" ? "selected" : ""}>Courier</option>
-            </select>
-            <div style="font-size:11px; color:#666; margin-top:4px;">
-              ${
-                o.deliveryMode === "Courier"
-                  ? "💡 Courier & tracking number captured at dispatch."
-                  : "💡 Driver & vehicle assigned at dispatch."
-              }
-            </div>
-          </div>
-                  <div class="col">
             <label>Scheduled Delivery Date *</label>
             <input type="date" id="scheduledDateInput" value="${o.scheduledDate}" ${locked ? "disabled" : ""}>
             <div style="font-size:11px; color:#666; margin-top:4px;">
-              💡 Delivery is always scheduled — driver/courier assigned at dispatch.
+              💡 Delivery is always scheduled — dispatch decides the mode.
             </div>
           </div>
         </div>
 
         <div class="mt-8">
-          <label>${o.deliveryMode === "Courier" ? "Recipient Address *" : "Delivery Address *"}</label>
+          <label>Delivery Address *</label>
           ${(() => {
             const addrs = cust.addresses || [];
             if (addrs.length === 0) {
@@ -2058,12 +2043,8 @@ DISPATCH DASHBOARD DEMO SEED
                 </select>
                 ${!locked ? `<button id="editAddressBtn" style="white-space:nowrap;">Edit</button>` : ""}
               </div>
-              <div style="font-size:11px; color:#666; margin-top:4px;">
-                ${
-                  o.deliveryMode === "Courier"
-                    ? "💡 This address will be printed on the package for the courier."
-                    : "💡 The driver will deliver to this address."
-                }
+                <div style="font-size:11px; color:#666; margin-top:4px;">
+                💡 This is where the order will be delivered.
               </div>
               ${!locked ? `<button id="addAddressBtn" style="margin-top:6px; font-size:12px;">+ Add New Address</button>` : ""}
             `;
@@ -2702,12 +2683,7 @@ DISPATCH DASHBOARD DEMO SEED
             state.activeModal = "create-customer";
             render();
           });
-        document
-          .getElementById("deliveryModeSelect")
-          ?.addEventListener("change", (e) => {
-            state.order.deliveryMode = e.target.value;
-            render();
-          });
+       
 
         // Delivery address selector
         document
@@ -4411,13 +4387,20 @@ DISPATCH DASHBOARD DEMO SEED
       }
 
       /* ---------- Step 1: Delivery Assignment ---------- */
-      function renderDispatchStep1() {
+            function renderDispatchStep1() {
         const o = state.order;
         const w = state.dispatchWizard;
-        const isFleet = o.deliveryMode === "Company Fleet";
+        const isTripContext = state.dispatchContext === "trip";
+        const trip = isTripContext ? state.trip : null;
+        const orderCount = isTripContext ? (trip?.orders.length || 0) : 1;
+
+        // Courier is available only when the batch size is exactly 1.
+        const courierAvailable = orderCount < 2;
 
         const drivers = DRIVERS.filter((d) => d.status === "Available");
         const vehicles = VEHICLES.filter((v) => v.status === "Available");
+
+        const mode = w.deliveryMode; // '' | 'Company Fleet' | 'Courier'
 
         return `
     <div class="modal-overlay" onclick="if(event.target===this)closeDispatchWizard()">
@@ -4427,11 +4410,41 @@ DISPATCH DASHBOARD DEMO SEED
           ${renderStepIndicator(1)}
 
           <p style="font-size:13px; color:#555;">
-            <strong>${o.orderNumber}</strong> · ${o.deliveryMode}
+            <strong>${isTripContext ? `Trip of ${orderCount} orders` : o.orderNumber}</strong>
           </p>
 
+                   <label class="mt-12">Delivery Mode *</label>
+          <div style="display:flex; gap:12px; flex-wrap:wrap;">
+            <label style="display:flex; align-items:center; gap:6px; padding:8px 14px; border:2px solid #1a1a1a; border-radius:4px; cursor:pointer; font-size:13px; background:${mode === "Company Fleet" ? "#dbeafe" : "#fff"}; font-weight:${mode === "Company Fleet" ? "bold" : "normal"};">
+              <input type="radio" name="dispatchMode" value="Company Fleet"
+                style="width:auto; margin:0;"
+                ${mode === "Company Fleet" ? "checked" : ""}
+                onchange="onDispatchModeChange('Company Fleet')">
+              Company Fleet
+            </label>
+
+            <label style="display:flex; align-items:center; gap:6px; padding:8px 14px; border:2px solid #1a1a1a; border-radius:4px; cursor:pointer; font-size:13px; background:${mode === "Courier" ? "#dbeafe" : "#fff"}; font-weight:${mode === "Courier" ? "bold" : "normal"}; ${!courierAvailable ? "opacity:0.4; cursor:not-allowed; background:#f3f4f6;" : ""}">
+              <input type="radio" name="dispatchMode" value="Courier"
+                style="width:auto; margin:0;"
+                ${mode === "Courier" ? "checked" : ""}
+                ${!courierAvailable ? "disabled" : ""}
+                onchange="onDispatchModeChange('Courier')">
+              Courier
+            </label>
+          </div>
+
           ${
-            isFleet
+            !courierAvailable
+              ? `
+            <div style="font-size:11px; color:#92400e; margin-top:6px; padding:6px 8px; border:1px dashed #92400e; border-radius:4px;">
+              💡 Courier is one parcel per trip. Remove orders until only one remains to enable Courier.
+            </div>
+          `
+              : ""
+          }
+
+          ${
+            mode === "Company Fleet"
               ? `
             <label class="mt-12">Driver *</label>
             <select id="dispatchDriver" onchange="state.dispatchWizard.driver=this.value;">
@@ -4447,11 +4460,12 @@ DISPATCH DASHBOARD DEMO SEED
             </select>
             ${vehicles.length === 0 ? '<div style="color:#991b1b; font-size:12px; margin-top:4px;">⚠ No vehicles available.</div>' : ""}
           `
-              : `
+              : mode === "Courier"
+                ? `
             <label class="mt-12">Courier Service *</label>
             <select id="dispatchCourier" onchange="state.dispatchWizard.courier=this.value;">
               <option value="">Select courier</option>
-              ${COURIERS.map((c) => `<option value="${c}" ${w.courier === c ? "selected" : ""}>${c}</option>`).join("")}
+              ${COURIERS.map((cr) => `<option value="${cr}" ${w.courier === cr ? "selected" : ""}>${cr}</option>`).join("")}
             </select>
 
             <label class="mt-12">Tracking Number *</label>
@@ -4459,6 +4473,7 @@ DISPATCH DASHBOARD DEMO SEED
               placeholder="e.g. GIG-12345678"
               oninput="state.dispatchWizard.trackingNumber=this.value;">
           `
+                : ""
           }
 
           <label class="mt-12">Dispatch Date *</label>
@@ -4477,6 +4492,24 @@ DISPATCH DASHBOARD DEMO SEED
       </div>
     </div>
   `;
+      }
+
+            function onDispatchModeChange(value) {
+        // Guard: reject Courier when the trip has 2+ orders.
+        if (value === "Courier" && state.dispatchContext === "trip" && state.trip && state.trip.orders.length >= 2) {
+          return;
+        }
+        state.dispatchWizard.deliveryMode = value;
+        // Clear mode-specific fields when switching
+        if (value !== "Company Fleet") {
+          state.dispatchWizard.driver = "";
+          state.dispatchWizard.vehicle = "";
+        }
+        if (value !== "Courier") {
+          state.dispatchWizard.courier = "";
+          state.dispatchWizard.trackingNumber = "";
+        }
+        render();
       }
 
       /* ---------- Step 2: Assign Inventory ---------- */
@@ -4767,20 +4800,34 @@ DISPATCH WIZARD HANDLERS
         const w = state.dispatchWizard;
         const o = state.order;
 
-        if (w.step === 1) {
+               if (w.step === 1) {
           // Validate Step 1
-          if (o.deliveryMode === "Company Fleet") {
+          if (!w.deliveryMode) return alert("Select a delivery mode.");
+
+          const isTripContext = state.dispatchContext === "trip";
+          const orderCount = isTripContext ? (state.trip?.orders.length || 0) : 1;
+
+          if (w.deliveryMode === "Company Fleet") {
             if (!w.driver) return alert("Select a driver.");
             if (!w.vehicle) return alert("Select a vehicle.");
-          } else {
+          } else if (w.deliveryMode === "Courier") {
+            if (orderCount >= 2) {
+              return alert(
+                "Courier cannot be used for a trip with more than one order. Switch to Company Fleet, or dispatch the orders individually.",
+              );
+            }
             if (!w.courier) return alert("Select a courier.");
             if (!w.trackingNumber || !w.trackingNumber.trim())
               return alert("Enter tracking number.");
+          } else {
+            return alert("Select a delivery mode.");
           }
+
           if (!w.dispatchDate) return alert("Select dispatch date.");
 
           w.step = 2;
           render();
+        
         } else if (w.step === 2) {
           // Validate Step 2 — all items assigned
           for (const item of o.items) {
@@ -4881,9 +4928,12 @@ DISPATCH WIZARD HANDLERS
         const o = state.order;
         const w = state.dispatchWizard;
 
-        // 1. Build dispatchInfo
+        // 1. Persist the mode on the order and build dispatchInfo
         const dispatchDate = w.dispatchDate || todayISO();
-        if (o.deliveryMode === "Company Fleet") {
+        o.deliveryMode = w.deliveryMode;
+        logTimeline(`Dispatch mode: ${w.deliveryMode}`);
+
+        if (w.deliveryMode === "Company Fleet") {
           o.dispatchInfo = {
             driver: w.driver,
             vehicle: w.vehicle,
@@ -4958,6 +5008,7 @@ DISPATCH WIZARD HANDLERS
         state.activeModal = null;
         state.dispatchWizard = {
           step: 1,
+          deliveryMode: "",
           driver: "",
           vehicle: "",
           courier: "",
@@ -6537,6 +6588,7 @@ DISPATCH WIZARD HELPERS
       function resetDispatchWizard() {
         state.dispatchWizard = {
           step: 1,
+          deliveryMode: "", // '' | 'Company Fleet' | 'Courier'
           driver: "",
           vehicle: "",
           courier: "",
@@ -7073,12 +7125,14 @@ TRIP PAGE (Batch Dispatch)
       <button onclick="discardTrip()">← Discard Trip</button>
     </div>
 
-    <div class="card" style="margin-bottom:12px;">
+       <div class="card" style="margin-bottom:12px;">
       <div style="display:flex; justify-content:space-between; align-items:center;">
         <div>
           <h2 style="font-size:20px;">Create Trip</h2>
           <div style="font-size:12px; color:#555;">
-            ${trip.mode} · ${trip.orders.length} order${trip.orders.length === 1 ? "" : "s"}
+            ${state.dispatchWizard.deliveryMode
+              ? `${state.dispatchWizard.deliveryMode} · `
+              : ""}${trip.orders.length} order${trip.orders.length === 1 ? "" : "s"}
           </div>
         </div>
       </div>
@@ -7111,19 +7165,50 @@ TRIP PAGE (Batch Dispatch)
       }
 
       /* ---------- Trip Step 1: Delivery ---------- */
-      function renderTripStep1() {
+            function renderTripStep1() {
         const trip = state.trip;
-        const isFleet = trip.mode === "Company Fleet";
+        const mode = state.dispatchWizard.deliveryMode || "";
+        const orderCount = trip.orders.length;
+        const courierAvailable = orderCount < 2;
 
         const drivers = DRIVERS.filter((d) => d.status === "Available");
         const vehicles = VEHICLES.filter((v) => v.status === "Available");
-
         return `
     <div class="card">
       <div class="card-title">Delivery Assignment</div>
 
+            <label>Delivery Mode *</label>
+      <div style="display:flex; gap:12px; flex-wrap:wrap;">
+        <label style="display:flex; align-items:center; gap:6px; padding:8px 14px; border:2px solid #1a1a1a; border-radius:4px; cursor:pointer; font-size:13px; background:${mode === "Company Fleet" ? "#dbeafe" : "#fff"}; font-weight:${mode === "Company Fleet" ? "bold" : "normal"};">
+          <input type="radio" name="tripMode" value="Company Fleet"
+            style="width:auto; margin:0;"
+            ${mode === "Company Fleet" ? "checked" : ""}
+            onchange="onTripModeChange('Company Fleet')">
+          Company Fleet
+        </label>
+
+        <label style="display:flex; align-items:center; gap:6px; padding:8px 14px; border:2px solid #1a1a1a; border-radius:4px; cursor:pointer; font-size:13px; background:${mode === "Courier" ? "#dbeafe" : "#fff"}; font-weight:${mode === "Courier" ? "bold" : "normal"}; ${!courierAvailable ? "opacity:0.4; cursor:not-allowed; background:#f3f4f6;" : ""}">
+          <input type="radio" name="tripMode" value="Courier"
+            style="width:auto; margin:0;"
+            ${mode === "Courier" ? "checked" : ""}
+            ${!courierAvailable ? "disabled" : ""}
+            onchange="onTripModeChange('Courier')">
+          Courier
+        </label>
+      </div>
+
       ${
-        isFleet
+        !courierAvailable
+          ? `
+        <div style="font-size:11px; color:#92400e; margin-top:6px; padding:6px 8px; border:1px dashed #92400e; border-radius:4px;">
+          💡 Courier is one parcel per trip. Remove orders until only one remains to enable Courier.
+        </div>
+      `
+          : ""
+      }
+
+      ${
+        mode === "Company Fleet"
           ? `
         <div class="row">
           <div class="col">
@@ -7144,7 +7229,8 @@ TRIP PAGE (Batch Dispatch)
           </div>
         </div>
       `
-          : `
+          : mode === "Courier"
+            ? `
         <div class="row">
           <div class="col">
             <label>Courier Service *</label>
@@ -7161,6 +7247,7 @@ TRIP PAGE (Batch Dispatch)
           </div>
         </div>
       `
+            : ""
       }
 
       <div class="row">
@@ -7208,6 +7295,22 @@ TRIP PAGE (Batch Dispatch)
       <button class="btn-primary" onclick="tripNext()" ${trip.orders.length === 0 ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ""}>Next: Inventory →</button>
     </div>
   `;
+      }
+
+
+
+            function onTripModeChange(value) {
+        if (value === "Courier" && state.trip.orders.length >= 2) return;
+        state.dispatchWizard.deliveryMode = value;
+        if (value !== "Company Fleet") {
+          state.trip.driver = "";
+          state.trip.vehicle = "";
+        }
+        if (value !== "Courier") {
+          state.trip.courier = "";
+          state.trip.trackingNumber = "";
+        }
+        render();
       }
 
       /* ---------- Add Orders Picker (used from within the trip wizard) ---------- */
@@ -7457,9 +7560,15 @@ TRIP PAGE (Batch Dispatch)
       })
       .join("")}
 
-     <div class="card" style="text-align:center;">
-      <button onclick="openAddOrdersPicker()">+ Add Another Order</button>
-    </div>
+        ${
+       trip.mode !== "Courier"
+         ? `
+       <div class="card" style="text-align:center;">
+        <button onclick="openAddOrdersPicker()">+ Add Another Order</button>
+       </div>
+     `
+         : ""
+     }
 
     <div class="card">
       <div style="font-size:12px;">
@@ -7907,6 +8016,7 @@ TRIP PAGE (Batch Dispatch)
 
           // Mark order Out for Delivery
           order.state = "out-for-delivery";
+          order.deliveryMode = trip.mode;
           order.dispatchInfo = {
             driver: trip.mode === "Company Fleet" ? trip.driver : undefined,
             vehicle: trip.mode === "Company Fleet" ? trip.vehicle : undefined,
@@ -7917,6 +8027,10 @@ TRIP PAGE (Batch Dispatch)
             notes: trip.dispatchNotes,
           };
           order.timeline = order.timeline || [];
+          order.timeline.push({
+            time: new Date().toISOString(),
+            event: `Dispatch mode: ${trip.mode}`,
+          });
           order.timeline.push({
             time: new Date().toISOString(),
             event: `Dispatched via ${trip.mode} trip`,
@@ -7987,169 +8101,32 @@ TRIP PAGE (Batch Dispatch)
         render();
       }
 
-      // Dispatch a single order directly from the Dispatch Dashboard.
-      // Used for Courier orders, which cannot be batched.
-      // The wizard returns to the Dispatch Dashboard when done.
-      function dispatchFromDashboard(orderNumber) {
-        const order = state.dispatchPool.find(
-          (o) => o.orderNumber === orderNumber,
-        );
-        if (!order) return;
+            // Dispatch exactly one selected order from the Dispatch Dashboard.
+      // The mode is chosen inside the wizard (Step 1).
+      function dispatchSelectedFromDashboard() {
+        const selected = state.dispatchPool.filter((o) => o._selected);
+        if (selected.length !== 1) return;
 
+        const order = selected[0];
         state.order = order;
         state.dispatchReturnTo = "dashboard";
+
+        // Single-order context: no trip object.
+        state.trip = null;
+        state.dispatchContext = "single";
 
         initDispatchWizard();
         state.activeModal = "dispatch";
         render();
       }
 
-      function renderFleetDispatchView(c, fleetOrders) {
-        if (fleetOrders.length === 0) {
-          return `
-      <div class="card" style="text-align:center; padding:32px;">
-        <div style="font-size:14px; color:#888;">No fleet orders ready for dispatch.</div>
-        <div style="font-size:12px; color:#888; margin-top:8px;">
-          Courier orders are dispatched individually — switch to the Courier tab.
-        </div>
-      </div>
-    `;
-        }
-
-        const selected = fleetOrders.filter((o) => o._selected);
-        const selectedCount = selected.length;
-
-        const renderRow = (o) => {
-          const customer = getCustomer(o.customerId);
-          const subtotal = o.items.reduce(
-            (s, i) => s + (getProduct(i.productId)?.price || 0) * i.qty,
-            0,
-          );
-          const itemCount = o.items.reduce((s, i) => s + i.qty, 0);
-
-          return `
-      <tr>
-        <td style="padding-left:12px;">
-          <input type="checkbox" data-dispatch-check="${o.orderNumber}"
-            onchange="toggleDispatchSelection('${o.orderNumber}')"
-            ${o._selected ? "checked" : ""}>
-        </td>
-        <td>
-          <div style="font-weight:bold;">${o.orderNumber}</div>
-          <div style="font-size:11px; color:#888;">${o.invoiceNumber}</div>
-        </td>
-        <td>${customer?.name || "—"}</td>
-        <td>${itemCount} item${itemCount === 1 ? "" : "s"}</td>
-        <td><strong>${money(subtotal)}</strong></td>
-      </tr>
-    `;
-        };
-
-        return `
-    <div class="card" style="padding:0;">
-      <table>
-        <thead>
-          <tr>
-            <th style="padding-left:12px; width:40px;"></th>
-            <th>Order</th>
-            <th>Customer</th>
-            <th>Items</th>
-            <th>Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${fleetOrders.map(renderRow).join("")}
-        </tbody>
-      </table>
-    </div>
-
-    <div class="card" style="display:flex; justify-content:space-between; align-items:center;">
-      <div style="font-size:13px;">
-        ${selectedCount} of ${fleetOrders.length} fleet order${fleetOrders.length === 1 ? "" : "s"} selected.
-      </div>
-      <div>
-        <button
-          class="btn-primary"
-          onclick="createTripFromSelected()"
-          ${selectedCount === 0 ? "disabled" : ""}>
-          Create Trip from Selected →
-        </button>
-      </div>
-    </div>
-  `;
-      }
-
-      function renderCourierDispatchView(c, courierOrders) {
-        if (courierOrders.length === 0) {
-          return `
-      <div class="card" style="text-align:center; padding:32px;">
-        <div style="font-size:14px; color:#888;">No courier orders ready for dispatch.</div>
-        <div style="font-size:12px; color:#888; margin-top:8px;">
-          Fleet orders are dispatched in batches — switch to the Company Fleet tab.
-        </div>
-      </div>
-    `;
-        }
-
-        const renderRow = (o) => {
-          const customer = getCustomer(o.customerId);
-          const subtotal = o.items.reduce(
-            (s, i) => s + (getProduct(i.productId)?.price || 0) * i.qty,
-            0,
-          );
-          const itemCount = o.items.reduce((s, i) => s + i.qty, 0);
-
-          return `
-      <tr>
-        <td>
-          <div style="font-weight:bold;">${o.orderNumber}</div>
-          <div style="font-size:11px; color:#888;">${o.invoiceNumber}</div>
-        </td>
-        <td>${customer?.name || "—"}</td>
-        <td>${itemCount} item${itemCount === 1 ? "" : "s"}</td>
-        <td><strong>${money(subtotal)}</strong></td>
-        <td>
-          <button class="btn-primary" style="font-size:12px; padding:4px 10px;"
-            onclick="dispatchFromDashboard('${o.orderNumber}')">
-            Dispatch
-          </button>
-        </td>
-      </tr>
-    `;
-        };
-
-        return `
-    <div class="card" style="padding:0;">
-      <table>
-        <thead>
-          <tr>
-            <th style="padding-left:12px;">Order</th>
-            <th>Customer</th>
-            <th>Items</th>
-            <th>Total</th>
-            <th>Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${courierOrders.map(renderRow).join("")}
-        </tbody>
-      </table>
-    </div>
-
-    <div class="card" style="font-size:12px; color:#555;">
-      Courier orders are dispatched individually — one tracking number per parcel. No batch selection.
-    </div>
-  `;
-      }
+    
 
       function renderDispatchDashboard(c) {
-        const pool = state.dispatchPool;
-        const fleetOrders = pool.filter(
-          (o) => o.deliveryMode === "Company Fleet",
-        );
-        const courierOrders = pool.filter((o) => o.deliveryMode === "Courier");
+  const pool = state.dispatchPool;
+  const selectedCount = pool.filter((o) => o._selected).length;
 
-        c.innerHTML = `
+  c.innerHTML = `
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
       <div>
         <div class="toggle-group" style="margin-bottom:8px;">
@@ -8177,29 +8154,78 @@ TRIP PAGE (Batch Dispatch)
       </div>
     `
         : `
-      <div class="card" style="padding:8px; margin-bottom:12px;">
-        <div class="toggle-group">
-          <button class="toggle-btn ${state.dispatchMode === "fleet" ? "active" : ""}"
-            onclick="state.dispatchMode='fleet'; render();">
-            Company Fleet (${fleetOrders.length})
-          </button>
-          <button class="toggle-btn ${state.dispatchMode === "courier" ? "active" : ""}"
-            onclick="state.dispatchMode='courier'; render();">
-            Courier (${courierOrders.length})
-          </button>
+      <div class="card">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
+          <div style="font-size:13px;">
+            ${selectedCount} of ${pool.length} order${pool.length === 1 ? "" : "s"} selected.
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button
+              class="btn-primary"
+              onclick="dispatchSelectedFromDashboard()"
+              ${selectedCount !== 1 ? "disabled" : ""}>
+              Dispatch Selected
+            </button>
+            <button
+              class="btn-primary"
+              onclick="createTripFromSelected()"
+              ${selectedCount < 2 ? "disabled" : ""}>
+              Create Trip from Selected →
+            </button>
+          </div>
         </div>
       </div>
 
-      ${
-        state.dispatchMode === "fleet"
-          ? renderFleetDispatchView(c, fleetOrders)
-          : renderCourierDispatchView(c, courierOrders)
-      }
+      <div class="card" style="padding:0;">
+        <table>
+          <thead>
+            <tr>
+              <th style="padding-left:12px; width:40px;"></th>
+              <th>Order</th>
+              <th>Customer</th>
+              <th>Items</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${pool
+              .map((o) => {
+                const customer = getCustomer(o.customerId);
+                const subtotal = o.items.reduce(
+                  (s, i) => s + (getProduct(i.productId)?.price || 0) * i.qty,
+                  0,
+                );
+                const itemCount = o.items.reduce((s, i) => s + i.qty, 0);
+                return `
+                <tr>
+                  <td style="padding-left:12px;">
+                    <input type="checkbox" ${o._selected ? "checked" : ""}
+                      onchange="toggleDispatchSelection('${o.orderNumber}')">
+                  </td>
+                  <td>
+                    <div style="font-weight:bold;">${o.orderNumber}</div>
+                    <div style="font-size:11px; color:#888;">${o.invoiceNumber}</div>
+                  </td>
+                  <td>${customer?.name || "—"}</td>
+                  <td>${itemCount} item${itemCount === 1 ? "" : "s"}</td>
+                  <td><strong>${money(subtotal)}</strong></td>
+                </tr>
+              `;
+              })
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card" style="font-size:12px; color:#555;">
+        💡 Delivery mode is chosen in the wizard. <strong>Company Fleet</strong> orders can be batched into a trip. <strong>Courier</strong> orders are dispatched one at a time — one parcel, one tracking number.
+      </div>
     `
     }
   `;
-      }
+}
 
+      
       /* ============================================================
 IN TRANSIT VIEW
 ============================================================ */
@@ -8471,23 +8497,20 @@ DELIVERY CONFIRMATION
       }
 
       // Create trip from selected (placeholder for now — Trip Page comes next)
-      function createTripFromSelected() {
+    
+            function createTripFromSelected() {
         const selected = state.dispatchPool.filter((o) => o._selected);
         if (selected.length === 0) return alert("Select at least one order.");
-
-        // Safety: only Fleet orders are selectable, but confirm it.
-        if (selected.some((o) => o.deliveryMode !== "Company Fleet")) {
+        if (selected.length < 2) {
           return alert(
-            "Only Company Fleet orders can be batched. Courier orders are dispatched individually.",
+            "Select two or more orders to create a trip. For a single order, use Dispatch Selected.",
           );
         }
 
-        const mode = selected[0].deliveryMode;
-
-        // Initialize the Trip state
+        // Initialize the Trip state. Mode is decided in the wizard, not here.
         state.trip = {
-          mode,
-          orders: selected.map((o) => JSON.parse(JSON.stringify(o))), // deep copy
+          mode: null,
+          orders: selected.map((o) => JSON.parse(JSON.stringify(o))),
           step: 1,
           driver: "",
           vehicle: "",
@@ -8497,25 +8520,25 @@ DELIVERY CONFIRMATION
           dispatchNotes: "",
           dispatchLocationId:
             LOCATIONS.find((l) => l.isDefaultDispatch)?.id || LOCATIONS[0].id,
-          // Per (orderNumber, productId): array of unit IDs
           orderUnitSelections: {},
-          changingUnitsFor: null, // { orderNumber, productId }
+          changingUnitsFor: null,
           unitSearch: "",
           validation: {},
           tripNumber: null,
         };
 
-        // Clear any "selected" flags on the pool — the selection has been
-        // consumed by the trip. Prevents them from appearing pre-selected if
-        // the operator returns to the dashboard later.
+        state.dispatchContext = "trip";
+        resetDispatchWizard();
+        state.dispatchWizard.deliveryMode = "";
+        state.dispatchWizard.dispatchDate = todayISO();
+        state.dispatchWizard.dispatchLocationId = state.trip.dispatchLocationId;
+
         state.dispatchPool.forEach((o) => (o._selected = false));
 
-        // Auto-pick units for each individual item in each order
         autoPickAllUnits();
 
         render();
       }
-
       // Auto-pick units for every individual item in every order in the trip
       function autoPickAllUnits() {
         const trip = state.trip;
@@ -8581,19 +8604,32 @@ DELIVERY CONFIRMATION
         const trip = state.trip;
         if (!trip) return;
 
-        if (trip.step === 1) {
-          if (trip.mode === "Company Fleet") {
+                if (trip.step === 1) {
+          const mode = state.dispatchWizard.deliveryMode;
+          if (!mode) return alert("Select a delivery mode.");
+
+          if (mode === "Company Fleet") {
             if (!trip.driver) return alert("Select a driver.");
             if (!trip.vehicle) return alert("Select a vehicle.");
-          } else {
+          } else if (mode === "Courier") {
+            if (trip.orders.length >= 2) {
+              return alert(
+                "Courier cannot be used for a trip with more than one order. Switch to Company Fleet, or dispatch the orders individually.",
+              );
+            }
             if (!trip.courier) return alert("Select a courier.");
             if (!trip.trackingNumber || !trip.trackingNumber.trim())
               return alert("Enter tracking number.");
           }
+
           if (!trip.dispatchDate) return alert("Select dispatch date.");
+
+          // Persist mode onto the trip so Step 2 can read it for the Add-button rule.
+          trip.mode = mode;
 
           trip.step = 2;
           render();
+        
         } else if (trip.step === 2) {
           // Validation is already up to date (run on every render).
           // Block progression if any order fails.
@@ -8724,7 +8760,6 @@ DELIVERY CONFIRMATION
               // Don't reset if a trip is in progress
               if (!state.trip) {
                 state.dispatchView = "dashboard";
-                state.dispatchMode = "fleet";
               }
             }
             if (state.activeTab === "customer-portal") {
