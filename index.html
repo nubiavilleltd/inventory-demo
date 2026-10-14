@@ -1155,6 +1155,8 @@
       isEditing: false,
       successContext: null,
       partialFulfilmentAcknowledged: false,
+      // Fulfilment routing modal working state
+      routingDraft: "", // '' | 'Pickup' | 'Delivery'
       // Collection modal working state: { [productId]: [unitIds] }
       collectionSelections: {},
       collectionUnitSearch: "",
@@ -2568,52 +2570,83 @@ DISPATCH DASHBOARD DEMO SEED
            ${
         o.fulfillment === "Pickup" && o.state === "ready"
           ? (() => {
-              // For a partial order, only offer the pickup action if there
-              // is actually something handoverable right now.
-              const pickupLoc = LOCATIONS.find(
-                (l) => l.name === o.pickupLocation,
-              )?.id;
-              const handoverLines = calcOutstandingLines(o)
-                .map((line) => {
-                  const product = getInvProduct(line.productId);
-                  if (!product) return null;
-                  let availableHere = 0;
-                  if (product.trackingType === "Individual") {
-                    availableHere = UNITS.filter(
-                      (u) =>
-                        u.productId === line.productId &&
-                        u.locationId === pickupLoc &&
-                        (u.status === "Available" ||
-                          (u.status === "Reserved" &&
-                            u.reservedForOrder === o.orderNumber)),
-                    ).length;
-                  } else {
-                    const s = getStockSummary(line.productId, pickupLoc);
-                    availableHere = s.available + (s.reserved || 0);
-                  }
-                  return {
-                    ...line,
-                    handoverQty: Math.min(line.outstanding, availableHere),
-                  };
-                })
-                .filter((l) => l && l.handoverQty > 0);
+              // ----- Partial order: route by fulfilmentHandling -----
+              if (o.fulfilmentStatus === "partial") {
+                const handling = o.fulfilmentHandling;
 
-              const canHandover = handoverLines.length > 0;
-              const isPartial = o.fulfilmentStatus === "partial";
+                // Case A — no handling decided yet
+                if (!handling) {
+                  return `
+                    <button class="btn-primary" id="fulfilOutstandingBtn">Fulfil Outstanding Items</button>
+                    <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>
+                  `;
+                }
 
-              if (!canHandover) {
-                return `
-                  <div style="font-size:12px; color:#92400e; padding:8px; border:1px dashed #92400e; border-radius:4px; margin-bottom:8px;">
-                    ⚠ Nothing available to hand over right now. The outstanding items will become available once stock is restocked.
-                  </div>
-                  <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>
-                `;
+                // Case B — Pickup
+                if (handling === "Pickup") {
+                  const pickupLoc = LOCATIONS.find(
+                    (l) => l.name === o.pickupLocation,
+                  )?.id;
+                  const handoverLines = calcOutstandingLines(o)
+                    .map((line) => {
+                      const product = getInvProduct(line.productId);
+                      if (!product) return null;
+                      let availableHere = 0;
+                      if (product.trackingType === "Individual") {
+                        availableHere = UNITS.filter(
+                          (u) =>
+                            u.productId === line.productId &&
+                            u.locationId === pickupLoc &&
+                            (u.status === "Available" ||
+                              (u.status === "Reserved" &&
+                                u.reservedForOrder === o.orderNumber)),
+                        ).length;
+                      } else {
+                        const s = getStockSummary(line.productId, pickupLoc);
+                        availableHere = s.available + (s.reserved || 0);
+                      }
+                      return {
+                        ...line,
+                        handoverQty: Math.min(line.outstanding, availableHere),
+                      };
+                    })
+                    .filter((l) => l && l.handoverQty > 0);
+
+                  const canHandover = handoverLines.length > 0;
+
+                  return `
+                    <div style="font-size:12px; color:#555; margin-bottom:8px;">
+                      Fulfilment Handling: <strong>Pickup</strong> — customer comes to ${o.pickupLocation}
+                      <a href="#" onclick="event.preventDefault(); openFulfilmentRoutingModal();" style="margin-left:6px; color:#1e40af;">Change</a>
+                    </div>
+                    ${
+                      !canHandover
+                        ? `<div style="font-size:12px; color:#92400e; padding:8px; border:1px dashed #92400e; border-radius:4px; margin-bottom:8px;">
+                             ⚠ Nothing available to hand over right now. The outstanding items will become available once stock is restocked.
+                           </div>
+                           <button class="btn-primary" disabled style="opacity:0.5; cursor:not-allowed;">Hand Over Available Items</button>`
+                        : `<button class="btn-primary" id="markCollectedBtn">Hand Over Available Items</button>`
+                    }
+                    <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>
+                  `;
+                }
+
+                // Case C — Delivery
+                if (handling === "Delivery") {
+                  const canChange = o.state !== "out-for-delivery";
+                  return `
+                    <div style="font-size:12px; color:#555; margin-bottom:8px;">
+                      Fulfilment Handling: <strong>Delivery</strong> — ship to the customer
+                      ${canChange ? `<a href="#" onclick="event.preventDefault(); openFulfilmentRoutingModal();" style="margin-left:6px; color:#1e40af;">Change</a>` : ""}
+                    </div>
+                    <button class="btn-primary" id="dispatchOutstandingBtn">Dispatch Outstanding Items</button>
+                    <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>
+                  `;
+                }
               }
 
-              const label = isPartial
-                ? "Hand Over Available Items"
-                : "Mark as Collected";
-
+              // ----- Non-partial order: existing behaviour -----
+              const label = "Mark as Collected";
               return `
                 <button class="btn-primary" id="markCollectedBtn">${label}</button>
                 ${isOverdue(o) ? `<button id="extendExpiryBtn">Extend Expiry</button>` : ""}
@@ -3084,6 +3117,24 @@ DISPATCH DASHBOARD DEMO SEED
           state.currentPage = "order-creation";
           render();
         });
+
+
+      // Fulfil Outstanding Items — opens the routing modal.
+        document
+          .getElementById("fulfilOutstandingBtn")
+          ?.addEventListener("click", () => {
+            openFulfilmentRoutingModal();
+          });
+
+        // Dispatch Outstanding Items — opens the dispatch wizard for the
+        // outstanding quantities (Phase 7 makes the wizard read them).
+        document
+          .getElementById("dispatchOutstandingBtn")
+          ?.addEventListener("click", () => {
+            initDispatchWizard();
+            state.activeModal = "dispatch";
+            render();
+          });
       document
         .getElementById("printReceiptBtn")
         ?.addEventListener("click", () => alert("Receipt printed."));
@@ -3281,6 +3332,116 @@ DISPATCH DASHBOARD DEMO SEED
 
       return { blocked: false, warning: false, message: "" };
     }
+
+
+
+
+
+          /* ============================================================
+         FULFILMENT ROUTING MODAL
+         ============================================================ */
+
+      // Opens the routing modal. Seeds the draft from any existing handling.
+      function openFulfilmentRoutingModal() {
+        state.routingDraft = state.order.fulfilmentHandling || "";
+        state.activeModal = "fulfilment-routing";
+        render();
+      }
+
+      function closeFulfilmentRoutingModal() {
+        state.routingDraft = "";
+        state.activeModal = null;
+        render();
+      }
+
+      // Writes the chosen handling onto the order and logs the change.
+      function confirmFulfilmentRouting() {
+        const o = state.order;
+        if (!state.routingDraft) return;
+
+        const previous = o.fulfilmentHandling;
+        o.fulfilmentHandling = state.routingDraft;
+
+        if (!previous) {
+          logTimeline(`Fulfilment handling set to ${state.routingDraft}`);
+        } else if (previous !== state.routingDraft) {
+          logTimeline(
+            `Fulfilment handling changed from ${previous} to ${state.routingDraft}`,
+          );
+        }
+
+        state.routingDraft = "";
+        state.activeModal = null;
+        render();
+      }
+
+      function renderFulfilmentRoutingModal() {
+        const o = state.order;
+        const outstanding = calcOutstandingLines(o);
+        const totalOutstanding = outstanding.reduce(
+          (s, l) => s + l.outstanding,
+          0,
+        );
+        const draft = state.routingDraft;
+        const isUpdate = !!o.fulfilmentHandling;
+
+        return `
+    <div class="modal-overlay" onclick="if(event.target===this)closeFulfilmentRoutingModal()">
+      <div class="modal">
+        <div class="modal-header">Fulfil Outstanding Items <button class="close-x" onclick="closeFulfilmentRoutingModal()">×</button></div>
+        <div class="modal-body">
+          <p style="font-size:13px;">
+            Order <strong>${o.orderNumber}</strong> has <strong>${totalOutstanding} items</strong> outstanding:
+          </p>
+
+          <ul style="margin:8px 0 16px 20px; font-size:12px; color:#555;">
+            ${outstanding
+              .map((l) => {
+                const p = getProduct(l.productId);
+                return p ? `<li>${p.name}: ${l.outstanding}</li>` : "";
+              })
+              .join("")}
+          </ul>
+
+          <div style="font-size:13px; margin-bottom:8px;">
+            How should the customer receive the remainder?
+          </div>
+
+          <label style="display:flex; align-items:flex-start; gap:8px; font-size:13px; line-height:1.4; padding:8px; border:2px solid ${draft === "Pickup" ? "#1a1a1a" : "#ddd"}; border-radius:4px; background:${draft === "Pickup" ? "#dbeafe" : "#fff"}; cursor:pointer; margin-bottom:6px;">
+            <input type="radio" name="routingChoice" value="Pickup"
+              style="width:auto; margin-top:2px;"
+              ${draft === "Pickup" ? "checked" : ""}
+              onchange="state.routingDraft='Pickup'; render();">
+            <span>
+              <strong>Pickup</strong> — customer comes to ${o.pickupLocation || "the store"}
+            </span>
+          </label>
+
+          <label style="display:flex; align-items:flex-start; gap:8px; font-size:13px; line-height:1.4; padding:8px; border:2px solid ${draft === "Delivery" ? "#1a1a1a" : "#ddd"}; border-radius:4px; background:${draft === "Delivery" ? "#dbeafe" : "#fff"}; cursor:pointer;">
+            <input type="radio" name="routingChoice" value="Delivery"
+              style="width:auto; margin-top:2px;"
+              ${draft === "Delivery" ? "checked" : ""}
+              onchange="state.routingDraft='Delivery'; render();">
+            <span>
+              <strong>Delivery</strong> — ship to the customer
+            </span>
+          </label>
+        </div>
+        <div class="modal-footer">
+          <button onclick="closeFulfilmentRoutingModal()">Cancel</button>
+          <button class="btn-primary" onclick="confirmFulfilmentRouting()" ${!draft ? "disabled" : ""}>
+            ${isUpdate ? "Save Changes" : "Continue"}
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+      }
+
+      function attachFulfilmentRoutingHandlers() {
+        // Handlers are inlined via onchange/onclick — nothing to wire.
+      }
+
     /* ============ MODAL RENDERER ============ */
     function renderModal() {
       const c = document.getElementById("modalContainer");
@@ -3322,9 +3483,12 @@ DISPATCH DASHBOARD DEMO SEED
         c.innerHTML = renderAdjustStockModal();
         attachAdjustStockHandlers();
       } else if (state.activeModal === "edit-unit-condition") {
-        c.innerHTML = renderEditUnitConditionModal();
-        attachEditUnitConditionHandlers();
-      }
+          c.innerHTML = renderEditUnitConditionModal();
+          attachEditUnitConditionHandlers();
+        } else if (state.activeModal === "fulfilment-routing") {
+          c.innerHTML = renderFulfilmentRoutingModal();
+          attachFulfilmentRoutingHandlers();
+        }
     }
 
     function closeModal() {
@@ -4937,64 +5101,71 @@ DISPATCH WIZARD (3-STEP)
           `
         }
 
-          <div class="mt-12">
-            ${o.items
-          .map((item) => {
-            const p = getInvProduct(item.productId);
-            if (!p) return "";
-            const isIndividual = p.trackingType === "Individual";
-            const selectedUnits = w.unitSelections[item.productId] || [];
-            const isReady = isIndividual
-              ? selectedUnits.length === item.qty
-              : true;
-            if (isReady) progressDone++;
 
-            if (isIndividual) {
-              return `
+
+                  <div class="mt-12">
+            ${calcOutstandingLines(o)
+              .map((line) => {
+                const p = getInvProduct(line.productId);
+                if (!p) return "";
+                const qty = line.outstanding;
+                const isIndividual = p.trackingType === "Individual";
+                const selectedUnits = w.unitSelections[line.productId] || [];
+                const isReady = isIndividual
+                  ? selectedUnits.length === qty
+                  : true;
+                if (isReady) progressDone++;
+
+                if (isIndividual) {
+                  return `
                       <div class="card" style="margin-bottom:8px; padding:10px;">
                         <div style="display:flex; justify-content:space-between; align-items:center;">
                           <div>
-                            <strong>${p.name}</strong> · ×${item.qty}
+                            <strong>${p.name}</strong> · ×${qty}
                             <span style="font-size:11px; color:#888;">[Individual Item]</span>
                           </div>
                         </div>
                         <div style="margin-top:6px; font-size:12px;">
-                          ${selectedUnits.length === item.qty
-                  ? `<span class="green">✓ ${selectedUnits.length} units auto-selected (oldest first)</span>`
-                  : `<span class="red">⚠ ${selectedUnits.length} of ${item.qty} selected</span>`
-                }
+                          ${
+                            selectedUnits.length === qty
+                              ? `<span class="green">✓ ${selectedUnits.length} units auto-selected (oldest first)</span>`
+                              : `<span class="red">⚠ ${selectedUnits.length} of ${qty} selected</span>`
+                          }
                         </div>
                         <div style="margin-top:6px;">
-                          <button onclick="openChangeUnits('${item.productId}')" style="font-size:12px;">Change Units</button>
+                          <button onclick="openChangeUnits('${line.productId}')" style="font-size:12px;">Change Units</button>
                         </div>
                       </div>
                     `;
-            } else {
-              // Stock quantity — check available at the location
-              const s = getStockSummary(
-                item.productId,
-                w.dispatchLocationId,
-              );
-              const enough = s.available >= item.qty;
-              if (enough) progressDone++;
-              return `
+                } else {
+                  // Stock quantity — check available at the location
+                  const s = getStockSummary(
+                    line.productId,
+                    w.dispatchLocationId,
+                  );
+                  const enough = s.available >= qty;
+                  if (enough) progressDone++;
+                  return `
                       <div class="card" style="margin-bottom:8px; padding:10px;">
                         <div>
-                          <strong>${p.name}</strong> · ×${item.qty}
+                          <strong>${p.name}</strong> · ×${qty}
                           <span style="font-size:11px; color:#888;">[Stock Quantity]</span>
                         </div>
                         <div style="margin-top:6px; font-size:12px;" class="${enough ? "green" : "red"}">
-                          ${enough
-                  ? `✓ ${item.qty} units will be reserved from ${loc?.name}`
-                  : `⚠ Only ${s.available} available at ${loc?.name}. Need ${item.qty}.`
-                }
+                          ${
+                            enough
+                              ? `✓ ${qty} units will be reserved from ${loc?.name}`
+                              : `⚠ Only ${s.available} available at ${loc?.name}. Need ${qty}.`
+                          }
                         </div>
                       </div>
                     `;
-            }
-          })
-          .join("")}
+                }
+              })
+              .join("")}
           </div>
+
+          
 
           <div style="margin-top:12px; padding:8px; background:#f8f8f8; border-radius:4px; font-size:12px;">
             Progress: ${progressDone} of ${progressTotal} items assigned
@@ -5131,30 +5302,31 @@ DISPATCH WIZARD (3-STEP)
 
           <div class="card" style="margin-top:8px; padding:10px;">
             <div style="font-weight:bold; margin-bottom:6px;">Inventory (from ${loc?.name})</div>
-            ${o.items
-          .map((item) => {
-            const p = getInvProduct(item.productId);
-            if (!p) return "";
-            if (p.trackingType === "Individual") {
-              const units = (w.unitSelections[item.productId] || []).map(
-                (id) => UNITS.find((u) => u.id === id),
-              );
-              return `
+                      ${calcOutstandingLines(o)
+              .map((line) => {
+                const p = getInvProduct(line.productId);
+                if (!p) return "";
+                const qty = line.outstanding;
+                if (p.trackingType === "Individual") {
+                  const units = (w.unitSelections[line.productId] || []).map(
+                    (id) => UNITS.find((u) => u.id === id),
+                  );
+                  return `
                       <div style="margin-bottom:8px;">
-                        <div style="font-size:12px;"><strong>${p.name}</strong> (${item.qty} units)</div>
+                        <div style="font-size:12px;"><strong>${p.name}</strong> (${qty} units)</div>
                         ${units.map((u) => `<div style="font-size:11px; color:#555; margin-left:12px;">${u.tag}</div>`).join("")}
                       </div>
                     `;
-            } else {
-              return `
+                } else {
+                  return `
                       <div style="margin-bottom:8px;">
-                        <div style="font-size:12px;"><strong>${p.name}</strong> (${item.qty} units)</div>
+                        <div style="font-size:12px;"><strong>${p.name}</strong> (${qty} units)</div>
                         <div style="font-size:11px; color:#555; margin-left:12px;">Stock quantity from ${loc?.name}</div>
                       </div>
                     `;
-            }
-          })
-          .join("")}
+                }
+              })
+              .join("")}
           </div>
 
           <div style="margin-top:12px; padding:8px; background:#f0f0f0; border-radius:4px; font-size:12px;">
@@ -5213,31 +5385,32 @@ DISPATCH WIZARD HANDLERS
         w.step = 2;
         render();
 
-      } else if (w.step === 2) {
-        // Validate Step 2 — all items assigned
-        for (const item of o.items) {
-          const p = getInvProduct(item.productId);
-          if (!p) continue;
+         } else if (w.step === 2) {
+          // Validate Step 2 — all outstanding items assigned
+          for (const line of calcOutstandingLines(o)) {
+            const p = getInvProduct(line.productId);
+            if (!p) continue;
+            const qty = line.outstanding;
 
-          if (p.trackingType === "Individual") {
-            const selected = w.unitSelections[item.productId] || [];
-            if (selected.length !== item.qty) {
-              return alert(`Select exactly ${item.qty} units for ${p.name}.`);
-            }
-          } else {
-            const s = getStockSummary(item.productId, w.dispatchLocationId);
-            if (s.available < item.qty) {
-              return alert(
-                `Not enough stock for ${p.name} at ${getLocation(w.dispatchLocationId)?.name}. Available: ${s.available}, Need: ${item.qty}.`,
-              );
+            if (p.trackingType === "Individual") {
+              const selected = w.unitSelections[line.productId] || [];
+              if (selected.length !== qty) {
+                return alert(`Select exactly ${qty} units for ${p.name}.`);
+              }
+            } else {
+              const s = getStockSummary(line.productId, w.dispatchLocationId);
+              if (s.available < qty) {
+                return alert(
+                  `Not enough stock for ${p.name} at ${getLocation(w.dispatchLocationId)?.name}. Available: ${s.available}, Need: ${qty}.`,
+                );
+              }
             }
           }
-        }
 
-        w.step = 3;
-        render();
+          w.step = 3;
+          render();
+        }
       }
-    }
 
     function dispatchWizardBack() {
       const w = state.dispatchWizard;
@@ -5340,47 +5513,48 @@ DISPATCH WIZARD HANDLERS
         );
       }
 
-      // 2. Flip selected units to Reserved
-      o.items.forEach((item) => {
-        const p = getInvProduct(item.productId);
-        if (!p) return;
+        // 2. Flip selected units to Reserved — outstanding quantities only
+        calcOutstandingLines(o).forEach((line) => {
+          const p = getInvProduct(line.productId);
+          if (!p) return;
+          const qty = line.outstanding;
 
-        if (p.trackingType === "Individual") {
-          const selectedUnitIds = w.unitSelections[item.productId] || [];
-          selectedUnitIds.forEach((uid) => {
-            const unit = UNITS.find((u) => u.id === uid);
-            if (unit) {
-              unit.status = "Reserved";
-              unit.softReservedFor = null; // clear soft-reservation marker
-              unit.reservedForOrder = o.orderNumber;
+          if (p.trackingType === "Individual") {
+            const selectedUnitIds = w.unitSelections[line.productId] || [];
+            selectedUnitIds.forEach((uid) => {
+              const unit = UNITS.find((u) => u.id === uid);
+              if (unit) {
+                unit.status = "Reserved";
+                unit.softReservedFor = null;
+                unit.reservedForOrder = o.orderNumber;
+              }
+            });
+            logMovement(
+              line.productId,
+              w.dispatchLocationId,
+              "reservation",
+              qty,
+              o.orderNumber,
+            );
+          } else {
+            // Stock quantity: increment reserved on the stock row
+            let row = STOCK.find(
+              (s) =>
+                s.productId === line.productId &&
+                s.locationId === w.dispatchLocationId,
+            );
+            if (row) {
+              row.reserved = (row.reserved || 0) + qty;
             }
-          });
-          logMovement(
-            item.productId,
-            w.dispatchLocationId,
-            "reservation",
-            item.qty,
-            o.orderNumber,
-          );
-        } else {
-          // Stock quantity: increment reserved on the stock row
-          let row = STOCK.find(
-            (s) =>
-              s.productId === item.productId &&
-              s.locationId === w.dispatchLocationId,
-          );
-          if (row) {
-            row.reserved = (row.reserved || 0) + item.qty;
+            logMovement(
+              line.productId,
+              w.dispatchLocationId,
+              "reservation",
+              qty,
+              o.orderNumber,
+            );
           }
-          logMovement(
-            item.productId,
-            w.dispatchLocationId,
-            "reservation",
-            item.qty,
-            o.orderNumber,
-          );
-        }
-      });
+        });
 
       // 3. Clear soft reservation record on the order (it's now hard-reserved)
       o.softReservation = null;
@@ -6975,60 +7149,61 @@ DISPATCH WIZARD HELPERS
     }
 
     // Initialize the wizard from the current order (pre-populate with auto-picks)
-    function initDispatchWizard() {
-      resetDispatchWizard();
-      const w = state.dispatchWizard;
-      const o = state.order;
+         function initDispatchWizard() {
+        resetDispatchWizard();
+        const w = state.dispatchWizard;
+        const o = state.order;
 
-      // Pre-select driver/vehicle if there's only one available
-      const availableDrivers = DRIVERS.filter(
-        (d) => d.status === "Available",
-      );
-      if (availableDrivers.length === 1) w.driver = availableDrivers[0].name;
+        // Pre-select driver/vehicle if there's only one available
+        const availableDrivers = DRIVERS.filter(
+          (d) => d.status === "Available",
+        );
+        if (availableDrivers.length === 1) w.driver = availableDrivers[0].name;
 
-      const availableVehicles = VEHICLES.filter(
-        (v) => v.status === "Available",
-      );
-      if (availableVehicles.length === 1)
-        w.vehicle = availableVehicles[0].plate;
+        const availableVehicles = VEHICLES.filter(
+          (v) => v.status === "Available",
+        );
+        if (availableVehicles.length === 1)
+          w.vehicle = availableVehicles[0].plate;
 
-      // Auto-pick units for each individual-item line
-      o.items.forEach((item) => {
-        const product = getInvProduct(item.productId);
-        if (!product) return;
+        // Auto-pick units for each outstanding individual-item line.
+        // Dispatch operates on outstanding quantities, not ordered ones.
+        calcOutstandingLines(o).forEach((line) => {
+          const product = getInvProduct(line.productId);
+          if (!product) return;
 
-        if (product.trackingType === "Individual") {
-          w.unitSelections[item.productId] = autoPickUnits(
-            item.productId,
-            w.dispatchLocationId,
-            item.qty,
-            o.orderNumber,
-          );
-        }
-      });
-    }
-
+          if (product.trackingType === "Individual") {
+            w.unitSelections[line.productId] = autoPickUnits(
+              line.productId,
+              w.dispatchLocationId,
+              line.outstanding,
+              o.orderNumber,
+            );
+          }
+        });
+      }
+    
     // When the location changes, re-run auto-picks for all individual items
-    function resetAutoPicksForLocation(locationId) {
-      const w = state.dispatchWizard;
-      const o = state.order;
-      w.dispatchLocationId = locationId;
-      w.unitSelections = {};
+        function resetAutoPicksForLocation(locationId) {
+        const w = state.dispatchWizard;
+        const o = state.order;
+        w.dispatchLocationId = locationId;
+        w.unitSelections = {};
 
-      o.items.forEach((item) => {
-        const product = getInvProduct(item.productId);
-        if (!product) return;
+        calcOutstandingLines(o).forEach((line) => {
+          const product = getInvProduct(line.productId);
+          if (!product) return;
 
-        if (product.trackingType === "Individual") {
-          w.unitSelections[item.productId] = autoPickUnits(
-            item.productId,
-            locationId,
-            item.qty,
-            o.orderNumber,
-          );
-        }
-      });
-    }
+          if (product.trackingType === "Individual") {
+            w.unitSelections[line.productId] = autoPickUnits(
+              line.productId,
+              locationId,
+              line.outstanding,
+              o.orderNumber,
+            );
+          }
+        });
+      }
 
     // ===== PICKUP STOCK HELPERS =====
 
@@ -8733,54 +8908,60 @@ DELIVERY CONFIRMATION
 
     // Performs the state change: delivered → completed, Reserved → Sold
     function finalizeDelivery(order) {
-      // 1. Flip reserved units / stock quantities to Sold
-      order.items.forEach((item) => {
-        const product = getInvProduct(item.productId);
-        if (!product) return;
+        // 1. Flip reserved units / stock quantities to Sold.
+        //    Uses outstanding lines — the same set that was dispatched.
+        calcOutstandingLines(order).forEach((line) => {
+          const product = getInvProduct(line.productId);
+          if (!product) return;
+          const qty = line.outstanding;
 
-        if (product.trackingType === "Individual") {
-          // Find units reserved for this order and flip to Sold
-          UNITS.forEach((u) => {
-            if (
-              u.reservedForOrder === order.orderNumber &&
-              u.status === "Reserved"
-            ) {
-              u.status = "Sold";
-              u.reservedForOrder = null;
-            }
-          });
-          logMovement(
-            item.productId,
-            null,
-            "check_out",
-            item.qty,
-            order.orderNumber,
-          );
-        } else {
-          // Stock quantity: decrement both onHand and reserved; sold count is derived.
-          // We look for rows that have reserved qty.
-          // For the demo, decrement at the location where it was reserved.
-          // Simplest approach: find rows for this product and reduce by item.qty (reserved).
-          let remaining = item.qty;
-          STOCK.filter(
-            (s) => s.productId === item.productId && s.reserved > 0,
-          ).forEach((row) => {
-            if (remaining <= 0) return;
-            const toDeduct = Math.min(row.reserved, remaining);
-            row.reserved -= toDeduct;
-            row.onHand -= toDeduct;
-            remaining -= toDeduct;
-          });
-          logMovement(
-            item.productId,
-            null,
-            "check_out",
-            item.qty,
-            order.orderNumber,
-          );
-        }
-      });
+          if (product.trackingType === "Individual") {
+            // Find units reserved for this order and flip to Sold
+            UNITS.forEach((u) => {
+              if (
+                u.reservedForOrder === order.orderNumber &&
+                u.status === "Reserved" &&
+                u.productId === line.productId
+              ) {
+                u.status = "Sold";
+                u.reservedForOrder = null;
+              }
+            });
+            logMovement(
+              line.productId,
+              null,
+              "check_out",
+              qty,
+              order.orderNumber,
+            );
+          } else {
+            // Stock quantity: decrement both onHand and reserved
+            let remaining = qty;
+            STOCK.filter(
+              (s) => s.productId === line.productId && s.reserved > 0,
+            ).forEach((row) => {
+              if (remaining <= 0) return;
+              const toDeduct = Math.min(row.reserved, remaining);
+              row.reserved -= toDeduct;
+              row.onHand -= toDeduct;
+              remaining -= toDeduct;
+            });
+            logMovement(
+              line.productId,
+              null,
+              "check_out",
+              qty,
+              order.orderNumber,
+            );
+          }
 
+          // Increment fulfilment now that the customer has received goods.
+          const fl = getFulfilmentLine(order, line.productId);
+          if (fl) fl.fulfilled += qty;
+        });
+
+        // Recompute fulfilment status now that lines have moved.
+        recomputeFulfilmentStatus(order);
       // 2. Update order state
       order.state = "completed";
       order.actualDeliveryDate = todayISO();
