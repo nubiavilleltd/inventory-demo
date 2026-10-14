@@ -2366,23 +2366,37 @@ DISPATCH DASHBOARD DEMO SEED
     <div class="card">
       <div class="card-title">Order Summary</div>
       <table>
-        <thead><tr><th>Product</th><th>Qty</th><th>Unit</th><th>Total</th></tr></thead>
+        <thead><tr><th>Product</th><th>Ordered</th><th>Fulfilled</th><th>Outstanding</th></tr></thead>
         <tbody>
           ${o.items
-          .map((i) => {
-            const p = getProduct(i.productId);
-            return p
-              ? `<tr><td>${p.name}</td><td>${i.qty}</td><td>${money(p.price)}</td><td>${money(p.price * i.qty)}</td></tr>`
-              : "";
-          })
-          .join("")}
+            .map((i) => {
+              const p = getProduct(i.productId);
+              if (!p) return "";
+              const fl = getFulfilmentLine(o, i.productId);
+              const fulfilled = fl ? fl.fulfilled : i.qty;
+              const outstanding = Math.max(0, i.qty - fulfilled);
+              return `<tr>
+                <td>${p.name}</td>
+                <td>${i.qty}</td>
+                <td>${fulfilled}</td>
+                <td>${outstanding > 0 ? `<strong class="red">${outstanding}</strong>` : outstanding}</td>
+              </tr>`;
+            })
+            .join("")}
         </tbody>
       </table>
       <div class="summary-box">
         <div class="summary-row total"><span>Grand Total</span><span>${money(t.total)}</span></div>
         <div class="summary-row green"><span>Paid</span><span>${money(t.paid)}</span></div>
-        <div class="summary-row ${t.outstanding > 0 ? "red" : "green"}"><span>Outstanding</span><span>${money(t.outstanding)}</span></div>
+        <div class="summary-row ${t.outstanding > 0 ? "red" : "green"}"><span>Amount Due</span><span>${money(t.outstanding)}</span></div>
       </div>
+      ${
+        o.fulfilmentStatus === "partial"
+          ? `<div style="margin-top:8px; padding:8px; border:2px dashed #92400e; border-radius:4px; background:#fef3c7; font-size:12px; color:#92400e;">
+               ⚠ Partially fulfilled — some items are still outstanding.
+             </div>`
+          : ""
+      }
     </div>
 
     <div class="card">
@@ -4052,87 +4066,109 @@ DISPATCH DASHBOARD DEMO SEED
 
     /* ============ PICKED UP BY MODAL ============ */
 
-    function renderPickedUpByModal() {
-      const o = state.order,
-        cust = state.customer;
-      const isImmediate = o.timing === "Immediate";
+          function renderPickedUpByModal() {
+        const o = state.order,
+          cust = state.customer;
+        const isImmediate = o.timing === "Immediate";
 
-      // Compute units available for selection at the pickup location.
-      const pickupLoc = LOCATIONS.find(
-        (l) => l.name === o.pickupLocation,
-      )?.id;
+               // Compute units available for selection at the pickup location.
+        const pickupLoc = LOCATIONS.find(
+          (l) => l.name === o.pickupLocation,
+        )?.id;
 
-      // Auto-select the reserved/available units if we haven't done so yet
-      if (Object.keys(state.collectionSelections).length === 0) {
-        o.items.forEach((item) => {
-          const product = getInvProduct(item.productId);
-          if (!product) return;
-          if (product.trackingType === "Individual") {
-            // Reserved units for this order first (Scheduled Pickup path)
-            let candidates = UNITS.filter(
-              (u) =>
-                u.productId === item.productId &&
-                u.locationId === pickupLoc &&
-                u.status === "Reserved" &&
-                u.reservedForOrder === o.orderNumber,
-            );
-            // Fallback: Available units (Immediate Pickup path — no reservation yet)
-            if (candidates.length === 0) {
-              candidates = UNITS.filter(
+        // What can actually be handed over right now, per line.
+        //   handoverQty = min(outstanding, available at this location)
+        // Lines with zero availability are dropped entirely — the operator
+        // can only hand over what's physically here.
+        const handoverLines = calcOutstandingLines(o)
+          .map((line) => {
+            const product = getInvProduct(line.productId);
+            if (!product) return null;
+
+            let availableHere = 0;
+            if (product.trackingType === "Individual") {
+              availableHere = UNITS.filter(
                 (u) =>
-                  u.productId === item.productId &&
+                  u.productId === line.productId &&
                   u.locationId === pickupLoc &&
-                  u.status === "Available",
-              ).slice(0, item.qty);
+                  (u.status === "Available" ||
+                    (u.status === "Reserved" &&
+                      u.reservedForOrder === o.orderNumber)),
+              ).length;
+            } else {
+              const s = getStockSummary(line.productId, pickupLoc);
+              availableHere = s.available + (s.reserved || 0);
             }
-            state.collectionSelections[item.productId] = candidates
-              .slice(0, item.qty)
-              .map((u) => u.id);
-          }
-        });
-      }
+
+            return {
+              ...line,
+              availableHere,
+              handoverQty: Math.min(line.outstanding, availableHere),
+            };
+          })
+          .filter((line) => line && line.handoverQty > 0);
+
+        // Auto-select the reserved/available units if we haven't done so yet
+        if (Object.keys(state.collectionSelections).length === 0) {
+          handoverLines.forEach((line) => {
+            const product = getInvProduct(line.productId);
+            if (!product) return;
+            if (product.trackingType === "Individual") {
+              const qty = line.handoverQty;
+
+              // Reserved units for this order first (Scheduled Pickup path)
+              let candidates = UNITS.filter(
+                (u) =>
+                  u.productId === line.productId &&
+                  u.locationId === pickupLoc &&
+                  u.status === "Reserved" &&
+                  u.reservedForOrder === o.orderNumber,
+              );
+              // Fallback: Available units (Immediate Pickup path — no reservation yet)
+              if (candidates.length === 0) {
+                candidates = UNITS.filter(
+                  (u) =>
+                    u.productId === line.productId &&
+                    u.locationId === pickupLoc &&
+                    u.status === "Available",
+                ).slice(0, qty);
+              }
+              state.collectionSelections[line.productId] = candidates
+                .slice(0, qty)
+                .map((u) => u.id);
+            }
+          });
+        }
 
       // If we're in Change Units drill-in mode, render that instead
       if (state.collectionChangingUnitsFor) {
         return renderCollectionChangeUnitsView();
       }
 
-      // Compute whether the collection can be confirmed
-      let allSatisfied = true;
-      const shortfalls = [];
 
-      o.items.forEach((item) => {
-        const product = getInvProduct(item.productId);
-        if (!product) return;
+        // Compute whether the collection can be confirmed.
+        // The target is handoverQty (what's available), not outstanding.
+        let allSatisfied = true;
+        const shortfalls = [];
 
-        if (product.trackingType === "Individual") {
-          const selected = state.collectionSelections[item.productId] || [];
-          if (selected.length !== item.qty) {
-            allSatisfied = false;
-            const atLoc = UNITS.filter(
-              (u) =>
-                u.productId === item.productId &&
-                u.locationId === pickupLoc &&
-                (u.status === "Available" ||
-                  (u.status === "Reserved" &&
-                    u.reservedForOrder === o.orderNumber)),
-            ).length;
-            shortfalls.push(
-              `${product.name}: ${selected.length} of ${item.qty} selected (${atLoc} available at ${o.pickupLocation})`,
-            );
+        handoverLines.forEach((line) => {
+          const product = getInvProduct(line.productId);
+          if (!product) return;
+          const qty = line.handoverQty;
+
+          if (product.trackingType === "Individual") {
+            const selected = state.collectionSelections[line.productId] || [];
+            if (selected.length !== qty) {
+              allSatisfied = false;
+              shortfalls.push(
+                `${product.name}: ${selected.length} of ${qty} selected`,
+              );
+            }
           }
-        } else {
-          const s = getStockSummary(item.productId, pickupLoc);
-          const availableHere = s.available + (s.reserved || 0);
-          if (availableHere < item.qty) {
-            allSatisfied = false;
-            shortfalls.push(
-              `${product.name}: needs ${item.qty}, only ${availableHere} on hand at ${o.pickupLocation}`,
-            );
-          }
-        }
-      });
-
+          // StockQuantity lines are always satisfiable — handoverQty already
+          // reflects the available amount.
+        });
+     
       return `
     <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
       <div class="modal">
@@ -4146,58 +4182,59 @@ DISPATCH DASHBOARD DEMO SEED
         }
           </div>
 
-          <!-- Item selection -->
+                     <!-- Item selection -->
           <div style="font-weight:bold; font-size:13px; margin-bottom:8px;">Items being collected</div>
-          ${o.items
-          .map((item) => {
-            const p = getInvProduct(item.productId);
-            if (!p) return "";
+          ${handoverLines
+            .map((line) => {
+              const p = getInvProduct(line.productId);
+              if (!p) return "";
+              const qty = line.handoverQty;
 
-            if (p.trackingType === "Individual") {
-              const selected =
-                state.collectionSelections[item.productId] || [];
-              const isReady = selected.length === item.qty;
-              return `
+              if (p.trackingType === "Individual") {
+                const selected =
+                  state.collectionSelections[line.productId] || [];
+                const isReady = selected.length === qty;
+                return `
                 <div class="card" style="margin-bottom:8px; padding:10px;">
                   <div>
-                    <strong>${p.name}</strong> · ×${item.qty}
+                    <strong>${p.name}</strong> · ×${qty}
                     <span style="font-size:11px; color:#888;">[Individual Item]</span>
                   </div>
                   <div style="margin-top:6px; font-size:12px;">
-                    ${isReady
-                  ? `<span class="green">✓ ${selected.length} of ${item.qty} selected</span>`
-                  : `<span class="red">⚠ ${selected.length} of ${item.qty} selected</span>`
-                }
+                    ${
+                      isReady
+                        ? `<span class="green">✓ ${selected.length} of ${qty} selected</span>`
+                        : `<span class="red">⚠ ${selected.length} of ${qty} selected</span>`
+                    }
                   </div>
                   <div style="margin-top:6px; font-size:11px; color:#666;">
                     ${selected
-                  .map((id) => UNITS.find((u) => u.id === id)?.tag)
-                  .filter(Boolean)
-                  .join(", ")}
+                      .map((id) => UNITS.find((u) => u.id === id)?.tag)
+                      .filter(Boolean)
+                      .join(", ")}
                   </div>
                   <div style="margin-top:6px;">
-                    <button onclick="openCollectionChangeUnits('${item.productId}')" style="font-size:12px;">Change Units</button>
+                    <button onclick="openCollectionChangeUnits('${line.productId}')" style="font-size:12px;">Change Units</button>
                   </div>
                 </div>
               `;
-            } else {
-              // Stock quantity: just confirm the qty
-              const s = getStockSummary(item.productId, pickupLoc);
-              const reserved = Math.min(item.qty, s.reserved || item.qty);
-              return `
+              } else {
+                // Stock quantity: just confirm the qty
+                const s = getStockSummary(line.productId, pickupLoc);
+                return `
                 <div class="card" style="margin-bottom:8px; padding:10px;">
                   <div>
-                    <strong>${p.name}</strong> · ×${item.qty}
+                    <strong>${p.name}</strong> · ×${qty}
                     <span style="font-size:11px; color:#888;">[Stock Quantity]</span>
                   </div>
                   <div style="margin-top:6px; font-size:12px;" class="green">
-                    ✓ ${item.qty} ${p.unitOfMeasure}(s) will be handed over
+                    ✓ ${qty} ${p.unitOfMeasure}(s) will be handed over
                   </div>
                 </div>
               `;
-            }
-          })
-          .join("")}
+              }
+            })
+            .join("")}
 
           <!-- Picked Up By -->
           <div style="font-weight:bold; font-size:13px; margin:16px 0 8px;">Picked up by</div>
@@ -4244,7 +4281,7 @@ DISPATCH DASHBOARD DEMO SEED
               ${shortfalls.map((s) => `• ${s}`).join("<br>")}
             </div>
             <div style="font-size:11px; color:#666; margin-top:8px;">
-              Reduce the order quantity (via Edit Order), restock, or cancel the order.
+              Select the full handover quantity, or cancel the handover.
             </div>
           </div>
         `
@@ -4285,124 +4322,181 @@ DISPATCH DASHBOARD DEMO SEED
               "Confirm that the order reference has been verified.",
             );
 
-          const o = state.order;
+                     const o = state.order;
 
-          // -------- 1. Apply the operator's selections to stock --------
-          const pickupLoc = LOCATIONS.find(
-            (l) => l.name === o.pickupLocation,
-          )?.id;
+            // -------- 1. Apply the operator's selections to stock --------
+            const pickupLoc = LOCATIONS.find(
+              (l) => l.name === o.pickupLocation,
+            )?.id;
 
-          o.items.forEach((item) => {
-            const product = getInvProduct(item.productId);
-            if (!product) return;
+                        // Recompute handover lines the same way the modal did.
+            const handoverLines = calcOutstandingLines(o)
+              .map((line) => {
+                const product = getInvProduct(line.productId);
+                if (!product) return null;
 
-            if (product.trackingType === "Individual") {
-              const selectedIds =
-                state.collectionSelections[item.productId] || [];
-              const originallyReserved = UNITS.filter(
-                (u) =>
-                  u.reservedForOrder === o.orderNumber &&
-                  u.status === "Reserved",
-              );
+                let availableHere = 0;
+                if (product.trackingType === "Individual") {
+                  availableHere = UNITS.filter(
+                    (u) =>
+                      u.productId === line.productId &&
+                      u.locationId === pickupLoc &&
+                      (u.status === "Available" ||
+                        (u.status === "Reserved" &&
+                          u.reservedForOrder === o.orderNumber)),
+                  ).length;
+                } else {
+                  const s = getStockSummary(line.productId, pickupLoc);
+                  availableHere = s.available + (s.reserved || 0);
+                }
 
-              // Units originally reserved for this order but NOT chosen now → release to Available
-              originallyReserved.forEach((u) => {
-                if (!selectedIds.includes(u.id)) {
-                  u.status = "Available";
+                return {
+                  ...line,
+                  availableHere,
+                  handoverQty: Math.min(line.outstanding, availableHere),
+                };
+              })
+              .filter((line) => line && line.handoverQty > 0);
+
+            handoverLines.forEach((line) => {
+              const product = getInvProduct(line.productId);
+              if (!product) return;
+              const qty = line.handoverQty;
+
+              if (product.trackingType === "Individual") {
+                const selectedIds =
+                  state.collectionSelections[line.productId] || [];
+                const originallyReserved = UNITS.filter(
+                  (u) =>
+                    u.reservedForOrder === o.orderNumber &&
+                    u.status === "Reserved",
+                );
+
+                // Units originally reserved for this order but NOT chosen now → release to Available
+                originallyReserved.forEach((u) => {
+                  if (!selectedIds.includes(u.id)) {
+                    u.status = "Available";
+                    u.reservedForOrder = null;
+                  }
+                });
+
+                // Chosen units → Sold
+                selectedIds.forEach((uid) => {
+                  const u = UNITS.find((x) => x.id === uid);
+                  if (!u) return;
+                  u.status = "Sold";
                   u.reservedForOrder = null;
-                }
-              });
+                  u.softReservedFor = null;
+                });
 
-              // Chosen units → Sold
-              selectedIds.forEach((uid) => {
-                const u = UNITS.find((x) => x.id === uid);
-                if (!u) return;
-                u.status = "Sold";
-                u.reservedForOrder = null;
-                u.softReservedFor = null;
-              });
+                logMovement(
+                  line.productId,
+                  pickupLoc,
+                  "check_out",
+                  selectedIds.length,
+                  o.orderNumber,
+                );
+              } else {
+                // Stock quantity: decrement reserved (if any) and onHand
+                let remaining = qty;
 
-              logMovement(
-                item.productId,
-                pickupLoc,
-                "check_out",
-                selectedIds.length,
-                o.orderNumber,
+                STOCK.filter(
+                  (s) =>
+                    s.productId === line.productId &&
+                    (!pickupLoc || s.locationId === pickupLoc),
+                ).forEach((row) => {
+                  if (remaining <= 0) return;
+                  // Prefer decrementing reserved first (Scheduled Pickup path)
+                  if (row.reserved > 0) {
+                    const fromReserved = Math.min(row.reserved, remaining);
+                    row.reserved -= fromReserved;
+                    row.onHand -= fromReserved;
+                    remaining -= fromReserved;
+                  } else if (row.onHand > 0) {
+                    const fromOnHand = Math.min(row.onHand, remaining);
+                    row.onHand -= fromOnHand;
+                    remaining -= fromOnHand;
+                  }
+                });
+
+                logMovement(
+                  line.productId,
+                  pickupLoc,
+                  "check_out",
+                  qty,
+                  o.orderNumber,
+                );
+              }
+
+              // -------- Increment fulfilled on the fulfilment line --------
+              const fl = getFulfilmentLine(o, line.productId);
+              if (fl) fl.fulfilled += qty;
+            });
+
+            // Recompute fulfilment status now that lines have moved.
+            recomputeFulfilmentStatus(o);
+
+
+
+            // -------- 2. Record the picked-up-by info --------
+            o.pickedUpBy = { name, phone, orderRefVerified, idPresented };
+
+            // Log with verification detail
+            const logParts = [`Collected by ${name}`];
+            if (!isImmediate) {
+              logParts.push(
+                orderRefVerified
+                  ? "Order reference verified"
+                  : "Order reference NOT verified",
               );
+              if (idPresented) logParts.push("Photo ID presented");
+            }
+            logTimeline(logParts.join(" · "));
+
+            // -------- 3. Transition based on remaining fulfilment --------
+            const isFullyFulfilled = o.fulfilmentStatus === "complete";
+
+            if (isFullyFulfilled) {
+              o.state = "completed";
+              logTimeline("Order completed.");
             } else {
-              // Stock quantity: decrement reserved (if any) and onHand
-              let remaining = item.qty;
-
-              STOCK.filter(
-                (s) =>
-                  s.productId === item.productId &&
-                  (!pickupLoc || s.locationId === pickupLoc),
-              ).forEach((row) => {
-                if (remaining <= 0) return;
-                // Prefer decrementing reserved first (Scheduled Pickup path)
-                if (row.reserved > 0) {
-                  const fromReserved = Math.min(row.reserved, remaining);
-                  row.reserved -= fromReserved;
-                  row.onHand -= fromReserved;
-                  remaining -= fromReserved;
-                } else if (row.onHand > 0) {
-                  const fromOnHand = Math.min(row.onHand, remaining);
-                  row.onHand -= fromOnHand;
-                  remaining -= fromOnHand;
-                }
-              });
-
-              logMovement(
-                item.productId,
-                pickupLoc,
-                "check_out",
-                item.qty,
-                o.orderNumber,
+              // Some lines remain outstanding.
+              // Park the order in "ready" so it stays actionable — the
+              // operator can reopen it for a subsequent handover.
+              o.state = "ready";
+              logTimeline(
+                `Partial handover complete. ${calcOutstandingLines(o).length} line(s) still outstanding.`,
               );
             }
+
+            // -------- 4. Clear working state and show success screen --------
+            state.collectionSelections = {};
+            state.collectionUnitSearch = "";
+            state.collectionChangingUnitsFor = null;
+            state.activeModal = null;
+
+            const isWalkin =
+              o.timing === "Immediate" && o.fulfillment === "Pickup";
+            state.successContext = {
+              title: isFullyFulfilled
+                ? isWalkin
+                  ? "Order Completed"
+                  : "Order Collected"
+                : "Partial Handover Recorded",
+              subtitle: isFullyFulfilled
+                ? isWalkin
+                  ? `${o.orderNumber} · Handover confirmed`
+                  : `${o.orderNumber} · Thank you`
+                : `${o.orderNumber} · ${calcOutstandingLines(o).length} line(s) outstanding`,
+              documentType: "Receipt",
+              isWalkin: false,
+            };
+            state.currentPage = "success";
+            render();
           });
+      }
 
-          // -------- 2. Record the picked-up-by info --------
-          // -------- 2. Record the picked-up-by info --------
-          o.pickedUpBy = { name, phone, orderRefVerified, idPresented };
-          o.state = "collected";
-
-          // Log with verification detail
-          const logParts = [`Collected by ${name}`];
-          if (!isImmediate) {
-            logParts.push(
-              orderRefVerified
-                ? "Order reference verified"
-                : "Order reference NOT verified",
-            );
-            if (idPresented) logParts.push("Photo ID presented");
-          }
-          logTimeline(logParts.join(" · "));
-
-          // -------- 3. Complete the order --------
-          o.state = "completed";
-          logTimeline("Order completed.");
-
-          // -------- 4. Clear working state and show success screen --------
-          state.collectionSelections = {};
-          state.collectionUnitSearch = "";
-          state.collectionChangingUnitsFor = null;
-          state.activeModal = null;
-
-          const isWalkin =
-            o.timing === "Immediate" && o.fulfillment === "Pickup";
-          state.successContext = {
-            title: isWalkin ? "Order Completed" : "Order Collected",
-            subtitle: isWalkin
-              ? `${o.orderNumber} · Handover confirmed`
-              : `${o.orderNumber} · Thank you`,
-            documentType: "Receipt",
-            isWalkin: false, // stock has already been deducted during collection
-          };
-          state.currentPage = "success";
-          render();
-        });
-    }
+        
 
     /* ============ EXTEND EXPIRY MODAL ============ */
     function renderExtendExpiryModal() {
