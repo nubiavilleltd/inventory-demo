@@ -4254,16 +4254,36 @@ DISPATCH DASHBOARD DEMO SEED
         });
     }
 
-    function renderCollectionChangeUnitsView() {
+        function renderCollectionChangeUnitsView() {
       const o = state.order;
       const productId = state.collectionChangingUnitsFor;
       const product = getInvProduct(productId);
-      const item = o.items.find((i) => i.productId === productId);
-      if (!product || !item) return "";
+      const line = calcOutstandingLines(o).find(
+        (l) => l.productId === productId,
+      );
+      if (!product || !line) return "";
 
       const pickupLoc = LOCATIONS.find(
         (l) => l.name === o.pickupLocation,
       )?.id;
+
+      // Cap the handover quantity by both outstanding and available-at-location.
+      const availableHere =
+        product.trackingType === "Individual"
+          ? UNITS.filter(
+              (u) =>
+                u.productId === productId &&
+                u.locationId === pickupLoc &&
+                (u.status === "Available" ||
+                  (u.status === "Reserved" &&
+                    u.reservedForOrder === o.orderNumber)),
+            ).length
+          : (() => {
+              const s = getStockSummary(productId, pickupLoc);
+              return s.available + (s.reserved || 0);
+            })();
+
+      const qty = Math.min(line.outstanding, availableHere);
       const selected = state.collectionSelections[productId] || [];
 
       // Candidates: units at the pickup location that are either Reserved for
@@ -4313,7 +4333,7 @@ DISPATCH DASHBOARD DEMO SEED
               return `
                     <label style="display:flex; gap:8px; align-items:center; padding:6px 4px; border-bottom:1px dashed #ddd; font-size:12px; cursor:pointer;">
                       <input type="checkbox" ${checked ? "checked" : ""} style="width:auto;"
-                        onchange="toggleCollectionUnit('${productId}', '${u.id}', ${item.qty})">
+                            onchange="toggleCollectionUnit('${productId}', '${u.id}', ${qty})">
                       <span style="flex:1;">${u.tag}</span>
                       <span style="font-size:11px; color:#888;">${u.condition || "New"}</span>
                       <span style="font-size:11px; color:#888;">${formatDate(u.receivedDate)}</span>
@@ -4324,16 +4344,16 @@ DISPATCH DASHBOARD DEMO SEED
         }
           </div>
 
-          <div style="margin-top:8px; font-size:12px;">
-            ${selected.length === item.qty
-          ? `<span class="green">✓ ${selected.length} of ${item.qty} selected</span>`
-          : `<span class="red">Select exactly ${item.qty}. Currently: ${selected.length}</span>`
+                    <div style="margin-top:8px; font-size:12px;">
+            ${selected.length === qty
+          ? `<span class="green">✓ ${selected.length} of ${qty} selected</span>`
+          : `<span class="red">Select exactly ${qty}. Currently: ${selected.length}</span>`
         }
           </div>
         </div>
         <div class="modal-footer">
           <button onclick="closeCollectionChangeUnits()">← Back</button>
-          <button class="btn-primary" onclick="confirmCollectionChangeUnits()" ${selected.length !== item.qty ? "disabled" : ""}>Done</button>
+          <button class="btn-primary" onclick="confirmCollectionChangeUnits()" ${selected.length !== qty ? "disabled" : ""}>Done</button>
         </div>
       </div>
     </div>
@@ -4366,12 +4386,35 @@ DISPATCH DASHBOARD DEMO SEED
       render();
     }
 
-    function confirmCollectionChangeUnits() {
+      function confirmCollectionChangeUnits() {
       const productId = state.collectionChangingUnitsFor;
-      const item = state.order.items.find((i) => i.productId === productId);
+      const o = state.order;
+      const line = calcOutstandingLines(o).find(
+        (l) => l.productId === productId,
+      );
+      if (!line) return;
+
+      const pickupLoc = LOCATIONS.find((l) => l.name === o.pickupLocation)?.id;
+      const product = getInvProduct(productId);
+      const availableHere =
+        product.trackingType === "Individual"
+          ? UNITS.filter(
+              (u) =>
+                u.productId === productId &&
+                u.locationId === pickupLoc &&
+                (u.status === "Available" ||
+                  (u.status === "Reserved" &&
+                    u.reservedForOrder === o.orderNumber)),
+            ).length
+          : (() => {
+              const s = getStockSummary(productId, pickupLoc);
+              return s.available + (s.reserved || 0);
+            })();
+
+      const qty = Math.min(line.outstanding, availableHere);
       const selected = state.collectionSelections[productId] || [];
-      if (selected.length !== item.qty) {
-        return alert(`Select exactly ${item.qty} units.`);
+      if (selected.length !== qty) {
+        return alert(`Select exactly ${qty} units.`);
       }
       state.collectionChangingUnitsFor = null;
       render();
@@ -5125,11 +5168,11 @@ DISPATCH WIZARD (3-STEP)
                             <span style="font-size:11px; color:#888;">[Individual Item]</span>
                           </div>
                         </div>
-                        <div style="margin-top:6px; font-size:12px;">
+                          <div style="margin-top:6px; font-size:12px;">
                           ${
                             selectedUnits.length === qty
                               ? `<span class="green">✓ ${selectedUnits.length} units auto-selected (oldest first)</span>`
-                              : `<span class="red">⚠ ${selectedUnits.length} of ${qty} selected</span>`
+                              : `<span class="red">⚠ ${selectedUnits.length} of ${qty} selected — only ${getStockSummary(line.productId, w.dispatchLocationId).available} available at ${getLocation(w.dispatchLocationId)?.name}</span>`
                           }
                         </div>
                         <div style="margin-top:6px;">
@@ -5181,15 +5224,17 @@ DISPATCH WIZARD (3-STEP)
     }
 
     /* ---------- Step 2b: Change Units (body swap) ---------- */
-    /* ---------- Step 2b: Change Units (body swap) ---------- */
-    function renderChangeUnitsView() {
+        function renderChangeUnitsView() {
       const o = state.order;
       const w = state.dispatchWizard;
       const productId = w.changingUnitsFor;
       const product = getInvProduct(productId);
-      const item = o.items.find((i) => i.productId === productId);
-      if (!product || !item) return "";
+      const line = calcOutstandingLines(o).find(
+        (l) => l.productId === productId,
+      );
+      if (!product || !line) return "";
 
+      const qty = line.outstanding;
       const selected = w.unitSelections[productId] || [];
 
       // Get all units for this product at the dispatch location
@@ -5218,8 +5263,8 @@ DISPATCH WIZARD (3-STEP)
         <div class="modal-body">
           ${renderStepIndicator(2)}
 
-          <p style="font-size:13px; margin-top:8px;">
-            <strong>${product.name}</strong> · Select exactly ${item.qty} units from ${getLocation(w.dispatchLocationId)?.name}
+                   <p style="font-size:13px; margin-top:8px;">
+            <strong>${product.name}</strong> · Select exactly ${qty} units from ${getLocation(w.dispatchLocationId)?.name}
           </p>
 
           <p style="font-size:12px; color:#666; margin-top:4px;">
@@ -5241,7 +5286,7 @@ DISPATCH WIZARD (3-STEP)
               return `
                     <label style="display:flex; gap:8px; align-items:center; padding:6px 4px; border-bottom:1px dashed #ddd; font-size:12px; cursor:pointer;">
                       <input type="checkbox" ${checked ? "checked" : ""} style="width:auto;"
-                        onchange="toggleUnitSelection('${productId}', '${u.id}', ${item.qty})">
+                              onchange="toggleUnitSelection('${productId}', '${u.id}', ${qty})">
                       <span style="flex:1;">${u.tag}</span>
                       <span style="font-size:11px; color:#888;">${u.condition || "New"}</span>
                       <span style="font-size:11px; color:#888;">${formatDate(u.receivedDate)}</span>
@@ -5253,15 +5298,15 @@ DISPATCH WIZARD (3-STEP)
           </div>
 
           <div style="margin-top:8px; font-size:12px;">
-            ${selected.length === item.qty
-          ? `<span class="green">✓ ${selected.length} of ${item.qty} selected</span>`
-          : `<span class="red">Select exactly ${item.qty}. Currently: ${selected.length}</span>`
-        }
+                   ${selected.length === qty
+              ? `<span class="green">✓ ${selected.length} of ${qty} selected</span>`
+              : `<span class="red">Select exactly ${qty}. Currently: ${selected.length}</span>`
+            }
           </div>
         </div>
         <div class="modal-footer">
           <button onclick="closeChangeUnits()">← Back</button>
-          <button class="btn-primary" onclick="confirmChangeUnits()" ${selected.length !== item.qty ? "disabled" : ""}>Done</button>
+                    <button class="btn-primary" onclick="confirmChangeUnits()" ${selected.length !== qty ? "disabled" : ""}>Done</button>
         </div>
       </div>
     </div>
@@ -5467,12 +5512,16 @@ DISPATCH WIZARD HANDLERS
       render();
     }
 
-    function confirmChangeUnits() {
+        function confirmChangeUnits() {
       const productId = state.dispatchWizard.changingUnitsFor;
-      const item = state.order.items.find((i) => i.productId === productId);
+      const line = calcOutstandingLines(state.order).find(
+        (l) => l.productId === productId,
+      );
+      if (!line) return;
+      const qty = line.outstanding;
       const selected = state.dispatchWizard.unitSelections[productId] || [];
-      if (selected.length !== item.qty) {
-        return alert(`Select exactly ${item.qty} units.`);
+      if (selected.length !== qty) {
+        return alert(`Select exactly ${qty} units.`);
       }
       state.dispatchWizard.changingUnitsFor = null;
       render();
@@ -7149,11 +7198,19 @@ DISPATCH WIZARD HELPERS
     }
 
     // Initialize the wizard from the current order (pre-populate with auto-picks)
-         function initDispatchWizard() {
+        function initDispatchWizard() {
         resetDispatchWizard();
         const w = state.dispatchWizard;
         const o = state.order;
 
+        // Prefer the order's pickup location if it's a pickup order —
+        // that's where the outstanding stock physically lives.
+        if (o.fulfillment === "Pickup" && o.pickupLocation) {
+          const pickupLoc = LOCATIONS.find(
+            (l) => l.name === o.pickupLocation,
+          );
+          if (pickupLoc) w.dispatchLocationId = pickupLoc.id;
+        }
         // Pre-select driver/vehicle if there's only one available
         const availableDrivers = DRIVERS.filter(
           (d) => d.status === "Available",
