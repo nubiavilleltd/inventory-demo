@@ -1154,6 +1154,7 @@
       editingUnitId: null,
       isEditing: false,
       successContext: null,
+      partialFulfilmentAcknowledged: false,
       // Collection modal working state: { [productId]: [unitIds] }
       collectionSelections: {},
       collectionUnitSearch: "",
@@ -1647,6 +1648,7 @@ DISPATCH DASHBOARD DEMO SEED
       state.currentPage = "order-creation";
       state.activeModal = null;
       state.successContext = null;
+      state.partialFulfilmentAcknowledged = false;
     }
 
     /* ============ STATUS BAR ============ */
@@ -1995,6 +1997,44 @@ DISPATCH DASHBOARD DEMO SEED
       return `<div class="scenario-banner"><strong>🎬 ${s.title}</strong>${s.description}</div>`;
     }
 
+
+
+          // Renders the partial-fulfilment acknowledgement card.
+      // Only shown when validateOrderStock reports a shortfall.
+      function renderPartialFulfilmentCard(order) {
+        const stockResult = validateOrderStock();
+        if (!stockResult.blocked && !stockResult.warning) return "";
+
+        const isBlocked = stockResult.blocked;
+        const where =
+          order.fulfillment === "Pickup"
+            ? `at ${order.pickupLocation}`
+            : "at a single location";
+
+        return `
+          <div style="margin-top:10px; padding:10px; border:2px dashed ${isBlocked ? "#991b1b" : "#92400e"}; border-radius:4px; background:${isBlocked ? "#fee2e2" : "#fef3c7"};">
+            <div style="font-size:12px; font-weight:bold; color:${isBlocked ? "#991b1b" : "#92400e"}; margin-bottom:8px;">
+              ${isBlocked ? `⚠ Cannot submit as-is — insufficient stock ${where}` : `⚠ Some items are not fully stocked`}
+            </div>
+
+            <div style="font-size:12px; color:${isBlocked ? "#991b1b" : "#92400e"}; margin-bottom:10px; line-height:1.5;">
+              Some items cannot be fulfilled in full. The customer can receive what's available now, and the remainder later.
+            </div>
+
+            <label style="display:flex; align-items:flex-start; gap:8px; font-size:12px; line-height:1.4; cursor:pointer; color:${isBlocked ? "#991b1b" : "#92400e"};">
+              <input type="checkbox" id="partialFulfilmentCheckbox"
+                style="width:auto; margin-top:2px;"
+                ${state.partialFulfilmentAcknowledged ? "checked" : ""}
+                onchange="state.partialFulfilmentAcknowledged = this.checked;">
+              <span>
+                <strong>Allow partial fulfilment.</strong>
+              </span>
+            </label>
+          </div>
+        `;
+      }
+
+    
     /* ============ ORDER CREATION PAGE ============ */
     function renderOrderCreation(c) {
       const o = state.order,
@@ -2166,7 +2206,12 @@ DISPATCH DASHBOARD DEMO SEED
           .join("")}
         </tbody>
       </table>
-      ${locked ? "" : `<button class="mt-8" id="addProductBtn">+ Add Product</button>`}
+         ${locked ? "" : `<button class="mt-8" id="addProductBtn">+ Add Product</button>`}
+
+      ${
+        !locked ? renderPartialFulfilmentCard(o) : ""
+      }
+
     <div class="summary-box">
          <div class="summary-box">
       ${!locked
@@ -2921,6 +2966,7 @@ DISPATCH DASHBOARD DEMO SEED
           };
           initFulfilmentLines(state.order);
           autoApplyCredit(state.order, state.customer);
+          state.partialFulfilmentAcknowledged = false;
           state.currentPage = "order-creation";
           render();
         });
@@ -2938,15 +2984,43 @@ DISPATCH DASHBOARD DEMO SEED
       }
 
       // ===== STOCK CHECK =====
-      const stockResult = validateOrderStock();
-      if (stockResult.blocked) {
-        alert(stockResult.message);
-        return;
-      }
-      if (stockResult.warning) {
-        const proceed = confirm(stockResult.message + "\n\nProceed anyway?");
-        if (!proceed) return;
-      }
+             // ===== STOCK CHECK =====
+        const stockResult = validateOrderStock();
+        const partialAck = state.partialFulfilmentAcknowledged === true;
+
+        if (stockResult.blocked) {
+          if (!partialAck) {
+            alert(
+              "This order has insufficient stock. Tick \"Allow partial fulfilment\" to proceed.",
+            );
+            return;
+          }
+        }
+
+        if (stockResult.warning) {
+          // Warning is already covered by the partial-fulfilment card.
+          // If the operator hasn't ticked it, confirm they mean to proceed.
+          if (!partialAck) {
+            const proceed = confirm(
+              stockResult.message +
+                "\n\nProceed without partial fulfilment? The order will submit but the stock shortfall will not be recorded.",
+            );
+            if (!proceed) return;
+          }
+        }
+
+        const isPartial = partialAck && (stockResult.blocked || stockResult.warning);
+
+        // If partial fulfilment was acknowledged, mark the order accordingly.
+        if (isPartial) {
+          o.fulfilmentStatus = "partial";
+          o._partialAcknowledged = true;
+          logTimeline(
+            `Partial fulfilment acknowledged — ${calcOutstandingLines(o).length} line(s) outstanding.`,
+          );
+        }
+
+        // Record the acknowledgement on the order.
 
       // Continue with submission
       o.invoiceDate = todayISO();
