@@ -2007,13 +2007,67 @@ DISPATCH DASHBOARD DEMO SEED
               }
             </div>
           </div>
-          <div class="col">
+                  <div class="col">
             <label>Scheduled Delivery Date *</label>
             <input type="date" id="scheduledDateInput" value="${o.scheduledDate}" ${locked ? "disabled" : ""}>
             <div style="font-size:11px; color:#666; margin-top:4px;">
               💡 Delivery is always scheduled — driver/courier assigned at dispatch.
             </div>
           </div>
+        </div>
+
+        <div class="mt-8">
+          <label>${o.deliveryMode === "Courier" ? "Recipient Address *" : "Delivery Address *"}</label>
+          ${(() => {
+            const addrs = cust.addresses || [];
+            if (addrs.length === 0) {
+              return `
+                <div style="padding:8px; border:1px dashed #999; border-radius:4px; font-size:12px; color:#991b1b; margin-bottom:6px;">
+                  No saved addresses for this customer. Add one to continue with Delivery.
+                </div>
+                ${!locked ? `<button id="addAddressBtn" style="font-size:12px;">+ Add Delivery Address</button>` : ""}
+              `;
+            }
+            const selectedId =
+              o.deliveryAddressId &&
+              addrs.find((a) => a.id === o.deliveryAddressId)
+                ? o.deliveryAddressId
+                : (addrs.find((a) => a.isDefault) || addrs[0]).id;
+
+            const displayAddr = (a) => {
+              const labelPart = a.label
+                ? `${a.label}${a.isDefault ? " (Default)" : ""} — `
+                : a.isDefault
+                  ? "(Default) "
+                  : "";
+              return `${labelPart}${a.street}`;
+            };
+
+            return `
+              <div style="display:flex; gap:8px; align-items:center;">
+                <select id="deliveryAddressSelect" ${locked ? "disabled" : ""} style="flex:1;">
+                  ${addrs
+                    .map(
+                      (a) => `
+                    <option value="${a.id}" ${a.id === selectedId ? "selected" : ""}>
+                      ${displayAddr(a)}
+                    </option>
+                  `,
+                    )
+                    .join("")}
+                </select>
+                ${!locked ? `<button id="editAddressBtn" style="white-space:nowrap;">Edit</button>` : ""}
+              </div>
+              <div style="font-size:11px; color:#666; margin-top:4px;">
+                ${
+                  o.deliveryMode === "Courier"
+                    ? "💡 This address will be printed on the package for the courier."
+                    : "💡 The driver will deliver to this address."
+                }
+              </div>
+              ${!locked ? `<button id="addAddressBtn" style="margin-top:6px; font-size:12px;">+ Add New Address</button>` : ""}
+            `;
+          })()}
         </div>
       `
             }
@@ -2111,67 +2165,6 @@ DISPATCH DASHBOARD DEMO SEED
     </div>
   </div>
 
-         ${
-           o.fulfillment === "Delivery"
-             ? `
-       <div class="card">
-      <div class="card-title">Fulfillment Details</div>
-
-        <label>${o.deliveryMode === "Courier" ? "Recipient Address *" : "Delivery Address *"}</label>
-        ${(() => {
-          const addrs = cust.addresses || [];
-          if (addrs.length === 0) {
-            return `
-                  <div style="padding:8px; border:1px dashed #999; border-radius:4px; font-size:12px; color:#991b1b; margin-bottom:6px;">
-                    No saved addresses for this customer. Add one to continue with Delivery.
-                  </div>
-                  ${!locked ? `<button id="addAddressBtn" style="font-size:12px;">+ Add Delivery Address</button>` : ""}
-                `;
-          }
-          const selectedId =
-            o.deliveryAddressId &&
-            addrs.find((a) => a.id === o.deliveryAddressId)
-              ? o.deliveryAddressId
-              : (addrs.find((a) => a.isDefault) || addrs[0]).id;
-
-          const displayAddr = (a) => {
-            const labelPart = a.label
-              ? `${a.label}${a.isDefault ? " (Default)" : ""} — `
-              : a.isDefault
-                ? "(Default) "
-                : "";
-            return `${labelPart}${a.street}`;
-          };
-
-          return `
-              <div style="display:flex; gap:8px; align-items:center;">
-                <select id="deliveryAddressSelect" ${locked ? "disabled" : ""} style="flex:1;">
-                  ${addrs
-                    .map(
-                      (a) => `
-                    <option value="${a.id}" ${a.id === selectedId ? "selected" : ""}>
-                      ${displayAddr(a)}
-                    </option>
-                  `,
-                    )
-                    .join("")}
-                </select>
-                ${!locked ? `<button id="editAddressBtn" style="white-space:nowrap;">Edit</button>` : ""}
-              </div>
-              <div style="font-size:11px; color:#666; margin-top:4px;">
-                ${
-                  o.deliveryMode === "Courier"
-                    ? "💡 This address will be printed on the package for the courier."
-                    : "💡 The driver will deliver to this address."
-                }
-              </div>
-              ${!locked ? `<button id="addAddressBtn" style="margin-top:6px; font-size:12px;">+ Add New Address</button>` : ""}
-            `;
-        })()}
-    </div>
-      `
-             : ""
-         }
 
     ${
       locked
@@ -2217,7 +2210,7 @@ DISPATCH DASHBOARD DEMO SEED
         </div>
         <span class="badge ${stateBadge(o)}">${stateLabel(o)}</span>
       </div>
-      <div class="row mt-8">
+          <div class="row mt-8">
                 <div class="col">
           <label>Invoice</label>
           <strong style="${o.invoiceStatus === "voided" ? "text-decoration:line-through; color:#888;" : ""}">${o.invoiceNumber || "—"}</strong>
@@ -2244,6 +2237,33 @@ DISPATCH DASHBOARD DEMO SEED
         <div class="col"><label>Fulfillment</label><strong>${o.fulfillment} (${o.timing})</strong></div>
         <div class="col"><label>Scheduled</label><strong>${formatDate(o.scheduledDate)}</strong></div>
       </div>
+
+      ${
+        o.fulfillment === "Delivery"
+          ? (() => {
+              const addrs = cust.addresses || [];
+              const addr = addrs.find((a) => a.id === o.deliveryAddressId)
+                || addrs.find((a) => a.isDefault)
+                || addrs[0];
+              return `
+                <div class="row mt-8">
+                  <div class="col">
+                    <label>Delivery Address</label>
+                    <strong>${
+                      addr
+                        ? (addr.label
+                            ? `${addr.label}${addr.isDefault ? " (Default)" : ""} — `
+                            : addr.isDefault
+                              ? "(Default) "
+                              : "") + addr.street
+                        : "—"
+                    }</strong>
+                  </div>
+                </div>
+              `;
+            })()
+          : ""
+      }
     </div>
 
     ${
