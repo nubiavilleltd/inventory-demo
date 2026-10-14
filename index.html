@@ -3500,14 +3500,34 @@ DISPATCH DASHBOARD DEMO SEED
       const cust = state.customer;
       const t = calcTotals(o);
 
-      // Cash paid + credit consumed — the total that will be returned as credit.
-      const cashPaid = t.paid;
-      const creditConsumed = o.creditApplied || 0;
-      const totalReturned = cashPaid + creditConsumed;
+        // Cash paid + credit consumed — the gross return before deductions.
+        const cashPaid = t.paid;
+        const creditConsumed = o.creditApplied || 0;
+        const grossReturn = cashPaid + creditConsumed;
+
+        // For partially-fulfilled orders, deduct the value of goods already
+        // delivered. The customer keeps those goods, so they aren't refunded.
+        const deliveredValue = calcDeliveredValue(o);
+        const netReturn = Math.max(0, grossReturn - deliveredValue);
+        const hasDeduction = deliveredValue > 0 && grossReturn > 0;
 
       // State-specific warning
-      let stateWarning = "";
-      if (o.state === "ready") {
+             // State-specific warning
+        let stateWarning = "";
+
+        // Partial fulfilment takes precedence — it's more specific.
+        if (o.fulfilmentStatus === "partial" && calcDeliveredValue(o) > 0) {
+          const outstanding = calcOutstandingLines(o);
+          const totalOutstanding = outstanding.reduce(
+            (s, l) => s + l.outstanding,
+            0,
+          );
+          stateWarning = `
+          <div style="padding:8px; border:2px dashed #92400e; border-radius:4px; font-size:12px; color:#92400e; margin-top:12px;">
+            ⚠ This order has been partially fulfilled — <strong>${totalOutstanding} item(s)</strong> are still outstanding.
+            Goods already delivered (${money(calcDeliveredValue(o))}) will not be refunded.
+          </div>`;
+        } else if (o.state === "ready") {
         stateWarning = `
           <div style="padding:8px; border:2px dashed #991b1b; border-radius:4px; font-size:12px; color:#991b1b; margin-top:12px;">
             ⚠ This order has stock reserved for pickup at <strong>${o.pickupLocation}</strong>.
@@ -3533,20 +3553,38 @@ DISPATCH DASHBOARD DEMO SEED
       }
 
       // Credit return summary
-      let creditReturn = "";
-      if (totalReturned > 0) {
-        const parts = [];
-        if (cashPaid > 0) parts.push(`${money(cashPaid)} cash`);
-        if (creditConsumed > 0) parts.push(`${money(creditConsumed)} credit`);
-        creditReturn = `
+        let creditReturn = "";
+        if (netReturn > 0) {
+          const parts = [];
+          if (cashPaid > 0) parts.push(`${money(cashPaid)} cash`);
+          if (creditConsumed > 0) parts.push(`${money(creditConsumed)} credit`);
+
+          const deductionLine = hasDeduction
+            ? `<div style="font-size:11px; color:#92400e; margin-top:4px;">
+                 Less: delivered goods (not refunded) — ${money(deliveredValue)}
+               </div>`
+            : "";
+
+          creditReturn = `
           <div class="credit-card mt-12">
             <div class="credit-card-label">Credit to be created (${parts.join(" + ")})</div>
-            <div class="credit-card-value">${money(totalReturned)}</div>
+            <div class="credit-card-value">${money(netReturn)}</div>
+            ${deductionLine}
             <div style="font-size:11px; color:#166534; margin-top:4px;">
               Fresh ${CREDIT_VALIDITY_DAYS}-day expiry applied.
             </div>
           </div>`;
-      }
+        } else if (hasDeduction) {
+          // Delivered goods consume the entire return — nothing left to refund.
+          creditReturn = `
+          <div class="credit-card mt-12" style="border-color:#92400e; background:#fef3c7;">
+            <div class="credit-card-label" style="color:#92400e;">Credit to be created</div>
+            <div class="credit-card-value" style="color:#92400e;">${money(0)}</div>
+            <div style="font-size:11px; color:#92400e; margin-top:4px;">
+              The entire payment has been consumed by delivered goods. Nothing is refunded.
+            </div>
+          </div>`;
+        }
 
       return `
     <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
@@ -3582,47 +3620,58 @@ DISPATCH DASHBOARD DEMO SEED
           const reason = document.getElementById("cancelReason").value;
           if (!reason) return alert("Select a reason.");
 
-          const o = state.order,
-            cust = state.customer;
-          const t = calcTotals(o);
+                      const o = state.order,
+              cust = state.customer;
+            const t = calcTotals(o);
 
-          // -------- 1. Money: cash paid + credit consumed → fresh credit --------
-          const cashPaid = t.paid;
-          const creditConsumed = o.creditApplied || 0;
-          const totalReturned = cashPaid + creditConsumed;
+            // -------- 1. Money: gross return minus delivered value --------
+            const cashPaid = t.paid;
+            const creditConsumed = o.creditApplied || 0;
+            const grossReturn = cashPaid + creditConsumed;
+            const deliveredValue = calcDeliveredValue(o);
+            const netReturn = Math.max(0, grossReturn - deliveredValue);
 
-          if (totalReturned > 0) {
-            cust.credit += totalReturned;
+            if (netReturn > 0) {
+              cust.credit += netReturn;
 
-            // Always reset expiry on new credit issuance (fresh 60-day window).
-            const d = new Date();
-            d.setDate(d.getDate() + CREDIT_VALIDITY_DAYS);
-            cust.creditExpiryDate = d.toISOString().split("T")[0];
+              // Always reset expiry on new credit issuance (fresh 60-day window).
+              const d = new Date();
+              d.setDate(d.getDate() + CREDIT_VALIDITY_DAYS);
+              cust.creditExpiryDate = d.toISOString().split("T")[0];
 
-            // Mirror to master
-            const master = getCustomer(cust.id);
-            if (master) {
-              master.credit = cust.credit;
-              master.creditExpiryDate = cust.creditExpiryDate;
+              // Mirror to master
+              const master = getCustomer(cust.id);
+              if (master) {
+                master.credit = cust.credit;
+                master.creditExpiryDate = cust.creditExpiryDate;
+              }
+
+              // Ledger entry (customer-facing)
+              pushCreditEvent(
+                cust.id,
+                `Cancelled order ${o.orderNumber}${deliveredValue > 0 ? ` (net of ${money(deliveredValue)} delivered goods)` : ""}`,
+                netReturn,
+              );
+
+              const parts = [];
+              if (cashPaid > 0) parts.push(`${money(cashPaid)} cash`);
+              if (creditConsumed > 0)
+                parts.push(`${money(creditConsumed)} credit`);
+              const deductionNote =
+                deliveredValue > 0
+                  ? ` − ${money(deliveredValue)} delivered goods`
+                  : "";
+              logTimeline(
+                `Cancelled (${reason}). Credit ${money(netReturn)} issued (${parts.join(" + ")}${deductionNote}). Expires ${formatDate(cust.creditExpiryDate)}.`,
+              );
+            } else if (deliveredValue > 0) {
+              // Delivered goods consumed the entire return.
+              logTimeline(
+                `Cancelled (${reason}). No credit issued — delivered goods value (${money(deliveredValue)}) consumed the payment.`,
+              );
+            } else {
+              logTimeline(`Cancelled (${reason}). No payment to return.`);
             }
-
-            // Ledger entry (customer-facing)
-            pushCreditEvent(
-              cust.id,
-              `Cancelled order ${o.orderNumber}`,
-              totalReturned,
-            );
-
-            const parts = [];
-            if (cashPaid > 0) parts.push(`${money(cashPaid)} cash`);
-            if (creditConsumed > 0)
-              parts.push(`${money(creditConsumed)} credit`);
-            logTimeline(
-              `Cancelled (${reason}). Credit ${money(totalReturned)} issued (${parts.join(" + ")}). Expires ${formatDate(cust.creditExpiryDate)}.`,
-            );
-          } else {
-            logTimeline(`Cancelled (${reason}). No payment to return.`);
-          }
 
           // -------- 2. Stock: release reservations per state --------
           if (o.softReservation) {
