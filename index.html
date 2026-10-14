@@ -1265,40 +1265,48 @@
       if (paid > 0) return "partial";
       return "unpaid";
     }
+      function stateLabel(order) {
+        if (!order) return "Draft";
+        const map = {
+          draft: "Draft",
+          submitted: "Submitted (Unpaid)",
+          partial: "Partially Paid",
+          confirmed: "Confirmed (Paid)",
+          ready: "Ready for Pickup",
+          collected: "Collected",
+          completed: "Completed",
+          cancelled: "Cancelled",
+          "out-for-delivery": "Out for Delivery",
+          delivered: "Delivered",
+        };
+        const base = map[order.state] || "Draft";
+        // Surface partial fulfilment alongside the order state.
+        if (order.fulfilmentStatus === "partial" && order.state === "ready") {
+          return "Partially Fulfilled";
+        }
+        return base;
+      }
 
-    function stateLabel(order) {
-      if (!order) return "Draft";
-      const map = {
-        draft: "Draft",
-        submitted: "Submitted (Unpaid)",
-        partial: "Partially Paid",
-        confirmed: "Confirmed (Paid)",
-        ready: "Ready for Pickup",
-        collected: "Collected",
-        completed: "Completed",
-        cancelled: "Cancelled",
-        "out-for-delivery": "Out for Delivery",
-        delivered: "Delivered",
-      };
-      return map[order.state] || "Draft";
-    }
-
-    function stateBadge(order) {
-      if (!order) return "badge-draft";
-      const map = {
-        draft: "badge-draft",
-        submitted: "badge-unpaid",
-        partial: "badge-partial",
-        confirmed: "badge-paid",
-        ready: "badge-ready",
-        "out-for-delivery": "badge-ready",
-        collected: "badge-paid",
-        delivered: "badge-paid",
-        completed: "badge-paid",
-        cancelled: "badge-cancelled",
-      };
-      return map[order.state] || "badge-draft";
-    }
+       function stateBadge(order) {
+        if (!order) return "badge-draft";
+        const map = {
+          draft: "badge-draft",
+          submitted: "badge-unpaid",
+          partial: "badge-partial",
+          confirmed: "badge-paid",
+          ready: "badge-ready",
+          "out-for-delivery": "badge-ready",
+          collected: "badge-paid",
+          delivered: "badge-paid",
+          completed: "badge-paid",
+          cancelled: "badge-cancelled",
+        };
+        // Partial fulfilment overrides the "ready" badge.
+        if (order.fulfilmentStatus === "partial" && order.state === "ready") {
+          return "badge-partial";
+        }
+        return map[order.state] || "badge-draft";
+      }
 
     function logTimeline(event) {
       if (state.order)
@@ -2324,30 +2332,58 @@ DISPATCH DASHBOARD DEMO SEED
         <div class="col"><label>Scheduled</label><strong>${formatDate(o.scheduledDate)}</strong></div>
       </div>
 
-      ${o.fulfillment === "Delivery"
+        ${
+        o.fulfillment === "Delivery"
           ? (() => {
-            const addrs = cust.addresses || [];
-            const addr = addrs.find((a) => a.id === o.deliveryAddressId)
-              || addrs.find((a) => a.isDefault)
-              || addrs[0];
-            return `
+              const addrs = cust.addresses || [];
+              const addr = addrs.find((a) => a.id === o.deliveryAddressId)
+                || addrs.find((a) => a.isDefault)
+                || addrs[0];
+              return `
                 <div class="row mt-8">
                   <div class="col">
                     <label>Delivery Address</label>
-                    <strong>${addr
-                ? (addr.label
-                  ? `${addr.label}${addr.isDefault ? " (Default)" : ""} — `
-                  : addr.isDefault
-                    ? "(Default) "
-                    : "") + addr.street
-                : "—"
-              }</strong>
+                    <strong>${
+                      addr
+                        ? (addr.label
+                            ? `${addr.label}${addr.isDefault ? " (Default)" : ""} — `
+                            : addr.isDefault
+                              ? "(Default) "
+                              : "") + addr.street
+                        : "—"
+                    }</strong>
                   </div>
                 </div>
               `;
-          })()
+            })()
           : ""
-        }
+      }
+
+      ${
+        o.fulfilmentStatus === "partial"
+          ? (() => {
+              const outstanding = calcOutstandingLines(o);
+              const totalOutstanding = outstanding.reduce(
+                (s, l) => s + l.outstanding,
+                0,
+              );
+              const totalOrdered = (o.fulfilmentLines || []).reduce(
+                (s, l) => s + l.ordered,
+                0,
+              );
+              const totalFulfilled = (o.fulfilmentLines || []).reduce(
+                (s, l) => s + l.fulfilled,
+                0,
+              );
+              return `
+                <div style="margin-top:10px; padding:8px; border:2px dashed #92400e; border-radius:4px; background:#fef3c7; font-size:12px; color:#92400e;">
+                  ⚠ Partially fulfilled: <strong>${totalFulfilled} of ${totalOrdered}</strong> items handed over.
+                  <strong>${totalOutstanding}</strong> outstanding.
+                </div>
+              `;
+            })()
+          : ""
+      }
     </div>
 
     ${cust.credit > 0
@@ -2363,24 +2399,17 @@ DISPATCH DASHBOARD DEMO SEED
           : ""
         }
 
-    <div class="card">
+     <div class="card">
       <div class="card-title">Order Summary</div>
       <table>
-        <thead><tr><th>Product</th><th>Ordered</th><th>Fulfilled</th><th>Outstanding</th></tr></thead>
+        <thead><tr><th>Product</th><th>Qty</th><th>Unit</th><th>Total</th></tr></thead>
         <tbody>
           ${o.items
             .map((i) => {
               const p = getProduct(i.productId);
-              if (!p) return "";
-              const fl = getFulfilmentLine(o, i.productId);
-              const fulfilled = fl ? fl.fulfilled : i.qty;
-              const outstanding = Math.max(0, i.qty - fulfilled);
-              return `<tr>
-                <td>${p.name}</td>
-                <td>${i.qty}</td>
-                <td>${fulfilled}</td>
-                <td>${outstanding > 0 ? `<strong class="red">${outstanding}</strong>` : outstanding}</td>
-              </tr>`;
+              return p
+                ? `<tr><td>${p.name}</td><td>${i.qty}</td><td>${money(p.price)}</td><td>${money(p.price * i.qty)}</td></tr>`
+                : "";
             })
             .join("")}
         </tbody>
@@ -2390,14 +2419,35 @@ DISPATCH DASHBOARD DEMO SEED
         <div class="summary-row green"><span>Paid</span><span>${money(t.paid)}</span></div>
         <div class="summary-row ${t.outstanding > 0 ? "red" : "green"}"><span>Amount Due</span><span>${money(t.outstanding)}</span></div>
       </div>
-      ${
-        o.fulfilmentStatus === "partial"
-          ? `<div style="margin-top:8px; padding:8px; border:2px dashed #92400e; border-radius:4px; background:#fef3c7; font-size:12px; color:#92400e;">
-               ⚠ Partially fulfilled — some items are still outstanding.
-             </div>`
-          : ""
-      }
     </div>
+
+    ${
+      o.fulfilmentStatus === "partial"
+        ? `
+      <div class="card">
+        <div class="card-title">Fulfilment Detail</div>
+        <table>
+          <thead><tr><th>Product</th><th>Ordered</th><th>Fulfilled</th><th>Outstanding</th></tr></thead>
+          <tbody>
+            ${(o.fulfilmentLines || [])
+              .map((line) => {
+                const p = getProduct(line.productId);
+                if (!p) return "";
+                const outstanding = Math.max(0, line.ordered - line.fulfilled);
+                return `<tr>
+                  <td>${p.name}</td>
+                  <td>${line.ordered}</td>
+                  <td>${line.fulfilled}</td>
+                  <td>${outstanding > 0 ? `<strong class="red">${outstanding}</strong>` : outstanding}</td>
+                </tr>`;
+              })
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+    `
+        : ""
+    }
 
     <div class="card">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
@@ -2515,13 +2565,63 @@ DISPATCH DASHBOARD DEMO SEED
           : ""
         }
 
-      ${o.fulfillment === "Pickup" && o.state === "ready"
-          ? `
-        <button class="btn-primary" id="markCollectedBtn">Mark as Collected</button>
-        ${isOverdue(o) ? `<button id="extendExpiryBtn">Extend Expiry</button>` : ""}
-        <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>`
+           ${
+        o.fulfillment === "Pickup" && o.state === "ready"
+          ? (() => {
+              // For a partial order, only offer the pickup action if there
+              // is actually something handoverable right now.
+              const pickupLoc = LOCATIONS.find(
+                (l) => l.name === o.pickupLocation,
+              )?.id;
+              const handoverLines = calcOutstandingLines(o)
+                .map((line) => {
+                  const product = getInvProduct(line.productId);
+                  if (!product) return null;
+                  let availableHere = 0;
+                  if (product.trackingType === "Individual") {
+                    availableHere = UNITS.filter(
+                      (u) =>
+                        u.productId === line.productId &&
+                        u.locationId === pickupLoc &&
+                        (u.status === "Available" ||
+                          (u.status === "Reserved" &&
+                            u.reservedForOrder === o.orderNumber)),
+                    ).length;
+                  } else {
+                    const s = getStockSummary(line.productId, pickupLoc);
+                    availableHere = s.available + (s.reserved || 0);
+                  }
+                  return {
+                    ...line,
+                    handoverQty: Math.min(line.outstanding, availableHere),
+                  };
+                })
+                .filter((l) => l && l.handoverQty > 0);
+
+              const canHandover = handoverLines.length > 0;
+              const isPartial = o.fulfilmentStatus === "partial";
+
+              if (!canHandover) {
+                return `
+                  <div style="font-size:12px; color:#92400e; padding:8px; border:1px dashed #92400e; border-radius:4px; margin-bottom:8px;">
+                    ⚠ Nothing available to hand over right now. The outstanding items will become available once stock is restocked.
+                  </div>
+                  <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>
+                `;
+              }
+
+              const label = isPartial
+                ? "Hand Over Available Items"
+                : "Mark as Collected";
+
+              return `
+                <button class="btn-primary" id="markCollectedBtn">${label}</button>
+                ${isOverdue(o) ? `<button id="extendExpiryBtn">Extend Expiry</button>` : ""}
+                <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>
+              `;
+            })()
           : ""
-        }
+      }
 
       ${o.fulfillment === "Delivery" && o.state === "confirmed"
           ? `
@@ -4182,8 +4282,15 @@ DISPATCH DASHBOARD DEMO SEED
         }
           </div>
 
-                     <!-- Item selection -->
+                    <!-- Item selection -->
           <div style="font-weight:bold; font-size:13px; margin-bottom:8px;">Items being collected</div>
+          ${
+            handoverLines.length === 0
+              ? `<div style="padding:12px; border:2px dashed #92400e; border-radius:4px; background:#fef3c7; font-size:12px; color:#92400e; margin-bottom:8px;">
+                   Nothing is available to hand over right now. Close this modal and try again once stock arrives.
+                 </div>`
+              : ""
+          }
           ${handoverLines
             .map((line) => {
               const p = getInvProduct(line.productId);
@@ -4288,10 +4395,10 @@ DISPATCH DASHBOARD DEMO SEED
           : ""
         }
 
-        <div class="modal-footer">
+               <div class="modal-footer">
           <button onclick="closeModal()">Cancel</button>
           <button class="btn-primary" id="confirmPickupBtn"
-            ${!allSatisfied ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ""}>
+            ${!allSatisfied || handoverLines.length === 0 ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ""}>
             Confirm Pickup
           </button>
         </div>
@@ -4316,11 +4423,43 @@ DISPATCH DASHBOARD DEMO SEED
             ? false
             : document.getElementById("pickupIdPresented")?.checked === true;
 
-          if (!name) return alert("Enter who is picking up.");
-          if (!isImmediate && !orderRefVerified)
-            return alert(
-              "Confirm that the order reference has been verified.",
-            );
+                     if (!name) return alert("Enter who is picking up.");
+            if (!isImmediate && !orderRefVerified)
+              return alert(
+                "Confirm that the order reference has been verified.",
+              );
+
+            // Guard: nothing to hand over.
+            {
+              const ord = state.order;
+              const loc = LOCATIONS.find(
+                (l) => l.name === ord.pickupLocation,
+              )?.id;
+              const anyHandoverable = calcOutstandingLines(ord).some(
+                (line) => {
+                  const product = getInvProduct(line.productId);
+                  if (!product) return false;
+                  let availableHere = 0;
+                  if (product.trackingType === "Individual") {
+                    availableHere = UNITS.filter(
+                      (u) =>
+                        u.productId === line.productId &&
+                        u.locationId === loc &&
+                        (u.status === "Available" ||
+                          (u.status === "Reserved" &&
+                            u.reservedForOrder === ord.orderNumber)),
+                    ).length;
+                  } else {
+                    const s = getStockSummary(line.productId, loc);
+                    availableHere = s.available + (s.reserved || 0);
+                  }
+                  return Math.min(line.outstanding, availableHere) > 0;
+                },
+              );
+              if (!anyHandoverable) {
+                return alert("Nothing is available to hand over right now.");
+              }
+            }
 
                      const o = state.order;
 
