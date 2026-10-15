@@ -2754,8 +2754,22 @@ DISPATCH DASHBOARD DEMO SEED
         : ""
     }
 
-    <div class="card">
+      <div class="card">
       <div class="card-title">Actions</div>
+
+      ${
+        o.deliveryFee > 0 && !o.deliveryFeePaid && o.state !== "cancelled"
+          ? `
+        <div style="margin-bottom:10px; padding:10px; border:2px dashed #92400e; border-radius:4px; background:#fef3c7; font-size:13px; color:#92400e; display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
+          <div>
+            ⚠ Delivery fee due: <strong>${money(o.deliveryFee)}</strong>
+          </div>
+          <button class="btn-primary" id="recordFeeBtn">Record Payment</button>
+        </div>
+      `
+          : ""
+      }
+
             ${
               ["draft", "submitted"].includes(o.state)
                 ? `
@@ -3253,9 +3267,18 @@ DISPATCH DASHBOARD DEMO SEED
           });
       }
       /* ============ HANDLERS: ORDER DETAILS ============ */
-      function attachOrderDetailsHandlers() {
+           function attachOrderDetailsHandlers() {
         document
           .getElementById("recordPaymentBtn")
+          ?.addEventListener("click", () => {
+            state.activeModal = "payment";
+            render();
+          });
+
+        // Fee-due line in the Actions card opens the same payment modal
+        // as the Payment History card's "+ Record Payment" button.
+        document
+          .getElementById("recordFeeBtn")
           ?.addEventListener("click", () => {
             state.activeModal = "payment";
             render();
