@@ -4103,7 +4103,15 @@ DISPATCH DASHBOARD DEMO SEED
           applySoftReservation(o);
         }
 
-        o.state = newT.outstanding <= 0 ? "confirmed" : "partial";
+                // Only update the state from payment status if the order is still
+        // in its initial payment gate (draft / submitted / partial-payment).
+        // For orders past that point — confirmed, ready, out-for-delivery —
+        // further payments (e.g. a delivery fee on a partial order) must
+        // not rewind the state.
+        if (["draft", "submitted", "partial"].includes(o.state)) {
+          o.state = newT.outstanding <= 0 ? "confirmed" : "partial";
+        }
+        logTimeline(`State: ${stateLabel(o)}`);
         logTimeline(`State: ${stateLabel(o)}`);
 
         // If the order is now fully paid and there was a delivery fee,
@@ -4119,11 +4127,19 @@ DISPATCH DASHBOARD DEMO SEED
 
         state.activeModal = null;
 
-        // Determine which milestone we just hit
+               // Determine which milestone we just hit.
+        // The pickup modal is correct whenever the customer is handing over
+        // products now. That includes:
+        //   - A fresh pickup order (fulfilmentStatus !== "partial")
+        //   - A partial order before any routing decision (handling null)
+        //   - A partial order routed to Pickup (handling === "Pickup")
+        // It is NOT correct when the remainder has been explicitly routed
+        // to Delivery. In that case, dispatch handles it.
         const isWalkin =
           o.state === "confirmed" &&
           o.timing === "Immediate" &&
-          o.fulfillment === "Pickup";
+          o.fulfillment === "Pickup" &&
+          o.fulfilmentHandling !== "Delivery";
 
         if (isWalkin) {
           // Walk-in Immediate Pickup: the customer is at the counter.
