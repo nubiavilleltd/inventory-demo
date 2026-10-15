@@ -1258,9 +1258,46 @@
         return `${prefix}-${ymd}-${String(Math.floor(Math.random() * 999) + 1).padStart(3, "0")}`;
       }
 
-      function calcTotals(order) {
+
+
+            /* ============ SHIPPING FEE ============ */
+
+      // Stub for the shipping fee. The real algorithm will depend on the
+      // delivery address, the size of the order, and the urgency of
+      // delivery. For the demo, it's a simple base + per-item formula with
+      // an urgency multiplier. Express costs double.
+      //
+      //   - The `order` argument lets the real algorithm inspect the items.
+      //   - The `addressId` argument lets the real algorithm inspect the
+      //     delivery address (distance, zone, access, etc.). The stub
+      //     ignores it.
+      //   - The `urgency` argument is 'Standard' | 'Express'.
+      function calculateShippingFee(order, addressId, urgency) {
+        if (!order) return 0;
+
+        const base = 1000;
+        const perItem = 50;
+        const urgencyMultiplier = urgency === "Express" ? 2 : 1;
+        const itemCount = (order.items || []).reduce(
+          (s, i) => s + i.qty,
+          0,
+        );
+
+        return (base + perItem * itemCount) * urgencyMultiplier;
+      }
+
+
+
+            function calcTotals(order) {
         if (!order?.items)
-          return { subtotal: 0, total: 0, paid: 0, outstanding: 0 };
+          return {
+            subtotal: 0,
+            total: 0,
+            paid: 0,
+            outstanding: 0,
+            discount: 0,
+            deliveryFee: 0,
+          };
         const subtotal = order.items.reduce(
           (s, i) => s + (getProduct(i.productId)?.price || 0) * i.qty,
           0,
@@ -1274,15 +1311,30 @@
           discount = Math.round(subtotal * ((order.discountValue || 0) / 100));
         }
 
-        const total = Math.max(0, subtotal - discount);
+        // Delivery fee is added after discount. Discounts apply to product
+        // lines only, not to shipping.
+        const deliveryFee = order.deliveryFee || 0;
+
+        const total = Math.max(0, subtotal - discount + deliveryFee);
         const paid = (order.payments || []).reduce((s, p) => s + p.amount, 0);
         const outstanding = Math.max(
           0,
           total - paid - (order.creditApplied || 0),
         );
-        return { subtotal, total, paid, outstanding, discount };
+        return {
+          subtotal,
+          total,
+          paid,
+          outstanding,
+          discount,
+          deliveryFee,
+        };
       }
 
+
+
+     
+      
       function paymentStatus(order) {
         const { total, paid } = calcTotals(order);
         if (paid >= total && total > 0) return "paid";
@@ -1472,6 +1524,12 @@
         }));
         order.fulfilmentStatus = "pending";
         order.fulfilmentHandling = null; // null | 'Pickup' | 'Delivery'
+
+        // Delivery-specific fields. Zero/null for Pickup orders.
+        order.deliveryUrgency = null; // null | 'Standard' | 'Express'
+        order.deliveryFee = 0;
+        order.fulfilmentAddressId = null;
+        order.fulfilmentUrgency = null;
       }
 
       // Look up the fulfilment line for a product on an order.
@@ -1698,6 +1756,17 @@ DISPATCH DASHBOARD DEMO SEED
         // Orders with no shortfall will be marked complete at first handover
         // (or at submit, once Phase 2 lands).
         initFulfilmentLines(order);
+
+
+           // Delivery orders start with Standard urgency and a computed fee.
+        if (order.fulfillment === "Delivery") {
+          order.deliveryUrgency = "Standard";
+          order.deliveryFee = calculateShippingFee(
+            order,
+            null,
+            order.deliveryUrgency,
+          );
+        }
 
         // Auto-apply any existing customer credit to this order.
         // No-op if the customer has no credit.
@@ -2181,12 +2250,25 @@ DISPATCH DASHBOARD DEMO SEED
         </div>
       `
                 : `
-               <div class="row mt-8">
+                         <div class="row mt-8">
           <div class="col">
-            <label>Scheduled Delivery Date *</label>
-            <input type="date" id="scheduledDateInput" value="${o.scheduledDate}" ${locked ? "disabled" : ""}>
+            <label>Delivery Urgency *</label>
+            <div class="toggle-group">
+              <button
+                class="toggle-btn ${(o.deliveryUrgency || "Standard") === "Standard" ? "active" : ""}"
+                data-urgency="Standard"
+                ${locked ? "disabled" : ""}>
+                Standard
+              </button>
+              <button
+                class="toggle-btn ${o.deliveryUrgency === "Express" ? "active" : ""}"
+                data-urgency="Express"
+                ${locked ? "disabled" : ""}>
+                Express
+              </button>
+            </div>
             <div style="font-size:11px; color:#666; margin-top:4px;">
-              💡 Delivery is always scheduled — dispatch decides the mode.
+              💡 Express adds a surcharge. Dispatch decides the mode.
             </div>
           </div>
         </div>
@@ -2318,11 +2400,19 @@ DISPATCH DASHBOARD DEMO SEED
       }
       <div class="summary-row"><span>Subtotal</span><span>${money(t.subtotal)}</span></div>
       ${o.discount && o.discount > 0 ? `<div class="summary-row"><span>Discount${o.discountType === "Percentage" ? ` (${o.discountValue}%)` : ""}</span><span>-${money(o.discount)}</span></div>` : ""}
-      ${
+           ${
         o.creditApplied && o.creditApplied > 0
           ? `<div class="summary-row green">
              <span>Credit Applied (auto)</span>
              <span>-${money(o.creditApplied)}</span>
+           </div>`
+          : ""
+      }
+      ${
+        o.deliveryFee && o.deliveryFee > 0
+          ? `<div class="summary-row">
+             <span>Delivery Fee${o.deliveryUrgency === "Express" ? " (Express)" : ""}</span>
+             <span>${money(o.deliveryFee)}</span>
            </div>`
           : ""
       }
@@ -2408,8 +2498,17 @@ DISPATCH DASHBOARD DEMO SEED
               : ""
           }
         </div>
-        <div class="col"><label>Fulfillment</label><strong>${o.fulfillment} (${o.timing})</strong></div>
-        <div class="col"><label>Scheduled</label><strong>${formatDate(o.scheduledDate)}</strong></div>
+
+                <div class="col"><label>Fulfillment</label><strong>${o.fulfillment} (${o.timing})</strong></div>
+        <div class="col">
+          <label>${o.fulfillment === "Delivery" ? "Urgency" : "Scheduled"}</label>
+          <strong>${
+            o.fulfillment === "Delivery"
+              ? o.deliveryUrgency || "Standard"
+              : formatDate(o.scheduledDate)
+          }</strong>
+        </div>
+       
       </div>
 
         ${
@@ -2497,7 +2596,15 @@ DISPATCH DASHBOARD DEMO SEED
             .join("")}
         </tbody>
       </table>
-      <div class="summary-box">
+           <div class="summary-box">
+        ${
+          o.deliveryFee && o.deliveryFee > 0
+            ? `<div class="summary-row">
+                 <span>Delivery Fee${o.deliveryUrgency === "Express" ? " (Express)" : ""}</span>
+                 <span>${money(o.deliveryFee)}</span>
+               </div>`
+            : ""
+        }
         <div class="summary-row total"><span>Grand Total</span><span>${money(t.total)}</span></div>
         <div class="summary-row green"><span>Paid</span><span>${money(t.paid)}</span></div>
         <div class="summary-row ${t.outstanding > 0 ? "red" : "green"}"><span>Amount Due</span><span>${money(t.outstanding)}</span></div>
@@ -2903,8 +3010,10 @@ DISPATCH DASHBOARD DEMO SEED
 
             render();
           });
-        document.querySelectorAll("[data-fulfillment]").forEach((b) =>
+
+                  document.querySelectorAll("[data-fulfillment]").forEach((b) =>
           b.addEventListener("click", () => {
+            const prev = o.fulfillment;
             o.fulfillment = b.dataset.fulfillment;
 
             // Recompute timing on fulfillment change:
@@ -2916,9 +3025,44 @@ DISPATCH DASHBOARD DEMO SEED
               o.timing =
                 o.scheduledDate === todayISO() ? "Immediate" : "Scheduled";
             }
+
+            // Delivery order: ensure urgency + fee are set.
+            // Pickup order: clear them.
+            if (o.fulfillment === "Delivery") {
+              if (!o.deliveryUrgency) o.deliveryUrgency = "Standard";
+              o.deliveryFee = calculateShippingFee(
+                o,
+                o.deliveryAddressId || null,
+                o.deliveryUrgency,
+              );
+            } else {
+              o.deliveryUrgency = null;
+              o.deliveryFee = 0;
+            }
+
+            // Toggling between Delivery and Pickup changes the total, which
+            // affects credit application. If credit was auto-applied and the
+            // new total is lower, the difference should go back. For the
+            // demo, we just recompute the fee and let the operator adjust.
+            // (Credit handling on fulfillment change is a future concern.)
+
             render();
           }),
         );
+
+        // Delivery urgency toggle. Only present on Delivery orders.
+        document.querySelectorAll("[data-urgency]").forEach((b) =>
+          b.addEventListener("click", () => {
+            o.deliveryUrgency = b.dataset.urgency;
+            o.deliveryFee = calculateShippingFee(
+              o,
+              o.deliveryAddressId || null,
+              o.deliveryUrgency,
+            );
+            render();
+          }),
+        );
+    
         // Timing is derived from the Scheduled Date (see scheduledDateInput handler below).
         document.querySelectorAll("[data-qty]").forEach((inp) =>
           inp.addEventListener("change", (e) => {
@@ -3216,6 +3360,14 @@ DISPATCH DASHBOARD DEMO SEED
               ],
             };
             initFulfilmentLines(state.order);
+            if (state.order.fulfillment === "Delivery") {
+              state.order.deliveryUrgency = "Standard";
+              state.order.deliveryFee = calculateShippingFee(
+                state.order,
+                null,
+                state.order.deliveryUrgency,
+              );
+            }
             autoApplyCredit(state.order, state.customer);
             state.partialFulfilmentAcknowledged = false;
             state.currentPage = "order-creation";
