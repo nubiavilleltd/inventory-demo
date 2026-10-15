@@ -1176,6 +1176,10 @@
         partialFulfilmentAcknowledged: false,
         // Fulfilment routing modal working state
         routingDraft: "", // '' | 'Pickup' | 'Delivery'
+        routingAddressId: null, // selected address for the remainder
+        routingUrgency: "Standard", // 'Standard' | 'Express'
+        routingRecordNow: false, // "Record payment now" checkbox
+        
         // Collection modal working state: { [productId]: [unitIds] }
         collectionSelections: {},
         // StockQuantity handover quantities: { [productId]: number }
@@ -1528,6 +1532,7 @@
         // Delivery-specific fields. Zero/null for Pickup orders.
         order.deliveryUrgency = null; // null | 'Standard' | 'Express'
         order.deliveryFee = 0;
+        order.deliveryFeePaid = false;
         order.fulfilmentAddressId = null;
         order.fulfilmentUrgency = null;
       }
@@ -3597,48 +3602,165 @@ DISPATCH DASHBOARD DEMO SEED
          ============================================================ */
 
       // Opens the routing modal. Seeds the draft from any existing handling.
-      function openFulfilmentRoutingModal() {
-        state.routingDraft = state.order.fulfilmentHandling || "";
+            function openFulfilmentRoutingModal() {
+        const o = state.order;
+        const cust = state.customer;
+
+        // Seed the draft from any existing choice, or the defaults.
+        state.routingDraft = o.fulfilmentHandling || "";
+
+        // Address: existing fulfilmentAddressId, or the customer's default.
+        if (o.fulfilmentAddressId) {
+          state.routingAddressId = o.fulfilmentAddressId;
+        } else {
+          const addrs = cust.addresses || [];
+          const preferred =
+            addrs.find((a) => a.isDefault) || addrs[0] || null;
+          state.routingAddressId = preferred ? preferred.id : null;
+        }
+
+        state.routingUrgency = o.fulfilmentUrgency || "Standard";
+        state.routingRecordNow = false;
+
         state.activeModal = "fulfilment-routing";
         render();
       }
 
       function closeFulfilmentRoutingModal() {
         state.routingDraft = "";
+        state.routingAddressId = null;
+        state.routingUrgency = "Standard";
+        state.routingRecordNow = false;
         state.activeModal = null;
         render();
       }
 
+    
+
       // Writes the chosen handling onto the order and logs the change.
-      function confirmFulfilmentRouting() {
+            function confirmFulfilmentRouting() {
         const o = state.order;
+        const cust = state.customer;
         if (!state.routingDraft) return;
 
         const previous = o.fulfilmentHandling;
-        o.fulfilmentHandling = state.routingDraft;
+        const next = state.routingDraft;
+
+        // ----- 1. Handle the fee side of the change -----
+
+        if (next === "Delivery") {
+          // Set the address and urgency, compute the new fee.
+          o.fulfilmentAddressId = state.routingAddressId;
+          o.fulfilmentUrgency = state.routingUrgency;
+
+          const newFee = calculateShippingFee(
+            o,
+            state.routingAddressId,
+            state.routingUrgency,
+          );
+
+          // If the fee changes, reset the paid flag.
+          if (newFee !== o.deliveryFee) {
+            if (o.deliveryFeePaid && o.deliveryFee > 0) {
+              // Fee was paid at an old amount; treat the change as a
+              // reversal of the old fee plus a new charge.
+              const d = new Date();
+              d.setDate(d.getDate() + CREDIT_VALIDITY_DAYS);
+              cust.credit += o.deliveryFee;
+              cust.creditExpiryDate = d.toISOString().split("T")[0];
+              const master = getCustomer(cust.id);
+              if (master) {
+                master.credit = cust.credit;
+                master.creditExpiryDate = cust.creditExpiryDate;
+              }
+              pushCreditEvent(
+                cust.id,
+                `Delivery fee adjusted — order ${o.orderNumber}`,
+                o.deliveryFee,
+              );
+              logTimeline(
+                `Delivery fee adjusted. Old fee ${money(o.deliveryFee)} credited back. New fee ${money(newFee)}.`,
+              );
+            }
+            o.deliveryFee = newFee;
+            o.deliveryFeePaid = false;
+          }
+        } else {
+          // next === "Pickup"
+          // Clear any fee. If it was paid, credit the customer.
+          if (o.deliveryFee > 0) {
+            if (o.deliveryFeePaid) {
+              cust.credit += o.deliveryFee;
+              const d = new Date();
+              d.setDate(d.getDate() + CREDIT_VALIDITY_DAYS);
+              cust.creditExpiryDate = d.toISOString().split("T")[0];
+              const master = getCustomer(cust.id);
+              if (master) {
+                master.credit = cust.credit;
+                master.creditExpiryDate = cust.creditExpiryDate;
+              }
+              pushCreditEvent(
+                cust.id,
+                `Delivery fee reversed — order ${o.orderNumber} reverted to Pickup`,
+                o.deliveryFee,
+              );
+              logTimeline(
+                `Fulfilment handling changed to Pickup. Delivery fee of ${money(o.deliveryFee)} credited back.`,
+              );
+            } else {
+              logTimeline(
+                `Fulfilment handling changed to Pickup. Delivery fee of ${money(o.deliveryFee)} removed (was unpaid).`,
+              );
+            }
+            o.deliveryFee = 0;
+            o.deliveryFeePaid = false;
+          }
+        }
+
+        // ----- 2. Apply the handling change itself -----
+
+        o.fulfilmentHandling = next;
 
         if (!previous) {
-          logTimeline(`Fulfilment handling set to ${state.routingDraft}`);
-        } else if (previous !== state.routingDraft) {
+          logTimeline(`Fulfilment handling set to ${next}`);
+        } else if (previous !== next) {
           logTimeline(
-            `Fulfilment handling changed from ${previous} to ${state.routingDraft}`,
+            `Fulfilment handling changed from ${previous} to ${next}`,
           );
         }
 
-        // Adjust pool membership based on the new handling.
+        // ----- 3. Adjust pool membership -----
+
         if (o.fulfilmentHandling === "Delivery") {
           ensureOrderInDispatchPool(o);
         } else {
           removeOrderFromDispatchPool(o.orderNumber);
         }
 
+        // ----- 4. If the operator asked to record the fee now, open the
+        //          payment modal so they can. The payment modal already
+        //          sees the fee in the outstanding because calcTotals
+        //          includes deliveryFee in total. -----
+
+        const recordNow = state.routingRecordNow;
+
         state.routingDraft = "";
+        state.routingAddressId = null;
+        state.routingUrgency = "Standard";
+        state.routingRecordNow = false;
         state.activeModal = null;
+
+        if (recordNow && o.deliveryFee > 0 && !o.deliveryFeePaid) {
+          state.activeModal = "payment";
+        }
+
         render();
       }
 
-      function renderFulfilmentRoutingModal() {
+
+            function renderFulfilmentRoutingModal() {
         const o = state.order;
+        const cust = state.customer;
         const outstanding = calcOutstandingLines(o);
         const totalOutstanding = outstanding.reduce(
           (s, l) => s + l.outstanding,
@@ -3646,6 +3768,27 @@ DISPATCH DASHBOARD DEMO SEED
         );
         const draft = state.routingDraft;
         const isUpdate = !!o.fulfilmentHandling;
+
+        // The delivery-specific panel is only shown when Delivery is chosen.
+        const showDelivery = draft === "Delivery";
+        const addrs = cust.addresses || [];
+
+        // If the operator hasn't picked an address yet, use the draft.
+        const currentAddressId = state.routingAddressId;
+
+        const liveFee =
+          showDelivery && currentAddressId !== null
+            ? calculateShippingFee(o, currentAddressId, state.routingUrgency)
+            : 0;
+
+        const displayAddr = (a) => {
+          const labelPart = a.label
+            ? `${a.label}${a.isDefault ? " (Default)" : ""} — `
+            : a.isDefault
+              ? "(Default) "
+              : "";
+          return `${labelPart}${a.street}`;
+        };
 
         return `
     <div class="modal-overlay" onclick="if(event.target===this)closeFulfilmentRoutingModal()">
@@ -3688,6 +3831,74 @@ DISPATCH DASHBOARD DEMO SEED
               <strong>Delivery</strong> — ship to the customer
             </span>
           </label>
+
+          ${
+            showDelivery
+              ? `
+            <div style="margin-top:14px; padding-top:12px; border-top:1px dashed #ccc;">
+              <label>Delivery Address *</label>
+              ${
+                addrs.length === 0
+                  ? `<div style="padding:8px; border:1px dashed #999; border-radius:4px; font-size:12px; color:#991b1b; margin-bottom:6px;">
+                       No saved addresses for this customer. Add one to continue.
+                     </div>
+                     <button onclick="event.preventDefault(); state.activeModal='add-address'; render();" style="font-size:12px;">+ Add Address</button>`
+                  : `
+                <div style="display:flex; gap:8px; align-items:center;">
+                  <select id="routingAddressSelect"
+                    style="flex:1;"
+                    onchange="state.routingAddressId=this.value; render();">
+                    ${addrs
+                      .map(
+                        (a) => `
+                      <option value="${a.id}" ${a.id === currentAddressId ? "selected" : ""}>
+                        ${displayAddr(a)}
+                      </option>
+                    `,
+                      )
+                      .join("")}
+                  </select>
+                  <button onclick="event.preventDefault(); state.activeModal='add-address'; render();" style="font-size:12px;">+ Add</button>
+                </div>
+              `
+              }
+
+              <label class="mt-12">Delivery Urgency *</label>
+              <div class="toggle-group">
+                <button
+                  class="toggle-btn ${state.routingUrgency === "Standard" ? "active" : ""}"
+                  onclick="state.routingUrgency='Standard'; render();">
+                  Standard
+                </button>
+                <button
+                  class="toggle-btn ${state.routingUrgency === "Express" ? "active" : ""}"
+                  onclick="state.routingUrgency='Express'; render();">
+                  Express
+                </button>
+              </div>
+
+              <div style="margin-top:12px; padding:8px; border:2px dashed #166534; border-radius:4px; background:#f0fdf4; font-size:13px; color:#166534;">
+                <div style="font-size:11px; color:#166534;">Delivery Fee</div>
+                <div style="font-size:18px; font-weight:bold;">${money(liveFee)}</div>
+              </div>
+
+              <label class="mt-12" style="display:flex; align-items:flex-start; gap:8px; font-size:12px; line-height:1.3; cursor:pointer;">
+                <input type="checkbox"
+                  style="width:auto; margin-top:2px;"
+                  ${state.routingRecordNow ? "checked" : ""}
+                  onchange="state.routingRecordNow=this.checked; render();">
+                <span>
+                  Record payment now
+                  <br>
+                  <span style="color:#666;">
+                    The customer pays the fee immediately, or later on Order Details.
+                  </span>
+                </span>
+              </label>
+            </div>
+          `
+              : ""
+          }
         </div>
         <div class="modal-footer">
           <button onclick="closeFulfilmentRoutingModal()">Cancel</button>
@@ -3699,7 +3910,11 @@ DISPATCH DASHBOARD DEMO SEED
     </div>
   `;
       }
-
+      
+      
+      
+      
+      
       function attachFulfilmentRoutingHandlers() {
         // Handlers are inlined via onchange/onclick — nothing to wire.
       }
@@ -3890,6 +4105,12 @@ DISPATCH DASHBOARD DEMO SEED
 
         o.state = newT.outstanding <= 0 ? "confirmed" : "partial";
         logTimeline(`State: ${stateLabel(o)}`);
+
+        // If the order is now fully paid and there was a delivery fee,
+        // mark the fee as paid. This flag is used at handling-revert time.
+        if (newT.outstanding <= 0 && o.deliveryFee > 0) {
+          o.deliveryFeePaid = true;
+        }
 
         // Fresh confirmed Delivery orders enter the dispatch pool.
         if (o.state === "confirmed") {
