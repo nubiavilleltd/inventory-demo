@@ -1186,6 +1186,13 @@
         deliveryFeeMethod: "Cash", // payment method when 'pay'
         deliveryFeeReference: "", // reference when 'pay' and non-Cash
         deliveryFeeWaiveReason: "", // required when 'waive'
+
+        // Bulk confirm-delivery modal working state
+        pendingBulkDeliveryNumbers: null,   // array of order numbers, or null
+        bulkFeeAction: "pay",               // 'pay' | 'waive'
+        bulkFeeMethod: "Cash",
+        bulkFeeReference: "",
+        bulkFeeWaiveReason: "",
         
         // Collection modal working state: { [productId]: [unitIds] }
         collectionSelections: {},
@@ -4090,6 +4097,227 @@ DISPATCH DASHBOARD DEMO SEED
   `;
       }
 
+
+
+      function renderBulkConfirmDeliveryModal() {
+  const numbers = state.pendingBulkDeliveryNumbers || [];
+  const orders = numbers
+    .map((n) => state.inTransitOrders.find((o) => o.orderNumber === n))
+    .filter(Boolean);
+
+  if (orders.length === 0) return "";
+
+  const feeOrders = orders.filter(
+    (o) => o.deliveryFee > 0 && !o.deliveryFeePaid,
+  );
+  const totalFees = feeOrders.reduce((s, o) => s + o.deliveryFee, 0);
+  const count = orders.length;
+
+  if (feeOrders.length === 0) {
+    return `
+      <div class="modal-overlay" onclick="if(event.target===this)closeBulkConfirmDelivery()">
+        <div class="modal">
+          <div class="modal-header">Confirm Deliveries <button class="close-x" onclick="closeBulkConfirmDelivery()">×</button></div>
+          <div class="modal-body">
+            <p style="font-size:13px;">
+              Mark ${count} order${count === 1 ? "" : "s"} as Delivered?
+            </p>
+          </div>
+          <div class="modal-footer">
+            <button onclick="closeBulkConfirmDelivery()">Cancel</button>
+            <button class="btn-primary" onclick="commitBulkConfirmDelivery()">Confirm ${count} Deliver${count === 1 ? "y" : "ies"}</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  const action = state.bulkFeeAction;
+  const method = state.bulkFeeMethod;
+  const reference = state.bulkFeeReference;
+  const waiveReason = state.bulkFeeWaiveReason;
+  const isCash = method === "Cash";
+
+  return `
+    <div class="modal-overlay" onclick="if(event.target===this)closeBulkConfirmDelivery()">
+      <div class="modal">
+        <div class="modal-header">Confirm Deliveries <button class="close-x" onclick="closeBulkConfirmDelivery()">×</button></div>
+        <div class="modal-body">
+          <p style="font-size:13px;">
+            ${count} order${count === 1 ? "" : "s"} selected.
+            ${feeOrders.length} ${feeOrders.length === 1 ? "has" : "have"} unpaid delivery fees:
+          </p>
+
+          <div style="margin-top:10px; padding:10px; border:2px dashed #92400e; border-radius:4px; background:#fef3c7; font-size:12px; color:#92400e;">
+            ${feeOrders
+              .map((o) => {
+                const c = getCustomer(o.customerId);
+                return `<div style="display:flex; justify-content:space-between; gap:12px; margin-bottom:4px;">
+                  <span>${o.orderNumber} · ${c?.name || "—"}</span>
+                  <strong>${money(o.deliveryFee)}</strong>
+                </div>`;
+              })
+              .join("")}
+            <div style="display:flex; justify-content:space-between; gap:12px; border-top:1px dashed #92400e; padding-top:6px; margin-top:6px;">
+              <span>Total outstanding fees</span>
+              <strong>${money(totalFees)}</strong>
+            </div>
+          </div>
+
+          <p style="font-size:13px; margin-top:14px;">How should these be settled?</p>
+
+          <label style="display:flex; align-items:flex-start; gap:8px; font-size:13px; line-height:1.4; padding:8px; border:2px solid ${action === "pay" ? "#1a1a1a" : "#ddd"}; border-radius:4px; background:${action === "pay" ? "#dbeafe" : "#fff"}; cursor:pointer; margin-bottom:6px;">
+            <input type="radio" name="bulkFeeAction" value="pay"
+              style="width:auto; margin-top:2px;"
+              ${action === "pay" ? "checked" : ""}
+              onchange="state.bulkFeeAction='pay'; render();">
+            <span><strong>Record all as paid</strong></span>
+          </label>
+
+          ${
+            action === "pay"
+              ? `
+            <div style="margin-left:26px; margin-bottom:8px;">
+              <label>Method *</label>
+              <select onchange="state.bulkFeeMethod=this.value; render();">
+                <option ${method === "Cash" ? "selected" : ""}>Cash</option>
+                <option ${method === "Bank Transfer" ? "selected" : ""}>Bank Transfer</option>
+                <option ${method === "POS" ? "selected" : ""}>POS</option>
+                <option ${method === "Card" ? "selected" : ""}>Card</option>
+                <option ${method === "Cheque" ? "selected" : ""}>Cheque</option>
+              </select>
+              ${
+                !isCash
+                  ? `<label class="mt-8">Reference *</label>
+                     <input type="text" value="${reference}" placeholder="Enter reference" oninput="state.bulkFeeReference=this.value;">
+                     <div style="font-size:11px; color:#666; margin-top:4px;">
+                       Same reference applied to all fees.
+                     </div>`
+                  : `<div style="font-size:11px; color:#666; margin-top:6px;">
+                       References will be auto-generated per order.
+                     </div>`
+              }
+            </div>
+          `
+              : ""
+          }
+
+          <label style="display:flex; align-items:flex-start; gap:8px; font-size:13px; line-height:1.4; padding:8px; border:2px solid ${action === "waive" ? "#1a1a1a" : "#ddd"}; border-radius:4px; background:${action === "waive" ? "#dbeafe" : "#fff"}; cursor:pointer;">
+            <input type="radio" name="bulkFeeAction" value="waive"
+              style="width:auto; margin-top:2px;"
+              ${action === "waive" ? "checked" : ""}
+              onchange="state.bulkFeeAction='waive'; render();">
+            <span><strong>Waive all fees</strong></span>
+          </label>
+
+          ${
+            action === "waive"
+              ? `
+            <div style="margin-left:26px; margin-top:8px;">
+              <label>Reason *</label>
+              <input type="text" value="${waiveReason}" placeholder="Why are these fees being waived?" oninput="state.bulkFeeWaiveReason=this.value;">
+              <div style="font-size:11px; color:#666; margin-top:4px;">
+                Same reason applied to all fees.
+              </div>
+            </div>
+          `
+              : ""
+          }
+        </div>
+        <div class="modal-footer">
+          <button onclick="closeBulkConfirmDelivery()">Cancel</button>
+          <button class="btn-primary" onclick="commitBulkConfirmDelivery()">Confirm ${count} Deliver${count === 1 ? "y" : "ies"}</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function attachBulkConfirmDeliveryHandlers() {
+  // Handlers are inline via onclick / onchange.
+}
+
+function closeBulkConfirmDelivery() {
+  state.pendingBulkDeliveryNumbers = null;
+  state.bulkFeeAction = "pay";
+  state.bulkFeeMethod = "Cash";
+  state.bulkFeeReference = "";
+  state.bulkFeeWaiveReason = "";
+  state.activeModal = null;
+  render();
+}
+
+function commitBulkConfirmDelivery() {
+  const numbers = state.pendingBulkDeliveryNumbers || [];
+  const orders = numbers
+    .map((n) => state.inTransitOrders.find((o) => o.orderNumber === n))
+    .filter(Boolean);
+
+  if (orders.length === 0) {
+    closeBulkConfirmDelivery();
+    return;
+  }
+
+  const feeOrders = orders.filter(
+    (o) => o.deliveryFee > 0 && !o.deliveryFeePaid,
+  );
+
+  if (feeOrders.length > 0) {
+    const action = state.bulkFeeAction;
+
+    if (action === "pay") {
+      const method = state.bulkFeeMethod;
+      const sharedRef = (state.bulkFeeReference || "").trim();
+      if (method !== "Cash" && !sharedRef) {
+        return alert("Enter a reference.");
+      }
+
+      feeOrders.forEach((o) => {
+        const reference =
+          method === "Cash" ? genNum("CASH") : sharedRef;
+        o.payments = o.payments || [];
+        o.payments.push({
+          id: "pay-" + Date.now() + "-" + o.orderNumber,
+          date: todayISO(),
+          amount: o.deliveryFee,
+          method,
+          reference,
+          receiptNumber: genNum("RCT"),
+          status: "recorded",
+        });
+        o.deliveryFeePaid = true;
+        o.timeline.push({
+          time: new Date().toISOString(),
+          event: `Delivery fee paid: ${money(o.deliveryFee)} via ${method}`,
+        });
+      });
+    } else {
+      const reason = (state.bulkFeeWaiveReason || "").trim();
+      if (!reason) {
+        return alert("Enter a reason for waiving these fees.");
+      }
+      feeOrders.forEach((o) => {
+        o.deliveryFeePaid = true;
+        o.waivedFees = (o.waivedFees || 0) + o.deliveryFee;
+        o.timeline.push({
+          time: new Date().toISOString(),
+          event: `Delivery fee of ${money(o.deliveryFee)} waived: ${reason}`,
+        });
+      });
+    }
+  }
+
+  orders.forEach((order) => finalizeDelivery(order));
+
+  const deliveredNumbers = new Set(orders.map((o) => o.orderNumber));
+  state.inTransitOrders = state.inTransitOrders.filter(
+    (o) => !deliveredNumbers.has(o.orderNumber),
+  );
+
+  closeBulkConfirmDelivery();
+}
+
+
       function attachConfirmDeliveryHandlers() {
         // Handlers are inline via onclick / onchange.
       }
@@ -4140,10 +4368,10 @@ DISPATCH DASHBOARD DEMO SEED
         } else if (state.activeModal === "fulfilment-routing") {
           c.innerHTML = renderFulfilmentRoutingModal();
           attachFulfilmentRoutingHandlers();
-        } else if (state.activeModal === "confirm-delivery") {
-          c.innerHTML = renderConfirmDeliveryModal();
-          attachConfirmDeliveryHandlers();
-        }
+       } else if (state.activeModal === "bulk-confirm-delivery") {
+  c.innerHTML = renderBulkConfirmDeliveryModal();
+  attachBulkConfirmDeliveryHandlers();
+}
       }
 
            function closeModal() {
@@ -4163,6 +4391,11 @@ DISPATCH DASHBOARD DEMO SEED
         state.deliveryFeeMethod = "Cash";
         state.deliveryFeeReference = "";
         state.deliveryFeeWaiveReason = "";
+        state.pendingBulkDeliveryNumbers = null;
+state.bulkFeeAction = "pay";
+state.bulkFeeMethod = "Cash";
+state.bulkFeeReference = "";
+state.bulkFeeWaiveReason = "";
         render();
       }
       /* ============ PAYMENT MODAL ============ */
@@ -10022,21 +10255,17 @@ function renderConfirmDeliveryModal() {
 
       // Confirm multiple selected orders' deliveries
       function confirmBulkDelivery() {
-        const selected = state.inTransitOrders.filter((o) => o._selected);
-        if (selected.length === 0) return alert("Select at least one order.");
+  const selected = state.inTransitOrders.filter((o) => o._selected);
+  if (selected.length === 0) return alert("Select at least one order.");
 
-        if (!confirm(`Mark ${selected.length} order(s) as Delivered?`)) return;
-
-        selected.forEach((order) => finalizeDelivery(order));
-
-        // Remove them all from in-transit
-        const deliveredNumbers = new Set(selected.map((o) => o.orderNumber));
-        state.inTransitOrders = state.inTransitOrders.filter(
-          (o) => !deliveredNumbers.has(o.orderNumber),
-        );
-
-        render();
-      }
+  state.pendingBulkDeliveryNumbers = selected.map((o) => o.orderNumber);
+  state.bulkFeeAction = "pay";
+  state.bulkFeeMethod = "Cash";
+  state.bulkFeeReference = "";
+  state.bulkFeeWaiveReason = "";
+  state.activeModal = "bulk-confirm-delivery";
+  render();
+}
 
       // Performs the state change: delivered → completed, Reserved → Sold
       function finalizeDelivery(order) {
