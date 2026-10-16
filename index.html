@@ -1179,6 +1179,13 @@
         routingAddressId: null, // selected address for the remainder
         routingUrgency: "Standard", // 'Standard' | 'Express'
         routingRecordNow: false, // "Record payment now" checkbox
+
+         // Confirm-delivery modal working state
+        pendingDeliveryOrderNumber: null, // the order being confirmed
+        deliveryFeeAction: "pay", // 'pay' | 'waive'
+        deliveryFeeMethod: "Cash", // payment method when 'pay'
+        deliveryFeeReference: "", // reference when 'pay' and non-Cash
+        deliveryFeeWaiveReason: "", // required when 'waive'
         
         // Collection modal working state: { [productId]: [unitIds] }
         collectionSelections: {},
@@ -1186,6 +1193,8 @@
         collectionQuantities: {},
         collectionUnitSearch: "",
         collectionChangingUnitsFor: null,
+
+
 
         // Combobox working state (which panel is open, active item index)
         openCombobox: null, // element id of the currently-open combobox
@@ -1321,9 +1330,10 @@
 
         const total = Math.max(0, subtotal - discount + deliveryFee);
         const paid = (order.payments || []).reduce((s, p) => s + p.amount, 0);
+        const waivedFees = order.waivedFees || 0;
         const outstanding = Math.max(
           0,
-          total - paid - (order.creditApplied || 0),
+          total - paid - (order.creditApplied || 0) - waivedFees,
         );
         return {
           subtotal,
@@ -1332,6 +1342,7 @@
           outstanding,
           discount,
           deliveryFee,
+          waivedFees,
         };
       }
 
@@ -1533,6 +1544,7 @@
         order.deliveryUrgency = null; // null | 'Standard' | 'Express'
         order.deliveryFee = 0;
         order.deliveryFeePaid = false;
+        order.waivedFees = 0;
         order.fulfilmentAddressId = null;
         order.fulfilmentUrgency = null;
       }
@@ -2610,8 +2622,13 @@ DISPATCH DASHBOARD DEMO SEED
                </div>`
             : ""
         }
-        <div class="summary-row total"><span>Grand Total</span><span>${money(t.total)}</span></div>
+                <div class="summary-row total"><span>Grand Total</span><span>${money(t.total)}</span></div>
         <div class="summary-row green"><span>Paid</span><span>${money(t.paid)}</span></div>
+        ${
+          t.waivedFees > 0
+            ? `<div class="summary-row" style="color:#92400e;"><span>Waived</span><span>-${money(t.waivedFees)}</span></div>`
+            : ""
+        }
         <div class="summary-row ${t.outstanding > 0 ? "red" : "green"}"><span>Amount Due</span><span>${money(t.outstanding)}</span></div>
       </div>
     </div>
@@ -2889,8 +2906,10 @@ DISPATCH DASHBOARD DEMO SEED
           : ""
       }
 
-      ${
-        o.fulfillment === "Delivery" && o.state === "out-for-delivery"
+           ${
+        o.state === "out-for-delivery" &&
+        (o.fulfillment === "Delivery" ||
+          o.fulfilmentHandling === "Delivery")
           ? `
         <button class="btn-primary" id="confirmDeliveryBtn">Confirm Delivery</button>
         <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>`
@@ -3344,18 +3363,15 @@ DISPATCH DASHBOARD DEMO SEED
             render();
           });
 
-        // Confirm Delivery
+        // Confirm Delivery — opens the Confirm Delivery modal so the
+        // operator can settle any outstanding delivery fee (pay or waive)
+        // before the order completes.
         document
           .getElementById("confirmDeliveryBtn")
           ?.addEventListener("click", () => {
             const o = state.order;
-            o.state = "delivered";
-            o.actualDeliveryDate = todayISO();
-            logTimeline("Delivery confirmed");
-            // Auto-complete
-            o.state = "completed";
-            logTimeline("Order completed");
-            render();
+            if (!o) return;
+            confirmSingleDelivery(o.orderNumber);
           });
 
         document
@@ -3942,6 +3958,142 @@ DISPATCH DASHBOARD DEMO SEED
         // Handlers are inlined via onchange/onclick — nothing to wire.
       }
 
+
+
+            /* ============ CONFIRM DELIVERY MODAL ============ */
+
+      function renderConfirmDeliveryModal() {
+        const orderNumber = state.pendingDeliveryOrderNumber;
+        const order = state.inTransitOrders.find(
+          (o) => o.orderNumber === orderNumber,
+        );
+        if (!order) return "";
+
+        const customer = getCustomer(order.customerId);
+        const feeOutstanding =
+          order.deliveryFee > 0 && !order.deliveryFeePaid;
+
+        if (!feeOutstanding) {
+          // Simple confirmation.
+          return `
+    <div class="modal-overlay" onclick="if(event.target===this)closeConfirmDelivery()">
+      <div class="modal">
+        <div class="modal-header">Confirm Delivery <button class="close-x" onclick="closeConfirmDelivery()">×</button></div>
+        <div class="modal-body">
+          <p style="font-size:13px;">
+            <strong>${order.orderNumber}</strong> · ${customer?.name || "—"}
+          </p>
+          <p style="font-size:13px; margin-top:12px;">
+            Mark this order as Delivered?
+          </p>
+        </div>
+        <div class="modal-footer">
+          <button onclick="closeConfirmDelivery()">Cancel</button>
+          <button class="btn-primary" onclick="commitConfirmDelivery()">Confirm Delivery</button>
+        </div>
+      </div>
+    </div>
+  `;
+        }
+
+        // Fee is unpaid: show the settlement choices.
+        const action = state.deliveryFeeAction;
+        const method = state.deliveryFeeMethod;
+        const reference = state.deliveryFeeReference;
+        const waiveReason = state.deliveryFeeWaiveReason;
+        const isCash = method === "Cash";
+
+        return `
+    <div class="modal-overlay" onclick="if(event.target===this)closeConfirmDelivery()">
+      <div class="modal">
+        <div class="modal-header">Confirm Delivery <button class="close-x" onclick="closeConfirmDelivery()">×</button></div>
+        <div class="modal-body">
+          <p style="font-size:13px;">
+            <strong>${order.orderNumber}</strong> · ${customer?.name || "—"}
+          </p>
+
+          <div style="margin-top:12px; padding:10px; border:2px dashed #92400e; border-radius:4px; background:#fef3c7; font-size:13px; color:#92400e;">
+            ⚠ Delivery fee outstanding: <strong>${money(order.deliveryFee)}</strong>
+          </div>
+
+          <p style="font-size:13px; margin-top:14px;">How should the fee be settled?</p>
+
+          <label style="display:flex; align-items:flex-start; gap:8px; font-size:13px; line-height:1.4; padding:8px; border:2px solid ${action === "pay" ? "#1a1a1a" : "#ddd"}; border-radius:4px; background:${action === "pay" ? "#dbeafe" : "#fff"}; cursor:pointer; margin-bottom:6px;">
+            <input type="radio" name="feeAction" value="pay"
+              style="width:auto; margin-top:2px;"
+              ${action === "pay" ? "checked" : ""}
+              onchange="state.deliveryFeeAction='pay'; render();">
+            <span><strong>Record payment now</strong></span>
+          </label>
+
+          ${
+            action === "pay"
+              ? `
+            <div style="margin-left:26px; margin-bottom:8px;">
+              <label>Method *</label>
+              <select onchange="state.deliveryFeeMethod=this.value; render();">
+                <option ${method === "Cash" ? "selected" : ""}>Cash</option>
+                <option ${method === "Bank Transfer" ? "selected" : ""}>Bank Transfer</option>
+                <option ${method === "POS" ? "selected" : ""}>POS</option>
+                <option ${method === "Card" ? "selected" : ""}>Card</option>
+                <option ${method === "Cheque" ? "selected" : ""}>Cheque</option>
+              </select>
+
+              ${
+                !isCash
+                  ? `
+                <label class="mt-8">Reference *</label>
+                <input type="text"
+                  value="${reference}"
+                  placeholder="Enter reference"
+                  oninput="state.deliveryFeeReference=this.value;">
+              `
+                  : `
+                <div style="font-size:11px; color:#666; margin-top:6px;">
+                  Reference will be auto-generated.
+                </div>
+              `
+              }
+            </div>
+          `
+              : ""
+          }
+
+          <label style="display:flex; align-items:flex-start; gap:8px; font-size:13px; line-height:1.4; padding:8px; border:2px solid ${action === "waive" ? "#1a1a1a" : "#ddd"}; border-radius:4px; background:${action === "waive" ? "#dbeafe" : "#fff"}; cursor:pointer;">
+            <input type="radio" name="feeAction" value="waive"
+              style="width:auto; margin-top:2px;"
+              ${action === "waive" ? "checked" : ""}
+              onchange="state.deliveryFeeAction='waive'; render();">
+            <span><strong>Waive the fee</strong></span>
+          </label>
+
+          ${
+            action === "waive"
+              ? `
+            <div style="margin-left:26px; margin-top:8px;">
+              <label>Reason *</label>
+              <input type="text"
+                value="${waiveReason}"
+                placeholder="Why is this fee being waived?"
+                oninput="state.deliveryFeeWaiveReason=this.value;">
+            </div>
+          `
+              : ""
+          }
+        </div>
+        <div class="modal-footer">
+          <button onclick="closeConfirmDelivery()">Cancel</button>
+          <button class="btn-primary" onclick="commitConfirmDelivery()">Confirm Delivery</button>
+        </div>
+      </div>
+    </div>
+  `;
+      }
+
+      function attachConfirmDeliveryHandlers() {
+        // Handlers are inline via onclick / onchange.
+      }
+
       /* ============ MODAL RENDERER ============ */
       function renderModal() {
         const c = document.getElementById("modalContainer");
@@ -3988,6 +4140,9 @@ DISPATCH DASHBOARD DEMO SEED
         } else if (state.activeModal === "fulfilment-routing") {
           c.innerHTML = renderFulfilmentRoutingModal();
           attachFulfilmentRoutingHandlers();
+        } else if (state.activeModal === "confirm-delivery") {
+          c.innerHTML = renderConfirmDeliveryModal();
+          attachConfirmDeliveryHandlers();
         }
       }
 
@@ -4003,6 +4158,11 @@ DISPATCH DASHBOARD DEMO SEED
         state.adjustReason = "";
         state.adjustQty = "";
         state.adjustLocationId = null;
+        state.pendingDeliveryOrderNumber = null;
+        state.deliveryFeeAction = "pay";
+        state.deliveryFeeMethod = "Cash";
+        state.deliveryFeeReference = "";
+        state.deliveryFeeWaiveReason = "";
         render();
       }
       /* ============ PAYMENT MODAL ============ */
@@ -6276,29 +6436,33 @@ DISPATCH WIZARD HANDLERS
           unitSelections: {},
         };
 
-        const returnTo = state.dispatchReturnTo || "order-details";
+                const returnTo = state.dispatchReturnTo || "order-details";
         state.dispatchReturnTo = "order-details";
 
+        // The order has moved to out-for-delivery. Regardless of which
+        // path opened the wizard, it must leave the dispatch pool and
+        // enter in-transit. The returnTo only controls where the UI
+        // navigates to afterwards.
+        const dispatchedNumber = state.order.orderNumber;
+
+        // Clear any checkbox selection carried over.
+        state.order._selected = false;
+
+        // Remove from pool
+        state.dispatchPool = state.dispatchPool.filter(
+          (o) => o.orderNumber !== dispatchedNumber,
+        );
+
+        // Add to in-transit if not already there
+        if (
+          !state.inTransitOrders.find(
+            (x) => x.orderNumber === dispatchedNumber,
+          )
+        ) {
+          state.inTransitOrders.push(state.order);
+        }
+
         if (returnTo === "dashboard") {
-          const dispatchedNumber = state.order.orderNumber;
-
-          // Clear any checkbox selection carried over.
-          state.order._selected = false;
-
-          // Remove from pool
-          state.dispatchPool = state.dispatchPool.filter(
-            (o) => o.orderNumber !== dispatchedNumber,
-          );
-
-          // Add to in-transit if not already there
-          if (
-            !state.inTransitOrders.find(
-              (x) => x.orderNumber === dispatchedNumber,
-            )
-          ) {
-            state.inTransitOrders.push(state.order);
-          }
-
           // Ensure the Dispatch tab shows the Dashboard
           state.activeTab = "dispatch";
           state.dispatchView = "dashboard";
@@ -9622,24 +9786,239 @@ IN TRANSIT VIEW
 DELIVERY CONFIRMATION
 ============================================================ */
 
-      // Confirm a single order's delivery
+
+      // Opens the Confirm Delivery modal for a single order.
+      // If the order has an unpaid delivery fee, the modal prompts for
+      // payment or waiver. Otherwise, it's a simple confirmation.
       function confirmSingleDelivery(orderNumber) {
         const order = state.inTransitOrders.find(
           (o) => o.orderNumber === orderNumber,
         );
         if (!order) return;
 
-        if (!confirm(`Mark ${orderNumber} as Delivered?`)) return;
+        state.pendingDeliveryOrderNumber = orderNumber;
+        state.deliveryFeeAction = "pay";
+        state.deliveryFeeMethod = "Cash";
+        state.deliveryFeeReference = "";
+        state.deliveryFeeWaiveReason = "";
+        state.activeModal = "confirm-delivery";
+        render();
+      }
 
+      function closeConfirmDelivery() {
+        state.pendingDeliveryOrderNumber = null;
+        state.deliveryFeeAction = "pay";
+        state.deliveryFeeMethod = "Cash";
+        state.deliveryFeeReference = "";
+        state.deliveryFeeWaiveReason = "";
+        state.activeModal = null;
+        render();
+      }
+
+      function commitConfirmDelivery() {
+        const orderNumber = state.pendingDeliveryOrderNumber;
+        const order = state.inTransitOrders.find(
+          (o) => o.orderNumber === orderNumber,
+        );
+        if (!order) {
+          closeConfirmDelivery();
+          return;
+        }
+
+        const feeOutstanding =
+          order.deliveryFee > 0 && !order.deliveryFeePaid;
+
+        if (feeOutstanding) {
+          const action = state.deliveryFeeAction;
+
+          if (action === "pay") {
+            const method = state.deliveryFeeMethod;
+            const reference =
+              method === "Cash"
+                ? genNum("CASH")
+                : (state.deliveryFeeReference || "").trim();
+
+            if (method !== "Cash" && !reference) {
+              return alert("Enter a reference.");
+            }
+
+            order.payments = order.payments || [];
+            order.payments.push({
+              id: "pay-" + Date.now(),
+              date: todayISO(),
+              amount: order.deliveryFee,
+              method,
+              reference,
+              receiptNumber: genNum("RCT"),
+              status: "recorded",
+            });
+            order.deliveryFeePaid = true;
+            order.timeline.push({
+              time: new Date().toISOString(),
+              event: `Delivery fee paid: ${money(order.deliveryFee)} via ${method}`,
+            });
+          } else {
+            // Waive.
+            const reason = (state.deliveryFeeWaiveReason || "").trim();
+            if (!reason) {
+              return alert("Enter a reason for waiving the fee.");
+            }
+
+            order.deliveryFeePaid = true;
+            order.waivedFees = (order.waivedFees || 0) + order.deliveryFee;
+            order.timeline.push({
+              time: new Date().toISOString(),
+              event: `Delivery fee of ${money(order.deliveryFee)} waived: ${reason}`,
+            });
+          }
+        }
+
+        // Now finalize the delivery.
         finalizeDelivery(order);
-
-        // Remove from in-transit
         state.inTransitOrders = state.inTransitOrders.filter(
           (o) => o.orderNumber !== orderNumber,
         );
 
+        // Clear working state.
+        state.pendingDeliveryOrderNumber = null;
+        state.deliveryFeeAction = "pay";
+        state.deliveryFeeMethod = "Cash";
+        state.deliveryFeeReference = "";
+        state.deliveryFeeWaiveReason = "";
+        state.activeModal = null;
+
         render();
       }
+
+
+
+
+function renderConfirmDeliveryModal() {
+  const orderNumber = state.pendingDeliveryOrderNumber;
+  const order = state.inTransitOrders.find((o) => o.orderNumber === orderNumber);
+  if (!order) return "";
+
+  const customer = getCustomer(order.customerId);
+  const feeOutstanding = order.deliveryFee > 0 && !order.deliveryFeePaid;
+
+  if (!feeOutstanding) {
+    // Simple confirmation.
+    return `
+      <div class="modal-overlay" onclick="if(event.target===this)closeConfirmDelivery()">
+        <div class="modal">
+          <div class="modal-header">Confirm Delivery <button class="close-x" onclick="closeConfirmDelivery()">×</button></div>
+          <div class="modal-body">
+            <p style="font-size:13px;">
+              <strong>${order.orderNumber}</strong> · ${customer?.name || "—"}
+            </p>
+            <p style="font-size:13px; margin-top:12px;">
+              Mark this order as Delivered?
+            </p>
+          </div>
+          <div class="modal-footer">
+            <button onclick="closeConfirmDelivery()">Cancel</button>
+            <button class="btn-primary" onclick="commitConfirmDelivery()">Confirm Delivery</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // Fee is unpaid: show the settlement choices.
+  const action = state.deliveryFeeAction;
+  const method = state.deliveryFeeMethod;
+  const reference = state.deliveryFeeReference;
+  const waiveReason = state.deliveryFeeWaiveReason;
+
+  const isCash = method === "Cash";
+  const autoRef = isCash ? `CASH-...` : ""; // will be generated on commit
+
+  return `
+    <div class="modal-overlay" onclick="if(event.target===this)closeConfirmDelivery()">
+      <div class="modal">
+        <div class="modal-header">Confirm Delivery <button class="close-x" onclick="closeConfirmDelivery()">×</button></div>
+        <div class="modal-body">
+          <p style="font-size:13px;">
+            <strong>${order.orderNumber}</strong> · ${customer?.name || "—"}
+          </p>
+
+          <div style="margin-top:12px; padding:10px; border:2px dashed #92400e; border-radius:4px; background:#fef3c7; font-size:13px; color:#92400e;">
+            ⚠ Delivery fee outstanding: <strong>${money(order.deliveryFee)}</strong>
+          </div>
+
+          <p style="font-size:13px; margin-top:14px;">How should the fee be settled?</p>
+
+          <label style="display:flex; align-items:flex-start; gap:8px; font-size:13px; line-height:1.4; padding:8px; border:2px solid ${action === "pay" ? "#1a1a1a" : "#ddd"}; border-radius:4px; background:${action === "pay" ? "#dbeafe" : "#fff"}; cursor:pointer; margin-bottom:6px;">
+            <input type="radio" name="feeAction" value="pay"
+              style="width:auto; margin-top:2px;"
+              ${action === "pay" ? "checked" : ""}
+              onchange="state.deliveryFeeAction='pay'; render();">
+            <span><strong>Record payment now</strong></span>
+          </label>
+
+          ${
+            action === "pay"
+              ? `
+            <div style="margin-left:26px; margin-bottom:8px;">
+              <label>Method *</label>
+              <select onchange="state.deliveryFeeMethod=this.value; render();">
+                <option ${method === "Cash" ? "selected" : ""}>Cash</option>
+                <option ${method === "Bank Transfer" ? "selected" : ""}>Bank Transfer</option>
+                <option ${method === "POS" ? "selected" : ""}>POS</option>
+                <option ${method === "Card" ? "selected" : ""}>Card</option>
+                <option ${method === "Cheque" ? "selected" : ""}>Cheque</option>
+              </select>
+
+              ${
+                !isCash
+                  ? `
+                <label class="mt-8">Reference *</label>
+                <input type="text"
+                  value="${reference}"
+                  placeholder="Enter reference"
+                  oninput="state.deliveryFeeReference=this.value;">
+              `
+                  : `
+                <div style="font-size:11px; color:#666; margin-top:6px;">
+                  Reference will be auto-generated.
+                </div>
+              `
+              }
+            </div>
+          `
+              : ""
+          }
+
+          <label style="display:flex; align-items:flex-start; gap:8px; font-size:13px; line-height:1.4; padding:8px; border:2px solid ${action === "waive" ? "#1a1a1a" : "#ddd"}; border-radius:4px; background:${action === "waive" ? "#dbeafe" : "#fff"}; cursor:pointer;">
+            <input type="radio" name="feeAction" value="waive"
+              style="width:auto; margin-top:2px;"
+              ${action === "waive" ? "checked" : ""}
+              onchange="state.deliveryFeeAction='waive'; render();">
+            <span><strong>Waive the fee</strong></span>
+          </label>
+
+          ${
+            action === "waive"
+              ? `
+            <div style="margin-left:26px; margin-top:8px;">
+              <label>Reason *</label>
+              <input type="text"
+                value="${waiveReason}"
+                placeholder="Why is this fee being waived?"
+                oninput="state.deliveryFeeWaiveReason=this.value;">
+            </div>
+          `
+              : ""
+          }
+        </div>
+        <div class="modal-footer">
+          <button onclick="closeConfirmDelivery()">Cancel</button>
+          <button class="btn-primary" onclick="commitConfirmDelivery()">Confirm Delivery</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
 
       // Confirm multiple selected orders' deliveries
       function confirmBulkDelivery() {
