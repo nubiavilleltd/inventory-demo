@@ -2156,7 +2156,7 @@ DISPATCH DASHBOARD DEMO SEED
 
     // Renders the partial-fulfilment acknowledgement card.
     // Only shown when validateOrderStock reports a shortfall.
-        function renderPartialFulfilmentCard(order) {
+    function renderPartialFulfilmentCard(order) {
       const stockResult = validateOrderStock();
       if (!stockResult.warning) return "";
 
@@ -2769,9 +2769,9 @@ DISPATCH DASHBOARD DEMO SEED
 
               // Case B — Pickup
               if (handling === "Pickup") {
-                const pickupLoc = LOCATIONS.find(
-                  (l) => l.name === o.pickupLocation,
-                )?.id;
+                const pickupLoc =
+                  o.fulfilmentLocationId ||
+                  LOCATIONS.find((l) => l.name === o.pickupLocation)?.id;
                 const handoverLines = calcOutstandingLines(o)
                   .map((line) => {
                     const product = getInvProduct(line.productId);
@@ -2805,9 +2805,12 @@ DISPATCH DASHBOARD DEMO SEED
 
                 const canHandover = handoverLines.length > 0;
 
+                const routedLocName =
+                  LOCATIONS.find((l) => l.id === o.fulfilmentLocationId)?.name ||
+                  o.pickupLocation;
                 return `
                     <div style="font-size:12px; color:#555; margin-bottom:8px;">
-                      Fulfilment Handling: <strong>Pickup</strong> — customer comes to ${o.pickupLocation}
+                      Fulfilment Handling: <strong>Pickup</strong> — customer comes to ${routedLocName}
                       <a href="#" onclick="event.preventDefault(); openFulfilmentRoutingModal();" style="margin-left:6px; color:#1e40af;">Change</a>
                     </div>
                     ${!canHandover
@@ -3389,7 +3392,7 @@ DISPATCH DASHBOARD DEMO SEED
         return;
       }
 
-          const stockResult = validateOrderStock();
+      const stockResult = validateOrderStock();
       const partialAck = state.partialFulfilmentAcknowledged === true;
 
       // Any shortfall must be explicitly acknowledged by the operator.
@@ -3671,7 +3674,7 @@ DISPATCH DASHBOARD DEMO SEED
         }
       }
 
-           // ----- 2. Apply the handling change itself -----
+      // ----- 2. Apply the handling change itself -----
 
       o.fulfilmentHandling = next;
 
@@ -3784,23 +3787,22 @@ DISPATCH DASHBOARD DEMO SEED
               onchange="state.routingDraft='Pickup'; render();">
             <span style="flex:1;">
               <strong>Pickup</strong> — customer picks up at:
-              ${
-                draft === "Pickup"
-                  ? `
+              ${draft === "Pickup"
+          ? `
                 <select
                   style="margin-top:6px;"
                   onchange="state.routingLocationId=this.value; render();">
                   ${LOCATIONS.map(
-                    (l) => `
+            (l) => `
                     <option value="${l.id}" ${state.routingLocationId === l.id ? "selected" : ""}>
                       ${l.name}
                     </option>
                   `,
-                  ).join("")}
+          ).join("")}
                 </select>
               `
-                  : `<em style="color:#666;">select to choose location</em>`
-              }
+          : `<em style="color:#666;">select to choose location</em>`
+        }
             </span>
           </label>
 
@@ -5119,9 +5121,9 @@ DISPATCH DASHBOARD DEMO SEED
       );
       if (!product || !line) return "";
 
-      const pickupLoc = LOCATIONS.find(
-        (l) => l.name === o.pickupLocation,
-      )?.id;
+      const pickupLoc =
+        o.fulfilmentLocationId ||
+        LOCATIONS.find((l) => l.name === o.pickupLocation)?.id;
 
       // Cap the handover quantity by both outstanding and available-at-location.
       const availableHere =
@@ -5251,9 +5253,9 @@ DISPATCH DASHBOARD DEMO SEED
       );
       if (!line) return;
 
-      const pickupLoc = LOCATIONS.find(
-        (l) => l.name === o.pickupLocation,
-      )?.id;
+      const pickupLoc =
+        o.fulfilmentLocationId ||
+        LOCATIONS.find((l) => l.name === o.pickupLocation)?.id;
       const product = getInvProduct(productId);
       const availableHere =
         product.trackingType === "Individual"
@@ -5293,9 +5295,9 @@ DISPATCH DASHBOARD DEMO SEED
         cust = state.customer;
       const isImmediate = o.timing === "Immediate";
 
-      const pickupLoc = LOCATIONS.find(
-        (l) => l.name === o.pickupLocation,
-      )?.id;
+      const pickupLoc =
+        o.fulfilmentLocationId ||
+        LOCATIONS.find((l) => l.name === o.pickupLocation)?.id;
 
       // What can be handed over right now, per line.
       //   handoverCap = min(outstanding, available at this location)
@@ -5649,9 +5651,9 @@ DISPATCH DASHBOARD DEMO SEED
           const o = state.order;
 
           // -------- 1. Apply the operator's selections to stock --------
-          const pickupLoc = LOCATIONS.find(
-            (l) => l.name === o.pickupLocation,
-          )?.id;
+          const pickupLoc =
+            o.fulfilmentLocationId ||
+            LOCATIONS.find((l) => l.name === o.pickupLocation)?.id;
 
           // Recompute handover lines the same way the modal did.
           const handoverLines = calcOutstandingLines(o)
@@ -9828,7 +9830,7 @@ IN TRANSIT VIEW
                 `;
       };
 
-            c.innerHTML = `
+      c.innerHTML = `
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
       <div>
         <div class="toggle-group" style="margin-bottom:8px;">
@@ -9842,9 +9844,8 @@ IN TRANSIT VIEW
       </div>
     </div>
 
-    ${
-      orders.length > 0
-        ? `
+    ${orders.length > 0
+          ? `
       <div class="card" style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
         <div style="font-size:13px;">
           ${selectedOrders.length} of ${orders.length} selected.
@@ -9854,21 +9855,19 @@ IN TRANSIT VIEW
             class="btn-primary"
             onclick="confirmDeliveryFromSelection()"
             ${selectedOrders.length === 0 ? "disabled" : ""}>
-            ${
-              selectedOrders.length === 0
-                ? "Confirm Deliveries"
-                : `Confirm ${selectedOrders.length} Deliver${selectedOrders.length === 1 ? "y" : "ies"}`
-            }
+            ${selectedOrders.length === 0
+            ? "Confirm Deliveries"
+            : `Confirm ${selectedOrders.length} Deliver${selectedOrders.length === 1 ? "y" : "ies"}`
+          }
           </button>
         </div>
       </div>
     `
-        : ""
-    }
+          : ""
+        }
 
-    ${
-      orders.length === 0
-        ? `
+    ${orders.length === 0
+          ? `
       <div class="card" style="text-align:center; padding:32px;">
         <div style="font-size:14px; color:#888;">No orders in transit.</div>
         <div style="font-size:12px; color:#888; margin-top:8px;">
@@ -9876,7 +9875,7 @@ IN TRANSIT VIEW
         </div>
       </div>
     `
-        : `
+          : `
       <div class="card" style="padding:0;">
         <table>
           <thead>
@@ -9898,15 +9897,15 @@ IN TRANSIT VIEW
         </table>
       </div>
     `
-    }
+        }
   `;
 
-    
 
 
 
 
-}
+
+    }
 
     /* ============================================================
 DELIVERY CONFIRMATION
