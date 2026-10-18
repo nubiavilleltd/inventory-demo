@@ -1157,6 +1157,7 @@
       partialFulfilmentAcknowledged: false,
       // Fulfilment routing modal working state
       routingDraft: "", // '' | 'Pickup' | 'Delivery'
+      routingLocationId: null, // selected pickup location for the remainder
       routingAddressId: null, // selected address for the remainder
       routingUrgency: "Standard", // 'Standard' | 'Express'
       routingRecordNow: false, // "Record payment now" checkbox
@@ -3550,6 +3551,17 @@ DISPATCH DASHBOARD DEMO SEED
       // Seed the draft from any existing choice, or the defaults.
       state.routingDraft = o.fulfilmentHandling || "";
 
+      // Pickup location: existing fulfilmentLocationId, or the order's
+      // original pickupLocation mapped to its ID.
+      if (o.fulfilmentLocationId) {
+        state.routingLocationId = o.fulfilmentLocationId;
+      } else {
+        const originalLoc = LOCATIONS.find(
+          (l) => l.name === o.pickupLocation,
+        );
+        state.routingLocationId = originalLoc ? originalLoc.id : LOCATIONS[0].id;
+      }
+
       // Address: existing fulfilmentAddressId, or the customer's default.
       if (o.fulfilmentAddressId) {
         state.routingAddressId = o.fulfilmentAddressId;
@@ -3569,6 +3581,7 @@ DISPATCH DASHBOARD DEMO SEED
 
     function closeFulfilmentRoutingModal() {
       state.routingDraft = "";
+      state.routingLocationId = null;
       state.routingAddressId = null;
       state.routingUrgency = "Standard";
       state.routingRecordNow = false;
@@ -3658,9 +3671,19 @@ DISPATCH DASHBOARD DEMO SEED
         }
       }
 
-      // ----- 2. Apply the handling change itself -----
+           // ----- 2. Apply the handling change itself -----
 
       o.fulfilmentHandling = next;
+
+      // Save the pickup location if the remainder is being routed to
+      // Pickup. Clear it otherwise so it doesn't linger if the operator
+      // later switches to Delivery.
+      if (next === "Pickup") {
+        o.fulfilmentLocationId = state.routingLocationId;
+      } else {
+        o.fulfilmentLocationId = null;
+      }
+
 
       if (!previous) {
         logTimeline(`Fulfilment handling set to ${next}`);
@@ -3686,6 +3709,7 @@ DISPATCH DASHBOARD DEMO SEED
       const recordNow = state.routingRecordNow;
 
       state.routingDraft = "";
+      state.routingLocationId = null;
       state.routingAddressId = null;
       state.routingUrgency = "Standard";
       state.routingRecordNow = false;
@@ -3753,13 +3777,30 @@ DISPATCH DASHBOARD DEMO SEED
             How should the customer receive the remainder?
           </div>
 
-          <label style="display:flex; align-items:flex-start; gap:8px; font-size:13px; line-height:1.4; padding:8px; border:2px solid ${draft === "Pickup" ? "#1a1a1a" : "#ddd"}; border-radius:4px; background:${draft === "Pickup" ? "#dbeafe" : "#fff"}; cursor:pointer; margin-bottom:6px;">
+                <label style="display:flex; align-items:flex-start; gap:8px; font-size:13px; line-height:1.4; padding:8px; border:2px solid ${draft === "Pickup" ? "#1a1a1a" : "#ddd"}; border-radius:4px; background:${draft === "Pickup" ? "#dbeafe" : "#fff"}; cursor:pointer; margin-bottom:6px;">
             <input type="radio" name="routingChoice" value="Pickup"
               style="width:auto; margin-top:2px;"
               ${draft === "Pickup" ? "checked" : ""}
               onchange="state.routingDraft='Pickup'; render();">
-            <span>
-              <strong>Pickup</strong> — customer comes to ${o.pickupLocation || "the store"}
+            <span style="flex:1;">
+              <strong>Pickup</strong> — customer picks up at:
+              ${
+                draft === "Pickup"
+                  ? `
+                <select
+                  style="margin-top:6px;"
+                  onchange="state.routingLocationId=this.value; render();">
+                  ${LOCATIONS.map(
+                    (l) => `
+                    <option value="${l.id}" ${state.routingLocationId === l.id ? "selected" : ""}>
+                      ${l.name}
+                    </option>
+                  `,
+                  ).join("")}
+                </select>
+              `
+                  : `<em style="color:#666;">select to choose location</em>`
+              }
             </span>
           </label>
 
