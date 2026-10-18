@@ -545,6 +545,10 @@
     // Auto-applied to any new order. Non-deferrable, non-removable.
     const CREDIT_VALIDITY_DAYS = 60;
 
+        // Standard number of days a customer has to collect a deferred pickup
+    // before the order is considered abandoned.
+    const PICKUP_EXPIRY_DAYS = 3;
+
     // Default catalogue options for product setup.
     // Operators can add a new value via "Other" in the modal.
     // In production these become admin-managed reference tables.
@@ -1183,6 +1187,7 @@
       collectionQuantities: {},
       collectionUnitSearch: "",
       collectionChangingUnitsFor: null,
+      deferAllItems: false,
 
 
 
@@ -2840,7 +2845,9 @@ DISPATCH DASHBOARD DEMO SEED
             }
 
             // ----- Non-partial order: existing behaviour -----
-            const label = "Mark as Collected";
+            const totalFulfilled = (o.fulfilmentLines || []).reduce((s, l) => s + l.fulfilled, 0);
+            const label = totalFulfilled === 0 ? "Hand Over Available Items" : "Mark as Collected";
+            
             return `
                 <button class="btn-primary" id="markCollectedBtn">${label}</button>
                 ${isOverdue(o) ? `<button id="extendExpiryBtn">Extend Expiry</button>` : ""}
@@ -3282,7 +3289,7 @@ DISPATCH DASHBOARD DEMO SEED
 
           // Set pickup expiry: today + 3 days
           const expiry = new Date();
-          expiry.setDate(expiry.getDate() + 3);
+          expiry.setDate(expiry.getDate() + PICKUP_EXPIRY_DAYS);
           o.pickupExpiryDate = expiry.toISOString().split("T")[0];
 
           logTimeline(
@@ -3300,6 +3307,7 @@ DISPATCH DASHBOARD DEMO SEED
           state.collectionSelections = {};
           state.collectionUnitSearch = "";
           state.collectionChangingUnitsFor = null;
+          state.deferAllItems = false;
           state.activeModal = "picked-up-by";
           render();
         });
@@ -4326,6 +4334,7 @@ DISPATCH DASHBOARD DEMO SEED
       state.collectionQuantities = {};
       state.collectionUnitSearch = "";
       state.collectionChangingUnitsFor = null;
+      state.deferAllItems = false;
       state.openCombobox = null;
       state.comboboxActive = -1;
       state.adjustReasonOpen = false;
@@ -4503,20 +4512,21 @@ DISPATCH DASHBOARD DEMO SEED
         o.fulfillment === "Pickup" &&
         o.fulfilmentHandling !== "Delivery";
 
-      if (isWalkin) {
+           if (isWalkin) {
         // Walk-in Immediate Pickup: the customer is at the counter.
         // Instead of auto-completing, open the collection modal so the
         // operator confirms which units are being handed over.
         state.collectionSelections = {};
         state.collectionUnitSearch = "";
         state.collectionChangingUnitsFor = null;
+        state.deferAllItems = false; // <-- Add it right here
 
         // Flag that a payment was just recorded in this session
         state.paymentRecordedThisSession = true;
         state.activeModal = "picked-up-by";
         render();
         return;
-            } else {
+      } else {
         state.successContext = {
           title: "Payment Recorded",
           subtitle: `${o.orderNumber} · ${money(amount)} received`,
@@ -4528,6 +4538,8 @@ DISPATCH DASHBOARD DEMO SEED
       }
     }
 
+    
+    
     /* ============ CANCEL MODAL ============ */
     function renderCancelModal() {
       const o = state.order;
@@ -5418,9 +5430,10 @@ DISPATCH DASHBOARD DEMO SEED
         }
       });
 
-      const canConfirm = totalSelected > 0;
+            const hasZeroStock = handoverLines.length === 0;
+      const isDeferred = state.deferAllItems || false;
 
-      return `
+            return `
     <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
       <div class="modal">
         <div class="modal-header">Confirm Pickup <button class="close-x" onclick="closeModal()">×</button></div>
@@ -5433,136 +5446,151 @@ DISPATCH DASHBOARD DEMO SEED
         }
           </div>
 
-          <div style="font-weight:bold; font-size:13px; margin-bottom:8px;">Items being collected</div>
+          ${hasZeroStock
+          ? `
+            <div style="padding:12px; border:2px dashed #92400e; border-radius:4px; background:#fef3c7; font-size:12px; color:#92400e; margin-bottom:8px;">
+              Nothing is available to hand over right now.
+            </div>
+            <button class="btn-primary" style="width:100%; margin-bottom:12px;" onclick="closeModal(); openFulfilmentRoutingModal();">
+              Route Remainder →
+            </button>
+          `
+          : `
+            <!-- THE DEFER CHECKBOX IS NOW AT THE TOP -->
+            <label class="mb-12" style="display:flex; align-items:flex-start; gap:8px; font-size:12px; line-height:1.3; padding:10px; background:#fdfdfd; border:2px solid ${isDeferred ? '#1a1a1a' : '#ccc'}; border-radius:4px; cursor:pointer; margin-bottom:12px;">
+              <input type="checkbox" id="deferAllCheckbox"
+                style="width:auto; margin-top:2px;"
+                ${isDeferred ? "checked" : ""}
+                onchange="state.deferAllItems = this.checked; render();">
+              <span>
+                <strong>Customer is not taking anything today (defer all items)</strong>
+                <br>
+                <span style="color:#666;">The operator will log a handover of 0 items.</span>
+              </span>
+            </label>
 
-          ${handoverLines.length === 0
-          ? `<div style="padding:12px; border:2px dashed #92400e; border-radius:4px; background:#fef3c7; font-size:12px; color:#92400e; margin-bottom:8px;">
-                   Nothing is available to hand over right now. Close this modal and try again once stock arrives.
-                 </div>`
-          : ""
+            <div style="font-weight:bold; font-size:13px; margin-bottom:8px;">Items being collected</div>
+
+            ${handoverLines
+              .map((line) => {
+                const p = getInvProduct(line.productId);
+                if (!p) return "";
+                const cap = line.handoverCap;
+
+                if (p.trackingType === "Individual") {
+                  const selected = state.collectionSelections[line.productId] || [];
+                  const count = selected.length;
+                  const tags = selected
+                    .map((id) => UNITS.find((u) => u.id === id)?.tag)
+                    .filter(Boolean);
+                  const tagSummary =
+                    tags.length <= 3
+                      ? tags.join(", ")
+                      : `${tags.slice(0, 3).join(", ")}, and ${tags.length - 3} more`;
+
+                  return `
+                    <div class="card" style="margin-bottom:8px; padding:10px; ${isDeferred ? 'opacity:0.5; pointer-events:none;' : ''}">
+                      <div>
+                        <strong>${p.name}</strong> · ×${line.outstanding}
+                        <span style="font-size:11px; color:#888;">[Individual Item]</span>
+                      </div>
+                      <div style="margin-top:8px; font-size:13px; display:flex; align-items:center; gap:6px;">
+                        Handing over:
+                        <input type="number" min="0" max="${cap}"
+                          value="${isDeferred ? 0 : count}"
+                          ${isDeferred ? "disabled" : ""}
+                          style="width:70px; padding:4px 6px;"
+                          onchange="onPickupQtyChange('${line.productId}', this.value, ${cap})">
+                        <span style="color:#666;">of ${cap}</span>
+                      </div>
+                      ${tags.length > 0 && !isDeferred
+                      ? `<div style="margin-top:6px; font-size:11px; color:#666;">${tagSummary}</div>`
+                      : `<div style="margin-top:6px; font-size:11px; color:#666;">No units selected.</div>`
+                    }
+                      <div style="margin-top:8px;">
+                        <button onclick="openCollectionChangeUnits('${line.productId}')" ${isDeferred ? "disabled" : ""} style="font-size:12px;">Change Units</button>
+                      </div>
+                    </div>
+                  `;
+                } else {
+                  const q = isDeferred ? 0 : (state.collectionQuantities[line.productId] ?? cap);
+                  return `
+                    <div class="card" style="margin-bottom:8px; padding:10px; ${isDeferred ? 'opacity:0.5; pointer-events:none;' : ''}">
+                      <div>
+                        <strong>${p.name}</strong> · ×${line.outstanding}
+                        <span style="font-size:11px; color:#888;">[Stock Quantity]</span>
+                      </div>
+                      <div style="margin-top:8px; font-size:13px; display:flex; align-items:center; gap:6px;">
+                        Handing over:
+                        <input type="number" min="0" max="${cap}"
+                          value="${q}"
+                          ${isDeferred ? "disabled" : ""}
+                          style="width:70px; padding:4px 6px;"
+                          onchange="onPickupQtyChange('${line.productId}', this.value, ${cap})">
+                        <span style="color:#666;">of ${cap}</span>
+                      </div>
+                    </div>
+                  `;
+                }
+              })
+              .join("")}
+          `
         }
 
-          ${handoverLines
-          .map((line) => {
-            const p = getInvProduct(line.productId);
-            if (!p) return "";
-            const cap = line.handoverCap;
-
-            if (p.trackingType === "Individual") {
-              const selected = state.collectionSelections[line.productId] || [];
-              const count = selected.length;
-              const tags = selected
-                .map((id) => UNITS.find((u) => u.id === id)?.tag)
-                .filter(Boolean);
-              const tagSummary =
-                tags.length <= 3
-                  ? tags.join(", ")
-                  : `${tags.slice(0, 3).join(", ")}, and ${tags.length - 3} more`;
-
-              return `
-                <div class="card" style="margin-bottom:8px; padding:10px;">
-                  <div>
-                    <strong>${p.name}</strong> · ×${line.outstanding}
-                    <span style="font-size:11px; color:#888;">[Individual Item]</span>
-                  </div>
-                  <div style="margin-top:8px; font-size:13px; display:flex; align-items:center; gap:6px;">
-                    Handing over:
-                    <input type="number" min="0" max="${cap}"
-                      value="${count}"
-                      style="width:70px; padding:4px 6px;"
-                      onchange="onPickupQtyChange('${line.productId}', this.value, ${cap})">
-                    <span style="color:#666;">of ${cap}</span>
-                  </div>
-                  ${tags.length > 0
-                  ? `<div style="margin-top:6px; font-size:11px; color:#666;">${tagSummary}</div>`
-                  : `<div style="margin-top:6px; font-size:11px; color:#666;">No units selected.</div>`
-                }
-                  <div style="margin-top:8px;">
-                    <button onclick="openCollectionChangeUnits('${line.productId}')" style="font-size:12px;">Change Units</button>
-                  </div>
-                </div>
-              `;
-            } else {
-              const q = state.collectionQuantities[line.productId] ?? cap;
-              return `
-                <div class="card" style="margin-bottom:8px; padding:10px;">
-                  <div>
-                    <strong>${p.name}</strong> · ×${line.outstanding}
-                    <span style="font-size:11px; color:#888;">[Stock Quantity]</span>
-                  </div>
-                  <div style="margin-top:8px; font-size:13px; display:flex; align-items:center; gap:6px;">
-                    Handing over:
-                    <input type="number" min="0" max="${cap}"
-                      value="${q}"
-                      style="width:70px; padding:4px 6px;"
-                      onchange="onPickupQtyChange('${line.productId}', this.value, ${cap})">
-                    <span style="color:#666;">of ${cap}</span>
-                  </div>
-                </div>
-              `;
-            }
-          })
-          .join("")}
-
-          <div style="font-weight:bold; font-size:13px; margin:16px 0 8px;">Picked up by</div>
-
-          <label>Name *</label>
-          <input type="text" id="pickupName" value="${cust.name}">
-
-          <label class="mt-12">Phone Number</label>
-          <input type="text" id="pickupPhone" value="${cust.phone}">
-
-          ${!isImmediate
+          ${!hasZeroStock && !isDeferred
           ? `
-            <label class="mt-12" style="display:flex; align-items:flex-start; gap:8px; font-size:12px; line-height:1.3;">
-              <input type="checkbox" id="pickupOrderRefVerified" style="width:auto; margin-top:2px;">
-              <span>Order reference verified *<br><span style="color:#666;">Customer presented the order reference before collection.</span></span>
-            </label>
+            <div style="font-weight:bold; font-size:13px; margin:16px 0 8px;">Picked up by</div>
 
-            <label class="mt-12" style="display:flex; align-items:flex-start; gap:8px; font-size:12px; line-height:1.3;">
-              <input type="checkbox" id="pickupIdPresented" style="width:auto; margin-top:2px;">
-              <span>Photo ID presented<br><span style="color:#666;">Optional. Recommended for high-value orders.</span></span>
-            </label>
+            <label>Name *</label>
+            <input type="text" id="pickupName" value="${cust.name}">
 
-            ${calcTotals(o).total >= 500000
+            <label class="mt-12">Phone Number</label>
+            <input type="text" id="pickupPhone" value="${cust.phone}">
+
+            ${!isImmediate
             ? `
-              <div style="font-size:11px; color:#92400e; margin-top:8px; padding:6px 8px; border:1px dashed #92400e; border-radius:4px;">
-                💡 High-value order — ID check strongly recommended.
-              </div>
+              <label class="mt-12" style="display:flex; align-items:flex-start; gap:8px; font-size:12px; line-height:1.3;">
+                <input type="checkbox" id="pickupOrderRefVerified" style="width:auto; margin-top:2px;">
+                <span>Order reference verified *<br><span style="color:#666;">Customer presented the order reference before collection.</span></span>
+              </label>
+
+              <label class="mt-12" style="display:flex; align-items:flex-start; gap:8px; font-size:12px; line-height:1.3;">
+                <input type="checkbox" id="pickupIdPresented" style="width:auto; margin-top:2px;">
+                <span>Photo ID presented<br><span style="color:#666;">Optional. Recommended for high-value orders.</span></span>
+              </label>
+
+              ${calcTotals(o).total >= 500000
+              ? `
+                <div style="font-size:11px; color:#92400e; margin-top:8px; padding:6px 8px; border:1px dashed #92400e; border-radius:4px;">
+                  💡 High-value order — ID check strongly recommended.
+                </div>
+              `
+              : ""}
             `
-            : ""
-          }
+            : ""}
           `
           : ""
         }
 
         </div>
 
-        ${!canConfirm && handoverLines.length > 0
-          ? `
-          <div style="margin: 0 12px 12px; padding:10px; border:2px dashed #991b1b; border-radius:4px; background:#fee2e2;">
-            <div style="font-weight:bold; font-size:12px; color:#991b1b; margin-bottom:6px;">
-              ⚠ Nothing selected
-            </div>
-            <div style="font-size:11px; color:#991b1b; line-height:1.4;">
-              Select at least one unit to hand over, or cancel.
-            </div>
-          </div>
-        `
-          : ""
-        }
-
         <div class="modal-footer">
           <button onclick="closeModal()">Cancel</button>
-          <button class="btn-primary" id="confirmPickupBtn"
-            ${!canConfirm ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ""}>
-            Confirm Pickup
-          </button>
+          ${!hasZeroStock
+          ? `
+            <button class="btn-primary" id="confirmPickupBtn">
+              ${isDeferred ? "Confirm Handover (0 items)" : "Confirm Pickup"}
+            </button>
+          `
+          : ""}
         </div>
       </div>
     </div>
   `;
-    }
+
+   
+
+}
 
 
 
@@ -5618,43 +5646,39 @@ DISPATCH DASHBOARD DEMO SEED
 
 
     function attachPickedUpByHandlers() {
-      document
+            document
         .getElementById("confirmPickupBtn")
         ?.addEventListener("click", () => {
           const o0 = state.order;
           const isImmediate = o0.timing === "Immediate";
-          const name = document.getElementById("pickupName").value.trim();
-          const phone = document.getElementById("pickupPhone").value.trim();
-          const orderRefVerified = isImmediate
-            ? true
-            : document.getElementById("pickupOrderRefVerified")?.checked ===
-            true;
-          const idPresented = isImmediate
-            ? false
-            : document.getElementById("pickupIdPresented")?.checked === true;
+          const isDeferred = state.deferAllItems || false;
 
-          if (!name) return alert("Enter who is picking up.");
-          if (!isImmediate && !orderRefVerified)
-            return alert(
-              "Confirm that the order reference has been verified.",
-            );
+          let name = "", phone = "", orderRefVerified = true, idPresented = false;
 
-          // Guard: at least one unit must be selected across all lines.
-          {
+          if (!isDeferred) {
+            name = document.getElementById("pickupName").value.trim();
+            phone = document.getElementById("pickupPhone").value.trim();
+            orderRefVerified = isImmediate
+              ? true
+              : document.getElementById("pickupOrderRefVerified")?.checked === true;
+            idPresented = isImmediate
+              ? false
+              : document.getElementById("pickupIdPresented")?.checked === true;
+
+            if (!name) return alert("Enter who is picking up.");
+            if (!isImmediate && !orderRefVerified)
+              return alert("Confirm that the order reference has been verified.");
+
+            // Guard: at least one unit must be selected across all lines.
             const ord = state.order;
             const totalSelected = calcOutstandingLines(ord).reduce(
               (sum, line) => {
                 const product = getInvProduct(line.productId);
                 if (!product) return sum;
                 if (product.trackingType === "Individual") {
-                  return (
-                    sum +
-                    (state.collectionSelections[line.productId] || []).length
-                  );
+                  return sum + (state.collectionSelections[line.productId] || []).length;
                 }
-                return (
-                  sum + (state.collectionQuantities[line.productId] || 0)
-                );
+                return sum + (state.collectionQuantities[line.productId] || 0);
               },
               0,
             );
@@ -5700,7 +5724,8 @@ DISPATCH DASHBOARD DEMO SEED
             })
             .filter((line) => line && line.handoverCap > 0);
 
-          handoverLines.forEach((line) => {
+         if(!isDeferred){
+           handoverLines.forEach((line) => {
             const product = getInvProduct(line.productId);
             if (!product) return;
 
@@ -5788,30 +5813,34 @@ DISPATCH DASHBOARD DEMO SEED
             if (fl) fl.fulfilled += qty;
           });
 
+         }
 
 
           // Recompute fulfilment status now that lines have moved.
           recomputeFulfilmentStatus(o);
 
           // -------- 2. Record the picked-up-by info --------
-          o.pickedUpBy = { name, phone, orderRefVerified, idPresented };
-
-          // Log with verification detail
-          const logParts = [`Collected by ${name}`];
-          if (!isImmediate) {
-            logParts.push(
-              orderRefVerified
-                ? "Order reference verified"
-                : "Order reference NOT verified",
-            );
-            if (idPresented) logParts.push("Photo ID presented");
+          if (isDeferred) {
+            o.pickedUpBy = null; // Don't record anyone as taking goods
+            logTimeline("0 items handed over. Deferred by operator.");
+          } else {
+            o.pickedUpBy = { name, phone, orderRefVerified, idPresented };
+            const logParts = [`Collected by ${name}`];
+            if (!isImmediate) {
+              logParts.push(
+                orderRefVerified
+                  ? "Order reference verified"
+                  : "Order reference NOT verified",
+              );
+              if (idPresented) logParts.push("Photo ID presented");
+            }
+            logTimeline(logParts.join(" · "));
           }
-          logTimeline(logParts.join(" · "));
 
           // -------- 3. Transition based on remaining fulfilment --------
           const isFullyFulfilled = o.fulfilmentStatus === "complete";
 
-          if (isFullyFulfilled) {
+                   if (isFullyFulfilled) {
             o.state = "completed";
             logTimeline("Order completed.");
           } else {
@@ -5819,6 +5848,14 @@ DISPATCH DASHBOARD DEMO SEED
             // Park the order in "ready" so it stays actionable — the
             // operator can reopen it for a subsequent handover.
             o.state = "ready";
+            
+            // If they deferred everything, give them a standard 3-day window to come back.
+            if (isDeferred) {
+              const expiry = new Date();
+              expiry.setDate(expiry.getDate() + PICKUP_EXPIRY_DAYS);
+              o.pickupExpiryDate = expiry.toISOString().split("T")[0];
+            }
+            
             logTimeline(
               `Partial handover complete. ${calcOutstandingLines(o).length} line(s) still outstanding.`,
             );
@@ -5852,12 +5889,14 @@ DISPATCH DASHBOARD DEMO SEED
               ? isWalkin
                 ? "Order Completed"
                 : "Order Collected"
-              : "Partial Handover Recorded",
+              : (totalFulfilled === 0 ? "Handover Deferred" : "Partial Handover Recorded"),
             subtitle: isFullyFulfilled
               ? isWalkin
                 ? `${o.orderNumber} · Handover confirmed`
                 : `${o.orderNumber} · Thank you`
-              : `${o.orderNumber} · ${totalFulfilled} items handed over, ${totalOutstanding} outstanding.`,
+              : (totalFulfilled === 0 
+                  ? `${o.orderNumber} · 0 items handed over, ${totalOutstanding} outstanding.`
+                  : `${o.orderNumber} · ${totalFulfilled} items handed over, ${totalOutstanding} outstanding.`),
             // Only show the receipt if a payment was just made in this session
             documentLabel: state.paymentRecordedThisSession ? "Receipt" : null,
             isWalkin: false,
