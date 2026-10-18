@@ -1155,6 +1155,7 @@
       isEditing: false,
       successContext: null,
       partialFulfilmentAcknowledged: false,
+      paymentRecordedThisSession: false,
       // Fulfilment routing modal working state
       routingDraft: "", // '' | 'Pickup' | 'Delivery'
       routingLocationId: null, // selected pickup location for the remainder
@@ -2905,15 +2906,16 @@ DISPATCH DASHBOARD DEMO SEED
     }
 
     /* ============ SUCCESS PAGE ============ */
-    function renderSuccess(c) {
+         function renderSuccess(c) {
       const o = state.order;
       const t = calcTotals(o);
       const ctx = state.successContext || {
         title: "Order Recorded",
         subtitle: `${o.orderNumber} · ${money(t.paid)} received`,
-        documentType: t.outstanding > 0 ? "Invoice" : "Receipt",
+        documentLabel: t.outstanding > 0 ? "Invoice" : "Receipt",
       };
-      const doc = ctx.documentType; // 'Invoice' | 'Receipt'
+      
+      const doc = ctx.documentLabel; 
 
       c.innerHTML = `
     <div class="card success-screen">
@@ -2921,6 +2923,9 @@ DISPATCH DASHBOARD DEMO SEED
       <div class="success-title">${ctx.title}</div>
       <div style="color:#555; margin-bottom:16px;">${ctx.subtitle}</div>
 
+      ${
+        doc
+          ? `
       <div style="font-size:12px; color:#666; margin-bottom:8px;">
         Send ${doc.toLowerCase()} to the customer:
       </div>
@@ -2931,6 +2936,13 @@ DISPATCH DASHBOARD DEMO SEED
         <button class="btn-primary" data-success-channel="print+email">Print + Email</button>
         <button data-success-channel="none">No ${doc}</button>
       </div>
+      `
+          : `
+      <div style="display:flex; justify-content:center; margin-top:24px;">
+        <button class="btn-primary" onclick="handleSuccessAction('none')">Continue</button>
+      </div>
+      `
+      }
     </div>
   `;
 
@@ -2940,12 +2952,13 @@ DISPATCH DASHBOARD DEMO SEED
         );
       });
     }
-
+    
+    
     function handleSuccessAction(channel) {
       const o = state.order;
       const ctx = state.successContext || {};
       const doc =
-        ctx.documentType ||
+        ctx.documentLabel ||
         (calcTotals(o).outstanding > 0 ? "Invoice" : "Receipt");
 
       // Log the document delivery
@@ -3450,10 +3463,10 @@ DISPATCH DASHBOARD DEMO SEED
           deductStockDirectlyForPickup(o);
         }
 
-        state.successContext = {
+                state.successContext = {
           title: isWalkin ? "Order Completed" : "Payment Recorded",
           subtitle: `${o.orderNumber} · Covered by credit`,
-          documentType: "Receipt",
+          documentLabel: "Receipt",
           isWalkin,
         };
         state.currentPage = "success";
@@ -3464,10 +3477,10 @@ DISPATCH DASHBOARD DEMO SEED
       if (!recordPayment) {
         o.state = "submitted";
         logTimeline("Order submitted (unpaid)");
-        state.successContext = {
+               state.successContext = {
           title: "Order Submitted",
           subtitle: `${o.orderNumber} · Invoice generated`,
-          documentType: "Invoice",
+          documentLabel: "Invoice",
           isWalkin: false,
         };
         state.currentPage = "success";
@@ -4497,14 +4510,17 @@ DISPATCH DASHBOARD DEMO SEED
         state.collectionSelections = {};
         state.collectionUnitSearch = "";
         state.collectionChangingUnitsFor = null;
+
+        // Flag that a payment was just recorded in this session
+        state.paymentRecordedThisSession = true;
         state.activeModal = "picked-up-by";
         render();
         return;
-      } else {
+            } else {
         state.successContext = {
           title: "Payment Recorded",
           subtitle: `${o.orderNumber} · ${money(amount)} received`,
-          documentType: "Receipt",
+          documentLabel: "Receipt",
           isWalkin: false,
         };
         state.currentPage = "success";
@@ -5831,7 +5847,7 @@ DISPATCH DASHBOARD DEMO SEED
 
           const isWalkin =
             o.timing === "Immediate" && o.fulfillment === "Pickup";
-          state.successContext = {
+                 state.successContext = {
             title: isFullyFulfilled
               ? isWalkin
                 ? "Order Completed"
@@ -5842,9 +5858,14 @@ DISPATCH DASHBOARD DEMO SEED
                 ? `${o.orderNumber} · Handover confirmed`
                 : `${o.orderNumber} · Thank you`
               : `${o.orderNumber} · ${totalFulfilled} items handed over, ${totalOutstanding} outstanding.`,
-            documentType: "Receipt",
+            // Only show the receipt if a payment was just made in this session
+            documentLabel: state.paymentRecordedThisSession ? "Receipt" : null,
             isWalkin: false,
           };
+          
+          // Reset the flag so subsequent handovers don't show it
+          state.paymentRecordedThisSession = false;
+          
           state.currentPage = "success";
           render();
         });
