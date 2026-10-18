@@ -545,7 +545,7 @@
     // Auto-applied to any new order. Non-deferrable, non-removable.
     const CREDIT_VALIDITY_DAYS = 60;
 
-        // Standard number of days a customer has to collect a deferred pickup
+    // Standard number of days a customer has to collect a deferred pickup
     // before the order is considered abandoned.
     const PICKUP_EXPIRY_DAYS = 3;
 
@@ -1251,6 +1251,13 @@
     const getProduct = (id) => PRODUCTS_INV.find((p) => p.id === id);
     const getCustomer = (id) => CUSTOMERS.find((c) => c.id === id);
     const todayISO = () => new Date().toISOString().split("T")[0];
+    // Derive timing from the scheduled date.
+    // If the scheduled date is today or in the past, it's Immediate.
+    // Otherwise, it's Scheduled.
+    function getTiming(order) {
+      if (!order || !order.scheduledDate) return "Immediate";
+      return order.scheduledDate <= todayISO() ? "Immediate" : "Scheduled";
+    }
     const formatDate = (iso) =>
       iso
         ? new Date(iso).toLocaleDateString("en-GB", {
@@ -1727,22 +1734,13 @@ DISPATCH DASHBOARD DEMO SEED
         return d.toISOString().split("T")[0];
       })();
 
-      // Derive timing:
-      //   Pickup  → today = Immediate, future = Scheduled
-      //   Delivery → always Scheduled
-      const derivedTiming =
-        s.fulfillment === "Delivery"
-          ? "Scheduled"
-          : scheduledDate === todayISO()
-            ? "Immediate"
-            : "Scheduled";
+
 
       const order = {
         orderNumber: genNum("ORD"),
         invoiceNumber: null,
         customerId: customer.id,
         fulfillment: s.fulfillment,
-        timing: derivedTiming,
         pickupLocation: s.pickupLocation || "VI Store",
         scheduledDate,
         deliveryMode: s.deliveryMode || "Company Fleet",
@@ -2494,7 +2492,7 @@ DISPATCH DASHBOARD DEMO SEED
         }
         </div>
 
-                <div class="col"><label>Fulfillment</label><strong>${o.fulfillment} (${o.timing})</strong></div>
+          <div class="col"><label>Fulfillment</label><strong>${o.fulfillment}</strong></div>
         <div class="col">
           <label>${o.fulfillment === "Delivery" ? "Urgency" : "Scheduled"}</label>
           <strong>${o.fulfillment === "Delivery"
@@ -2675,7 +2673,7 @@ DISPATCH DASHBOARD DEMO SEED
         <div class="row">
           <div class="col"><label>Picked Up By</label><strong>${o.pickedUpBy.name || "—"}</strong></div>
           <div class="col"><label>Phone</label><strong>${o.pickedUpBy.phone || "—"}</strong></div>
-          ${o.timing !== "Immediate"
+          ${getTiming(o) !== "Immediate"
             ? `
             <div class="col"><label>Order Reference</label>
               ${o.pickedUpBy.orderRefVerified
@@ -2847,10 +2845,33 @@ DISPATCH DASHBOARD DEMO SEED
 
             // ----- Non-partial order: existing behaviour -----
             const totalFulfilled = (o.fulfilmentLines || []).reduce((s, l) => s + l.fulfilled, 0);
-            const label = totalFulfilled === 0 ? "Hand Over Available Items" : "Mark as Collected";
-            
+
+            // If nothing has been fulfilled yet, they can either hand over what's 
+            // available now, OR route the remainder (e.g., if they deferred).
+            if (totalFulfilled === 0) {
+              // Check if the remainder has already been routed to Delivery.
+              if (o.fulfilmentHandling === "Delivery") {
+                return `
+                    <div style="font-size:12px; color:#555; margin-bottom:8px;">
+                      Fulfilment Handling: <strong>Delivery</strong> — ship to the customer
+                      <a href="#" onclick="event.preventDefault(); openFulfilmentRoutingModal();" style="margin-left:6px; color:#1e40af;">Change</a>
+                    </div>
+                    <button class="btn-primary" id="dispatchOutstandingBtn">Dispatch Outstanding Items</button>
+                    <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>
+                  `;
+              }
+
+              // Otherwise (no handling, or routed to Pickup), show hand over + fulfil.
+              return `
+                  <button class="btn-primary" id="markCollectedBtn">Hand Over Available Items</button>
+                  <button class="btn-secondary" id="fulfilOutstandingBtn">Fulfil Outstanding Items</button>
+                  <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>
+                `;
+            }
+
+            // If some were fulfilled, show the standard collection button
             return `
-                <button class="btn-primary" id="markCollectedBtn">${label}</button>
+                <button class="btn-primary" id="markCollectedBtn">Mark as Collected</button>
                 ${isOverdue(o) ? `<button id="extendExpiryBtn">Extend Expiry</button>` : ""}
                 <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>
               `;
@@ -2914,7 +2935,7 @@ DISPATCH DASHBOARD DEMO SEED
     }
 
     /* ============ SUCCESS PAGE ============ */
-         function renderSuccess(c) {
+    function renderSuccess(c) {
       const o = state.order;
       const t = calcTotals(o);
       const ctx = state.successContext || {
@@ -2922,8 +2943,8 @@ DISPATCH DASHBOARD DEMO SEED
         subtitle: `${o.orderNumber} · ${money(t.paid)} received`,
         documentLabel: t.outstanding > 0 ? "Invoice" : "Receipt",
       };
-      
-      const doc = ctx.documentLabel; 
+
+      const doc = ctx.documentLabel;
 
       c.innerHTML = `
     <div class="card success-screen">
@@ -2931,8 +2952,7 @@ DISPATCH DASHBOARD DEMO SEED
       <div class="success-title">${ctx.title}</div>
       <div style="color:#555; margin-bottom:16px;">${ctx.subtitle}</div>
 
-      ${
-        doc
+      ${doc
           ? `
       <div style="font-size:12px; color:#666; margin-bottom:8px;">
         Send ${doc.toLowerCase()} to the customer:
@@ -2950,7 +2970,7 @@ DISPATCH DASHBOARD DEMO SEED
         <button class="btn-primary" onclick="handleSuccessAction('none')">Continue</button>
       </div>
       `
-      }
+        }
     </div>
   `;
 
@@ -2960,8 +2980,8 @@ DISPATCH DASHBOARD DEMO SEED
         );
       });
     }
-    
-    
+
+
     function handleSuccessAction(channel) {
       const o = state.order;
       const ctx = state.successContext || {};
@@ -3019,16 +3039,6 @@ DISPATCH DASHBOARD DEMO SEED
         b.addEventListener("click", () => {
           const prev = o.fulfillment;
           o.fulfillment = b.dataset.fulfillment;
-
-          // Recompute timing on fulfillment change:
-          //   Delivery → Scheduled (always)
-          //   Pickup   → derive from scheduledDate
-          if (o.fulfillment === "Delivery") {
-            o.timing = "Scheduled";
-          } else {
-            o.timing =
-              o.scheduledDate === todayISO() ? "Immediate" : "Scheduled";
-          }
 
           // Delivery order: ensure urgency + fee are set.
           // Pickup order: clear them.
@@ -3199,17 +3209,7 @@ DISPATCH DASHBOARD DEMO SEED
         ?.addEventListener("change", (e) => {
           state.order.scheduledDate = e.target.value;
 
-          // Derive timing:
-          //   Pickup  → today = Immediate, future = Scheduled
-          //   Delivery → always Scheduled
-          if (state.order.fulfillment === "Delivery") {
-            state.order.timing = "Scheduled";
-          } else {
-            state.order.timing =
-              state.order.scheduledDate === todayISO()
-                ? "Immediate"
-                : "Scheduled";
-          }
+
           render();
         });
 
@@ -3356,7 +3356,6 @@ DISPATCH DASHBOARD DEMO SEED
             invoiceNumber: null,
             customerId: cust.id,
             fulfillment: "Pickup",
-            timing: "Immediate",
             pickupLocation: "VI Store",
             scheduledDate: todayISO(),
             items: [{ productId: "p3", qty: 1 }],
@@ -3465,14 +3464,14 @@ DISPATCH DASHBOARD DEMO SEED
         ensureOrderInDispatchPool(o);
 
         const isWalkin =
-          o.timing === "Immediate" && o.fulfillment === "Pickup";
+          getTiming(o) === "Immediate" && o.fulfillment === "Pickup";
 
         // Walk-in Immediate: no reservation step happens. Deduct stock now.
         if (isWalkin) {
           deductStockDirectlyForPickup(o);
         }
 
-                state.successContext = {
+        state.successContext = {
           title: isWalkin ? "Order Completed" : "Payment Recorded",
           subtitle: `${o.orderNumber} · Covered by credit`,
           documentLabel: "Receipt",
@@ -3486,7 +3485,7 @@ DISPATCH DASHBOARD DEMO SEED
       if (!recordPayment) {
         o.state = "submitted";
         logTimeline("Order submitted (unpaid)");
-               state.successContext = {
+        state.successContext = {
           title: "Order Submitted",
           subtitle: `${o.orderNumber} · Invoice generated`,
           documentLabel: "Invoice",
@@ -4509,11 +4508,11 @@ DISPATCH DASHBOARD DEMO SEED
       // to Delivery. In that case, dispatch handles it.
       const isWalkin =
         o.state === "confirmed" &&
-        o.timing === "Immediate" &&
+        getTiming(o) === "Immediate" &&
         o.fulfillment === "Pickup" &&
         o.fulfilmentHandling !== "Delivery";
 
-           if (isWalkin) {
+      if (isWalkin) {
         // Walk-in Immediate Pickup: the customer is at the counter.
         // Instead of auto-completing, open the collection modal so the
         // operator confirms which units are being handed over.
@@ -4539,8 +4538,8 @@ DISPATCH DASHBOARD DEMO SEED
       }
     }
 
-    
-    
+
+
     /* ============ CANCEL MODAL ============ */
     function renderCancelModal() {
       const o = state.order;
@@ -5322,7 +5321,7 @@ DISPATCH DASHBOARD DEMO SEED
     function renderPickedUpByModal() {
       const o = state.order,
         cust = state.customer;
-      const isImmediate = o.timing === "Immediate";
+      const isImmediate = getTiming(o) === "Immediate";
 
       const pickupLoc =
         o.fulfilmentLocationId ||
@@ -5431,10 +5430,10 @@ DISPATCH DASHBOARD DEMO SEED
         }
       });
 
-            const hasZeroStock = handoverLines.length === 0;
+      const hasZeroStock = handoverLines.length === 0;
       const isDeferred = state.deferAllItems || false;
 
-            return `
+      return `
     <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
       <div class="modal">
         <div class="modal-header">Confirm Pickup <button class="close-x" onclick="closeModal()">×</button></div>
@@ -5464,7 +5463,7 @@ DISPATCH DASHBOARD DEMO SEED
                 ${isDeferred ? "checked" : ""}
                 onchange="state.deferAllItems = this.checked; render();">
               <span>
-                <strong>Customer is not taking anything today (defer all items)</strong>
+                <strong>Customer is not taking anything at the moment (defer all items)</strong>
                 <br>
                 <span style="color:#666;">The operator will log a handover of 0 items.</span>
               </span>
@@ -5473,23 +5472,23 @@ DISPATCH DASHBOARD DEMO SEED
             <div style="font-weight:bold; font-size:13px; margin-bottom:8px;">Items being collected</div>
 
             ${handoverLines
-              .map((line) => {
-                const p = getInvProduct(line.productId);
-                if (!p) return "";
-                const cap = line.handoverCap;
+            .map((line) => {
+              const p = getInvProduct(line.productId);
+              if (!p) return "";
+              const cap = line.handoverCap;
 
-                if (p.trackingType === "Individual") {
-                  const selected = state.collectionSelections[line.productId] || [];
-                  const count = selected.length;
-                  const tags = selected
-                    .map((id) => UNITS.find((u) => u.id === id)?.tag)
-                    .filter(Boolean);
-                  const tagSummary =
-                    tags.length <= 3
-                      ? tags.join(", ")
-                      : `${tags.slice(0, 3).join(", ")}, and ${tags.length - 3} more`;
+              if (p.trackingType === "Individual") {
+                const selected = state.collectionSelections[line.productId] || [];
+                const count = selected.length;
+                const tags = selected
+                  .map((id) => UNITS.find((u) => u.id === id)?.tag)
+                  .filter(Boolean);
+                const tagSummary =
+                  tags.length <= 3
+                    ? tags.join(", ")
+                    : `${tags.slice(0, 3).join(", ")}, and ${tags.length - 3} more`;
 
-                  return `
+                return `
                     <div class="card" style="margin-bottom:8px; padding:10px; ${isDeferred ? 'opacity:0.5; pointer-events:none;' : ''}">
                       <div>
                         <strong>${p.name}</strong> · ×${line.outstanding}
@@ -5505,17 +5504,17 @@ DISPATCH DASHBOARD DEMO SEED
                         <span style="color:#666;">of ${cap}</span>
                       </div>
                       ${tags.length > 0 && !isDeferred
-                      ? `<div style="margin-top:6px; font-size:11px; color:#666;">${tagSummary}</div>`
-                      : `<div style="margin-top:6px; font-size:11px; color:#666;">No units selected.</div>`
-                    }
+                    ? `<div style="margin-top:6px; font-size:11px; color:#666;">${tagSummary}</div>`
+                    : `<div style="margin-top:6px; font-size:11px; color:#666;">No units selected.</div>`
+                  }
                       <div style="margin-top:8px;">
                         <button onclick="openCollectionChangeUnits('${line.productId}')" ${isDeferred ? "disabled" : ""} style="font-size:12px;">Change Units</button>
                       </div>
                     </div>
                   `;
-                } else {
-                  const q = isDeferred ? 0 : (state.collectionQuantities[line.productId] ?? cap);
-                  return `
+              } else {
+                const q = isDeferred ? 0 : (state.collectionQuantities[line.productId] ?? cap);
+                return `
                     <div class="card" style="margin-bottom:8px; padding:10px; ${isDeferred ? 'opacity:0.5; pointer-events:none;' : ''}">
                       <div>
                         <strong>${p.name}</strong> · ×${line.outstanding}
@@ -5532,9 +5531,9 @@ DISPATCH DASHBOARD DEMO SEED
                       </div>
                     </div>
                   `;
-                }
-              })
-              .join("")}
+              }
+            })
+            .join("")}
           `
         }
 
@@ -5589,9 +5588,9 @@ DISPATCH DASHBOARD DEMO SEED
     </div>
   `;
 
-   
 
-}
+
+    }
 
 
 
@@ -5647,11 +5646,11 @@ DISPATCH DASHBOARD DEMO SEED
 
 
     function attachPickedUpByHandlers() {
-            document
+      document
         .getElementById("confirmPickupBtn")
         ?.addEventListener("click", () => {
           const o0 = state.order;
-          const isImmediate = o0.timing === "Immediate";
+          const isImmediate = getTiming(o0) === "Immediate";
           const isDeferred = state.deferAllItems || false;
 
           let name = "", phone = "", orderRefVerified = true, idPresented = false;
@@ -5725,96 +5724,96 @@ DISPATCH DASHBOARD DEMO SEED
             })
             .filter((line) => line && line.handoverCap > 0);
 
-         if(!isDeferred){
-           handoverLines.forEach((line) => {
-            const product = getInvProduct(line.productId);
-            if (!product) return;
+          if (!isDeferred) {
+            handoverLines.forEach((line) => {
+              const product = getInvProduct(line.productId);
+              if (!product) return;
 
-            // The operator's selected quantity for this line.
-            let qty;
-            if (product.trackingType === "Individual") {
-              qty = (state.collectionSelections[line.productId] || []).length;
-            } else {
-              qty =
-                state.collectionQuantities[line.productId] ??
-                line.handoverCap;
-              qty = Math.max(0, Math.min(qty, line.handoverCap));
-            }
+              // The operator's selected quantity for this line.
+              let qty;
+              if (product.trackingType === "Individual") {
+                qty = (state.collectionSelections[line.productId] || []).length;
+              } else {
+                qty =
+                  state.collectionQuantities[line.productId] ??
+                  line.handoverCap;
+                qty = Math.max(0, Math.min(qty, line.handoverCap));
+              }
 
-            // Skip lines with zero handover — nothing to do, nothing to
-            // record on the fulfilment line.
-            if (qty === 0) return;
+              // Skip lines with zero handover — nothing to do, nothing to
+              // record on the fulfilment line.
+              if (qty === 0) return;
 
-            if (product.trackingType === "Individual") {
-              const selectedIds =
-                state.collectionSelections[line.productId] || [];
-              const originallyReserved = UNITS.filter(
-                (u) =>
-                  u.reservedForOrder === o.orderNumber &&
-                  u.status === "Reserved",
-              );
+              if (product.trackingType === "Individual") {
+                const selectedIds =
+                  state.collectionSelections[line.productId] || [];
+                const originallyReserved = UNITS.filter(
+                  (u) =>
+                    u.reservedForOrder === o.orderNumber &&
+                    u.status === "Reserved",
+                );
 
-              // Units originally reserved for this order but NOT chosen now → release to Available
-              originallyReserved.forEach((u) => {
-                if (!selectedIds.includes(u.id)) {
-                  u.status = "Available";
+                // Units originally reserved for this order but NOT chosen now → release to Available
+                originallyReserved.forEach((u) => {
+                  if (!selectedIds.includes(u.id)) {
+                    u.status = "Available";
+                    u.reservedForOrder = null;
+                  }
+                });
+
+                // Chosen units → Sold
+                selectedIds.forEach((uid) => {
+                  const u = UNITS.find((x) => x.id === uid);
+                  if (!u) return;
+                  u.status = "Sold";
                   u.reservedForOrder = null;
-                }
-              });
+                  u.softReservedFor = null;
+                });
 
-              // Chosen units → Sold
-              selectedIds.forEach((uid) => {
-                const u = UNITS.find((x) => x.id === uid);
-                if (!u) return;
-                u.status = "Sold";
-                u.reservedForOrder = null;
-                u.softReservedFor = null;
-              });
+                logMovement(
+                  line.productId,
+                  pickupLoc,
+                  "check_out",
+                  selectedIds.length,
+                  o.orderNumber,
+                );
+              } else {
+                // Stock quantity: decrement reserved (if any) and onHand
+                let remaining = qty;
 
-              logMovement(
-                line.productId,
-                pickupLoc,
-                "check_out",
-                selectedIds.length,
-                o.orderNumber,
-              );
-            } else {
-              // Stock quantity: decrement reserved (if any) and onHand
-              let remaining = qty;
+                STOCK.filter(
+                  (s) =>
+                    s.productId === line.productId &&
+                    (!pickupLoc || s.locationId === pickupLoc),
+                ).forEach((row) => {
+                  if (remaining <= 0) return;
+                  if (row.reserved > 0) {
+                    const fromReserved = Math.min(row.reserved, remaining);
+                    row.reserved -= fromReserved;
+                    row.onHand -= fromReserved;
+                    remaining -= fromReserved;
+                  } else if (row.onHand > 0) {
+                    const fromOnHand = Math.min(row.onHand, remaining);
+                    row.onHand -= fromOnHand;
+                    remaining -= fromOnHand;
+                  }
+                });
 
-              STOCK.filter(
-                (s) =>
-                  s.productId === line.productId &&
-                  (!pickupLoc || s.locationId === pickupLoc),
-              ).forEach((row) => {
-                if (remaining <= 0) return;
-                if (row.reserved > 0) {
-                  const fromReserved = Math.min(row.reserved, remaining);
-                  row.reserved -= fromReserved;
-                  row.onHand -= fromReserved;
-                  remaining -= fromReserved;
-                } else if (row.onHand > 0) {
-                  const fromOnHand = Math.min(row.onHand, remaining);
-                  row.onHand -= fromOnHand;
-                  remaining -= fromOnHand;
-                }
-              });
+                logMovement(
+                  line.productId,
+                  pickupLoc,
+                  "check_out",
+                  qty,
+                  o.orderNumber,
+                );
+              }
 
-              logMovement(
-                line.productId,
-                pickupLoc,
-                "check_out",
-                qty,
-                o.orderNumber,
-              );
-            }
+              // Increment fulfilment by the actual handover quantity.
+              const fl = getFulfilmentLine(o, line.productId);
+              if (fl) fl.fulfilled += qty;
+            });
 
-            // Increment fulfilment by the actual handover quantity.
-            const fl = getFulfilmentLine(o, line.productId);
-            if (fl) fl.fulfilled += qty;
-          });
-
-         }
+          }
 
 
           // Recompute fulfilment status now that lines have moved.
@@ -5841,7 +5840,7 @@ DISPATCH DASHBOARD DEMO SEED
           // -------- 3. Transition based on remaining fulfilment --------
           const isFullyFulfilled = o.fulfilmentStatus === "complete";
 
-                   if (isFullyFulfilled) {
+          if (isFullyFulfilled) {
             o.state = "completed";
             logTimeline("Order completed.");
           } else {
@@ -5849,14 +5848,14 @@ DISPATCH DASHBOARD DEMO SEED
             // Park the order in "ready" so it stays actionable — the
             // operator can reopen it for a subsequent handover.
             o.state = "ready";
-            
+
             // If they deferred everything, give them a standard 3-day window to come back.
             if (isDeferred) {
               const expiry = new Date();
               expiry.setDate(expiry.getDate() + PICKUP_EXPIRY_DAYS);
               o.pickupExpiryDate = expiry.toISOString().split("T")[0];
             }
-            
+
             logTimeline(
               `Partial handover complete. ${calcOutstandingLines(o).length} line(s) still outstanding.`,
             );
@@ -5884,8 +5883,8 @@ DISPATCH DASHBOARD DEMO SEED
           );
 
           const isWalkin =
-            o.timing === "Immediate" && o.fulfillment === "Pickup";
-                 state.successContext = {
+            getTiming(o) === "Immediate" && o.fulfillment === "Pickup";
+          state.successContext = {
             title: isFullyFulfilled
               ? isWalkin
                 ? "Order Completed"
@@ -5895,17 +5894,17 @@ DISPATCH DASHBOARD DEMO SEED
               ? isWalkin
                 ? `${o.orderNumber} · Handover confirmed`
                 : `${o.orderNumber} · Thank you`
-              : (totalFulfilled === 0 
-                  ? `${o.orderNumber} · 0 items handed over, ${totalOutstanding} outstanding.`
-                  : `${o.orderNumber} · ${totalFulfilled} items handed over, ${totalOutstanding} outstanding.`),
+              : (totalFulfilled === 0
+                ? `${o.orderNumber} · 0 items handed over, ${totalOutstanding} outstanding.`
+                : `${o.orderNumber} · ${totalFulfilled} items handed over, ${totalOutstanding} outstanding.`),
             // Only show the receipt if a payment was just made in this session
             documentLabel: state.paymentRecordedThisSession ? "Receipt" : null,
             isWalkin: false,
           };
-          
+
           // Reset the flag so subsequent handovers don't show it
           state.paymentRecordedThisSession = false;
-          
+
           state.currentPage = "success";
           render();
         });
