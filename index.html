@@ -2155,27 +2155,21 @@ DISPATCH DASHBOARD DEMO SEED
 
     // Renders the partial-fulfilment acknowledgement card.
     // Only shown when validateOrderStock reports a shortfall.
-    function renderPartialFulfilmentCard(order) {
+        function renderPartialFulfilmentCard(order) {
       const stockResult = validateOrderStock();
-      if (!stockResult.blocked && !stockResult.warning) return "";
-
-      const isBlocked = stockResult.blocked;
-      const where =
-        order.fulfillment === "Pickup"
-          ? `at ${order.pickupLocation}`
-          : "at a single location";
+      if (!stockResult.warning) return "";
 
       return `
-          <div style="margin-top:10px; padding:10px; border:2px dashed ${isBlocked ? "#991b1b" : "#92400e"}; border-radius:4px; background:${isBlocked ? "#fee2e2" : "#fef3c7"};">
-            <div style="font-size:12px; font-weight:bold; color:${isBlocked ? "#991b1b" : "#92400e"}; margin-bottom:8px;">
-              ${isBlocked ? `⚠ Cannot submit as-is — insufficient stock ${where}` : `⚠ Some items are not fully stocked`}
+          <div style="margin-top:10px; padding:10px; border:2px dashed #92400e; border-radius:4px; background:#fef3c7;">
+            <div style="font-size:12px; font-weight:bold; color:#92400e; margin-bottom:8px;">
+              ⚠ Some items are not fully stocked
             </div>
 
-            <div style="font-size:12px; color:${isBlocked ? "#991b1b" : "#92400e"}; margin-bottom:10px; line-height:1.5;">
-              Some items cannot be fulfilled in full. The customer can receive what's available now, and the remainder later.
+            <div style="font-size:12px; color:#92400e; margin-bottom:10px; line-height:1.5;">
+              Some items cannot be fulfilled in full. The customer can receive what's available now, and the remainder later — either at another pickup location or by delivery.
             </div>
 
-            <label style="display:flex; align-items:flex-start; gap:8px; font-size:12px; line-height:1.4; cursor:pointer; color:${isBlocked ? "#991b1b" : "#92400e"};">
+            <label style="display:flex; align-items:flex-start; gap:8px; font-size:12px; line-height:1.4; cursor:pointer; color:#92400e;">
               <input type="checkbox" id="partialFulfilmentCheckbox"
                 style="width:auto; margin-top:2px;"
                 ${state.partialFulfilmentAcknowledged ? "checked" : ""}
@@ -2187,6 +2181,7 @@ DISPATCH DASHBOARD DEMO SEED
           </div>
         `;
     }
+
 
     /* ============ ORDER CREATION PAGE ============ */
     function renderOrderCreation(c) {
@@ -3393,41 +3388,25 @@ DISPATCH DASHBOARD DEMO SEED
         return;
       }
 
-      // ===== STOCK CHECK =====
-      // ===== STOCK CHECK =====
-      const stockResult = validateOrderStock();
+          const stockResult = validateOrderStock();
       const partialAck = state.partialFulfilmentAcknowledged === true;
 
-      if (stockResult.blocked) {
-        if (!partialAck) {
-          alert(
-            'This order has insufficient stock. Tick "Allow partial fulfilment" to proceed.',
-          );
-          return;
-        }
+      // Any shortfall must be explicitly acknowledged by the operator.
+      // The system no longer hard-blocks; it forces the checkbox instead.
+      if (stockResult.warning && !partialAck) {
+        alert(
+          'This order has a stock shortfall. Tick "Allow partial fulfilment" to proceed.',
+        );
+        return;
       }
 
+      // If there is a shortfall, the order is partial from the moment it is
+      // submitted. This unlocks the routing flow later.
       if (stockResult.warning) {
-        // Warning is already covered by the partial-fulfilment card.
-        // If the operator hasn't ticked it, confirm they mean to proceed.
-        if (!partialAck) {
-          const proceed = confirm(
-            stockResult.message +
-            "\n\nProceed without partial fulfilment? The order will submit but the stock shortfall will not be recorded.",
-          );
-          if (!proceed) return;
-        }
-      }
-
-      const isPartial =
-        partialAck && (stockResult.blocked || stockResult.warning);
-
-      // If partial fulfilment was acknowledged, mark the order accordingly.
-      if (isPartial) {
         o.fulfilmentStatus = "partial";
         o._partialAcknowledged = true;
         logTimeline(
-          `Partial fulfilment acknowledged — ${calcOutstandingLines(o).length} line(s) outstanding.`,
+          `Partial fulfilment acknowledged at submission — ${calcOutstandingLines(o).length} line(s) outstanding.`,
         );
       }
 
@@ -3500,33 +3479,10 @@ DISPATCH DASHBOARD DEMO SEED
     function validateOrderStock() {
       const o = state.order;
 
-      // For Pickup Immediate → Hard Block if any item has insufficient stock at the pickup location
-      if (o.fulfillment === "Pickup" && o.timing === "Immediate") {
-        const locationId =
-          LOCATIONS.find((l) => l.name === o.pickupLocation)?.id || "loc2";
-        const shortfalls = [];
-
-        o.items.forEach((i) => {
-          const product = getInvProduct(i.productId);
-          const s = getStockSummary(i.productId, locationId);
-          if (s.available < i.qty) {
-            shortfalls.push(
-              `${product.name}: needs ${i.qty}, only ${s.available} available at ${o.pickupLocation}`,
-            );
-          }
-        });
-
-        if (shortfalls.length > 0) {
-          return {
-            blocked: true,
-            warning: false,
-            message: `Cannot submit this order — insufficient stock for immediate pickup:\n\n${shortfalls.join("\n")}`,
-          };
-        }
-      }
-
-      // For Pickup Scheduled → Soft Warning if any item has insufficient stock at the pickup location
-      if (o.fulfillment === "Pickup" && o.timing === "Scheduled") {
+      // For Pickup (Immediate or Scheduled) → Soft Warning if any item has
+      // insufficient stock at the pickup location. Partial fulfilment can
+      // route the remainder to another location, so we no longer hard-block.
+      if (o.fulfillment === "Pickup") {
         const locationId =
           LOCATIONS.find((l) => l.name === o.pickupLocation)?.id || "loc2";
         const shortfalls = [];
