@@ -3418,15 +3418,6 @@ DISPATCH DASHBOARD DEMO SEED
 
       // Any shortfall must be explicitly acknowledged by the operator.
       // The system no longer hard-blocks; it forces the checkbox instead.
-      if (stockResult.warning && !partialAck) {
-        alert(
-          'This order has a stock shortfall. Tick "Allow partial fulfilment" to proceed.',
-        );
-        return;
-      }
-
-      // Any shortfall must be explicitly acknowledged by the operator.
-      // The system no longer hard-blocks; it forces the checkbox instead.
       // NOTE: This only applies to Pickup. Delivery shortfalls are handled
       // by the dispatch team, not the POS operator.
       if (o.fulfillment === "Pickup" && stockResult.warning && !partialAck) {
