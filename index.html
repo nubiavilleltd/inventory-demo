@@ -2374,7 +2374,7 @@ DISPATCH DASHBOARD DEMO SEED
       </table>
          ${locked ? "" : `<button class="mt-8" id="addProductBtn">+ Add Product</button>`}
 
-      ${!locked ? renderPartialFulfilmentCard(o) : ""}
+            ${!locked && o.fulfillment === "Pickup" ? renderPartialFulfilmentCard(o) : ""}
 
     <div class="summary-box">
          <div class="summary-box">
@@ -3425,14 +3425,15 @@ DISPATCH DASHBOARD DEMO SEED
         return;
       }
 
-      // If there is a shortfall, the order is partial from the moment it is
-      // submitted. This unlocks the routing flow later.
-      if (stockResult.warning) {
-        o.fulfilmentStatus = "partial";
-        o._partialAcknowledged = true;
-        logTimeline(
-          `Partial fulfilment acknowledged at submission — ${calcOutstandingLines(o).length} line(s) outstanding.`,
+      // Any shortfall must be explicitly acknowledged by the operator.
+      // The system no longer hard-blocks; it forces the checkbox instead.
+      // NOTE: This only applies to Pickup. Delivery shortfalls are handled
+      // by the dispatch team, not the POS operator.
+      if (o.fulfillment === "Pickup" && stockResult.warning && !partialAck) {
+        alert(
+          'This order has a stock shortfall. Tick "Allow partial fulfilment" to proceed.',
         );
+        return;
       }
 
       // Record the acknowledgement on the order.
