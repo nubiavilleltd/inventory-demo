@@ -692,50 +692,20 @@
       },
     ];
 
-    const DRIVERS = [
-      {
-        id: "d1",
-        name: "John Doe",
-        phone: "08055556666",
-        status: "Available",
-      },
-      {
-        id: "d2",
-        name: "Jane Smith",
-        phone: "08055557777",
-        status: "Available",
-      },
-      {
-        id: "d3",
-        name: "Mike Johnson",
-        phone: "08055558888",
-        status: "On Trip",
-      },
+
+      const DRIVERS = [
+      { id: "d1", name: "John Doe", phone: "08055556666", status: "Available", defaultVehicleId: "v1" },
+      { id: "d2", name: "Jane Smith", phone: "08055557777", status: "Available", defaultVehicleId: "v2" },
+      { id: "d3", name: "Mike Johnson", phone: "08055558888", status: "On Trip", defaultVehicleId: "v3" },
     ];
 
     const VEHICLES = [
-      {
-        id: "v1",
-        plate: "KJA-123-XY",
-        type: "Van",
-        capacity: 100,
-        status: "Available",
-      },
-      {
-        id: "v2",
-        plate: "KJA-456-AB",
-        type: "Truck",
-        capacity: 200,
-        status: "Available",
-      },
-      {
-        id: "v3",
-        plate: "KJA-789-CD",
-        type: "Bike",
-        capacity: 20,
-        status: "Maintenance",
-      },
+      { id: "v1", plate: "KJA-123-XY", type: "Van", capacity: 100, status: "Available", defaultDriverId: "d1" },
+      { id: "v2", plate: "KJA-456-AB", type: "Truck", capacity: 200, status: "Available", defaultDriverId: "d2" },
+      { id: "v3", plate: "KJA-789-CD", type: "Bike", capacity: 20, status: "Maintenance", defaultDriverId: "d3" },
     ];
+
+
 
     const COURIERS = ["DHL", "GIG Logistics", "Local Dispatch", "Other"];
 
@@ -6728,15 +6698,15 @@ DISPATCH WIZARD (3-STEP)
 
           ${mode === "Company Fleet"
           ? `
-            <label class="mt-12">Driver *</label>
-            <select id="dispatchDriver" onchange="state.dispatchWizard.driver=this.value;">
+                      <label class="mt-12">Driver *</label>
+            <select id="dispatchDriver" onchange="onWizardDriverChange(this.value);">
               <option value="">Select driver</option>
               ${drivers.map((d) => `<option value="${d.name}" ${w.driver === d.name ? "selected" : ""}>${d.name} (${d.phone})</option>`).join("")}
             </select>
             ${drivers.length === 0 ? '<div style="color:#991b1b; font-size:12px; margin-top:4px;">⚠ No drivers available.</div>' : ""}
 
             <label class="mt-12">Vehicle *</label>
-            <select id="dispatchVehicle" onchange="state.dispatchWizard.vehicle=this.value;">
+            <select id="dispatchVehicle" onchange="onWizardVehicleChange(this.value);">
               <option value="">Select vehicle</option>
               ${vehicles.map((v) => `<option value="${v.plate}" ${w.vehicle === v.plate ? "selected" : ""}>${v.plate} — ${v.type} (${v.capacity} capacity)</option>`).join("")}
             </select>
@@ -7213,8 +7183,30 @@ DISPATCH WIZARD HANDLERS
       render();
     }
 
-    function attachDispatchWizardHandlers() {
+        function attachDispatchWizardHandlers() {
       // Handlers are inlined via onchange/onclick attributes, so nothing to wire up here.
+    }
+
+    // ----- Driver/Vehicle cross-population (Anchor and Suggest) -----
+    // Used by the Dispatch Wizard (single-order)
+    function onWizardDriverChange(driverName) {
+      state.dispatchWizard.driver = driverName;
+      const driver = DRIVERS.find((d) => d.name === driverName);
+      if (driver && driver.defaultVehicleId) {
+        const vehicle = VEHICLES.find((v) => v.id === driver.defaultVehicleId);
+        if (vehicle) state.dispatchWizard.vehicle = vehicle.plate;
+      }
+      render();
+    }
+
+    function onWizardVehicleChange(vehiclePlate) {
+      state.dispatchWizard.vehicle = vehiclePlate;
+      const vehicle = VEHICLES.find((v) => v.plate === vehiclePlate);
+      if (vehicle && vehicle.defaultDriverId) {
+        const driver = DRIVERS.find((d) => d.id === vehicle.defaultDriverId);
+        if (driver) state.dispatchWizard.driver = driver.name;
+      }
+      render();
     }
 
     function confirmDispatch() {
@@ -9519,9 +9511,9 @@ TRIP PAGE (Batch Dispatch)
       ${mode === "Company Fleet"
           ? `
         <div class="row">
-          <div class="col">
+                  <div class="col">
             <label>Driver *</label>
-            <select id="tripDriver" onchange="state.trip.driver=this.value; render();">
+            <select id="tripDriver" onchange="onTripDriverChange(this.value);">
               <option value="">Select driver</option>
               ${drivers.map((d) => `<option value="${d.name}" ${trip.driver === d.name ? "selected" : ""}>${d.name} (${d.phone})</option>`).join("")}
             </select>
@@ -9529,7 +9521,7 @@ TRIP PAGE (Batch Dispatch)
           </div>
           <div class="col">
             <label>Vehicle *</label>
-            <select id="tripVehicle" onchange="state.trip.vehicle=this.value; render();">
+            <select id="tripVehicle" onchange="onTripVehicleChange(this.value);">
               <option value="">Select vehicle</option>
               ${vehicles.map((v) => `<option value="${v.plate}" ${trip.vehicle === v.plate ? "selected" : ""}>${v.plate} — ${v.type} (${v.capacity} capacity)</option>`).join("")}
             </select>
@@ -10255,8 +10247,30 @@ TRIP PAGE (Batch Dispatch)
     // Attach any handlers that aren't inlined via onchange/onclick.
     // The Trip Page currently uses inline handlers for all interactive elements,
     // so there's nothing to wire up here yet.
-    function attachTripHandlers() {
+        function attachTripHandlers() {
       // Intentionally empty — all handlers are inline.
+    }
+
+    // ----- Driver/Vehicle cross-population (Anchor and Suggest) -----
+    // Used by the Trip page (batch dispatch)
+    function onTripDriverChange(driverName) {
+      state.trip.driver = driverName;
+      const driver = DRIVERS.find((d) => d.name === driverName);
+      if (driver && driver.defaultVehicleId) {
+        const vehicle = VEHICLES.find((v) => v.id === driver.defaultVehicleId);
+        if (vehicle) state.trip.vehicle = vehicle.plate;
+      }
+      render();
+    }
+
+    function onTripVehicleChange(vehiclePlate) {
+      state.trip.vehicle = vehiclePlate;
+      const vehicle = VEHICLES.find((v) => v.plate === vehiclePlate);
+      if (vehicle && vehicle.defaultDriverId) {
+        const driver = DRIVERS.find((d) => d.id === vehicle.defaultDriverId);
+        if (driver) state.trip.driver = driver.name;
+      }
+      render();
     }
 
     // Confirm and dispatch the trip.
