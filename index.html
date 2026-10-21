@@ -693,7 +693,7 @@
     ];
 
 
-      const DRIVERS = [
+    const DRIVERS = [
       { id: "d1", name: "John Doe", phone: "08055556666", status: "Available", defaultVehicleId: "v1" },
       { id: "d2", name: "Jane Smith", phone: "08055557777", status: "Available", defaultVehicleId: "v2" },
       { id: "d3", name: "Mike Johnson", phone: "08055558888", status: "On Trip", defaultVehicleId: "v3" },
@@ -1175,7 +1175,19 @@
       // Adjust Stock modal working state
       adjustReasonOpen: false,
       adjustReason: "", // '' | 'stock_count' | 'damage' | 'loss' | 'return_to_supplier'
+      adjustQty: "",
       adjustLocationId: null, // location selected in the modal dropdown
+
+      // Transfer Stock modal working state
+      transferFromId: null,
+      transferToId: null,
+      transferQty: "",
+      transferSelectedUnits: [],   // array of unit IDs (for Individual items)
+      transferUnitSearch: "",
+      transferNotes: "",
+      transferChangingUnitsFor: false, // true while the drill-in is open
+
+
       // Top-level tab
       activeTab: "orders", // 'orders' | 'inventory' | 'dispatch' | 'customer-portal'
       // Customer credit portal state (public, self-service)
@@ -4616,6 +4628,9 @@ DISPATCH DASHBOARD DEMO SEED
       } else if (state.activeModal === "adjust-stock") {
         c.innerHTML = renderAdjustStockModal();
         attachAdjustStockHandlers();
+      } else if (state.activeModal === "transfer-stock") {
+        c.innerHTML = renderTransferStockModal();
+        attachTransferStockHandlers();
       } else if (state.activeModal === "edit-unit-condition") {
         c.innerHTML = renderEditUnitConditionModal();
         attachEditUnitConditionHandlers();
@@ -7183,7 +7198,7 @@ DISPATCH WIZARD HANDLERS
       render();
     }
 
-        function attachDispatchWizardHandlers() {
+    function attachDispatchWizardHandlers() {
       // Handlers are inlined via onchange/onclick attributes, so nothing to wire up here.
     }
 
@@ -7655,8 +7670,9 @@ INVENTORY LIST PAGE
         </div>
         <div style="text-align:right;">
           <span class="badge ${getStockStatusBadge(status)}">${status}</span>
-          <div style="margin-top:8px;">
+                   <div style="margin-top:8px;">
             <button class="btn-primary" onclick="state.activeModal='receive-stock'; render();">+ Check In Stock</button>
+            <button onclick="openTransferStockModal('${p.id}');">Transfer Stock</button>
             <button onclick="state.activeModal='adjust-stock'; render();">Adjust Stock</button>
           </div>
         </div>
@@ -7711,6 +7727,89 @@ INVENTORY LIST PAGE
         }
     </div>
   `;
+    }
+
+
+
+
+
+    // ----- Transfer Stock Helpers -----
+
+    // Get available stock at a location for a product.
+    // For Individual: counts units with status === "Available" and no soft-reservation.
+    // For StockQuantity: returns onHand - reserved.
+    function getTransferableStock(productId, locationId) {
+      const product = getInvProduct(productId);
+      if (!product) return 0;
+
+      if (product.trackingType === "Individual") {
+        return UNITS.filter(
+          (u) =>
+            u.productId === productId &&
+            u.locationId === locationId &&
+            u.status === "Available" &&
+            !u.softReservedFor
+        ).length;
+      } else {
+        const row = STOCK.find(
+          (s) => s.productId === productId && s.locationId === locationId
+        );
+        if (!row) return 0;
+        return Math.max(0, row.onHand - (row.reserved || 0));
+      }
+    }
+
+    // Get the oldest N Available units at a location (FIFO).
+    // Excludes soft-reserved units.
+    function getTransferCandidates(productId, locationId, qty) {
+      return UNITS.filter(
+        (u) =>
+          u.productId === productId &&
+          u.locationId === locationId &&
+          u.status === "Available" &&
+          !u.softReservedFor
+      )
+        .sort((a, b) => {
+          if (a.receivedDate !== b.receivedDate)
+            return a.receivedDate < b.receivedDate ? -1 : 1;
+          return a.tag < b.tag ? -1 : 1;
+        })
+        .slice(0, qty)
+        .map((u) => u.id);
+    }
+
+    // Execute the transfer. Assumes validation already happened.
+    // Handles both Individual units and StockQuantity rows.
+    // Logs two movements (transfer_out at FROM, transfer_in at TO).
+    function executeTransfer(productId, fromId, toId, qty, selectedUnitIds, notes) {
+      const product = getInvProduct(productId);
+      if (!product) return;
+
+      if (product.trackingType === "Individual") {
+        // Move specific units to the new location.
+        selectedUnitIds.forEach((uid) => {
+          const unit = UNITS.find((u) => u.id === uid);
+          if (unit) unit.locationId = toId;
+        });
+        logMovement(productId, fromId, "transfer_out", qty, notes || null);
+        logMovement(productId, toId, "transfer_in", qty, notes || null);
+      } else {
+        // StockQuantity: decrement FROM, increment TO.
+        const fromRow = STOCK.find(
+          (s) => s.productId === productId && s.locationId === fromId
+        );
+        const toRow = STOCK.find(
+          (s) => s.productId === productId && s.locationId === toId
+        );
+        if (fromRow) fromRow.onHand -= qty;
+        if (toRow) {
+          toRow.onHand += qty;
+        } else {
+          STOCK.push({ productId, locationId: toId, onHand: qty, reserved: 0 });
+        }
+        logMovement(productId, fromId, "transfer_out", qty, notes || null);
+        logMovement(productId, toId, "transfer_in", qty, notes || null);
+      }
     }
 
     /* ============================================================
@@ -8268,6 +8367,284 @@ RECEIVE STOCK MODAL
       }
     }
 
+
+    function openTransferStockModal(productId) {
+      state.inventoryProductId = productId;
+      const product = getInvProduct(productId);
+      if (!product) return;
+
+      // Pick a sensible default FROM: first location with stock, else first location.
+      const locsWithStock = LOCATIONS.filter(
+        (l) => getTransferableStock(productId, l.id) > 0
+      );
+      const fromLoc = locsWithStock[0] || LOCATIONS[0];
+
+      // Pick a default TO: any location that isn't FROM.
+      const toLoc = LOCATIONS.find((l) => l.id !== fromLoc.id);
+
+      state.transferFromId = fromLoc.id;
+      state.transferToId = toLoc ? toLoc.id : LOCATIONS[0].id;
+      state.transferQty = "";
+      state.transferSelectedUnits = [];
+      state.transferUnitSearch = "";
+      state.transferNotes = "";
+
+      // Pre-seed the units for individual items (FIFO)
+      if (product.trackingType === "Individual") {
+        const available = getTransferableStock(productId, fromLoc.id);
+        if (available > 0) {
+          state.transferQty = String(Math.min(1, available));
+          state.transferSelectedUnits = getTransferCandidates(
+            productId,
+            fromLoc.id,
+            1
+          );
+        }
+      }
+
+      state.activeModal = "transfer-stock";
+      render();
+    }
+
+    function closeTransferStockModal() {
+      state.transferFromId = null;
+      state.transferToId = null;
+      state.transferQty = "";
+      state.transferSelectedUnits = [];
+      state.transferUnitSearch = "";
+      state.transferNotes = "";
+      state.transferChangingUnitsFor = false;
+      state.activeModal = null;
+      render();
+    }
+
+
+
+
+    function renderTransferStockModal() {
+      // Drill-in view for Change Units
+      if (state.transferChangingUnitsFor) {
+        return renderTransferChangeUnitsView();
+      }
+
+      const productId = state.inventoryProductId;
+      const product = getInvProduct(productId);
+      if (!product) return "";
+
+      const fromId = state.transferFromId;
+      const toId = state.transferToId;
+      const qty = parseInt(state.transferQty, 10) || 0;
+      const available = getTransferableStock(productId, fromId);
+      const isIndividual = product.trackingType === "Individual";
+      const selectedUnits = state.transferSelectedUnits || [];
+
+      // Validation state
+      const isInvalidQty = qty <= 0 || qty > available;
+      const isSameLocation = fromId === toId;
+      const isZeroStock = available === 0;
+      const canConfirm = !isInvalidQty && !isSameLocation && !isZeroStock;
+
+      // For individual items, show tag preview
+      let tagPreview = "";
+      if (isIndividual && selectedUnits.length > 0) {
+        const tags = selectedUnits
+          .map((uid) => UNITS.find((u) => u.id === uid)?.tag)
+          .filter(Boolean);
+        const summary =
+          tags.length <= 3
+            ? tags.join(", ")
+            : `${tags.slice(0, 3).join(", ")}, and ${tags.length - 3} more`;
+        tagPreview = `
+          <div style="margin-top:8px; padding:8px; border:1px dashed #ccc; border-radius:4px; font-size:11px; color:#555;">
+            <strong>Selected units (${tags.length}):</strong> ${summary}
+            <button onclick="openTransferChangeUnits();" style="margin-left:8px; font-size:11px; padding:2px 8px;">Change Units</button>
+          </div>
+        `;
+      }
+
+      return `
+        <div class="modal-overlay" onclick="if(event.target===this)closeTransferStockModal()">
+          <div class="modal">
+            <div class="modal-header">Transfer Stock <button class="close-x" onclick="closeTransferStockModal()">×</button></div>
+            <div class="modal-body">
+
+              <div style="padding:10px; border:1px dashed #999; border-radius:4px; margin-bottom:12px; font-size:12px;">
+                <strong>${product.name}</strong> · ${isIndividual ? "Individual Items" : "Stock Quantity"}
+              </div>
+
+              <label>From Location *</label>
+              <select id="transferFromSelect" onchange="onTransferFromChange(this.value)">
+                ${LOCATIONS.map((l) => {
+        const avail = getTransferableStock(productId, l.id);
+        return `<option value="${l.id}" ${fromId === l.id ? "selected" : ""}>${l.name} (${avail} available)</option>`;
+      }).join("")}
+              </select>
+
+              <label class="mt-12">To Location *</label>
+              <select id="transferToSelect" onchange="onTransferToChange(this.value)">
+                ${LOCATIONS.filter((l) => l.id !== fromId).map((l) => {
+        return `<option value="${l.id}" ${toId === l.id ? "selected" : ""}>${l.name}</option>`;
+      }).join("")}
+              </select>
+
+              <div style="margin-top:10px; padding:8px; border:1px dashed #999; border-radius:4px; font-size:12px;">
+                Available to transfer: <strong>${available}</strong>
+                ${isZeroStock ? `<div style="color:#991b1b; margin-top:4px;">⚠ No stock available to transfer from this location.</div>` : ""}
+              </div>
+
+              <label class="mt-12">Quantity to transfer *</label>
+              <input type="number" id="transferQtyInput" min="1" max="${available}"
+                value="${state.transferQty || ""}"
+                oninput="onTransferQtyChange(this.value)"
+                ${isZeroStock ? "disabled" : ""}>
+              ${isInvalidQty && qty > available ? `<div style="color:#991b1b; font-size:11px; margin-top:4px;">⚠ Cannot exceed available stock (${available}).</div>` : ""}
+
+              ${tagPreview}
+
+              <label class="mt-12">Notes (Optional)</label>
+              <textarea id="transferNotesInput" oninput="state.transferNotes = this.value;" placeholder="e.g., Replenishing store front">${state.transferNotes || ""}</textarea>
+
+            </div>
+            <div class="modal-footer">
+              <button onclick="closeTransferStockModal()">Cancel</button>
+              <button class="btn-primary" id="confirmTransferBtn" ${!canConfirm ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ""}>Confirm Transfer</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+
+    // ----- Transfer Stock: Change Units drill-in -----
+
+    function openTransferChangeUnits() {
+      state.transferChangingUnitsFor = true;
+      state.transferUnitSearch = "";
+      render();
+    }
+
+    function closeTransferChangeUnits() {
+      state.transferChangingUnitsFor = false;
+      state.transferUnitSearch = "";
+      render();
+    }
+
+    function renderTransferChangeUnitsView() {
+      const productId = state.inventoryProductId;
+      const product = getInvProduct(productId);
+      const fromId = state.transferFromId;
+      if (!product || !fromId) return "";
+
+      const qty = parseInt(state.transferQty, 10) || 0;
+      const selected = state.transferSelectedUnits || [];
+
+      // Candidates: all Available, non-soft-reserved units at the FROM location
+      const candidates = UNITS.filter(
+        (u) =>
+          u.productId === productId &&
+          u.locationId === fromId &&
+          u.status === "Available" &&
+          !u.softReservedFor
+      ).sort((a, b) => {
+        if (a.receivedDate !== b.receivedDate)
+          return a.receivedDate < b.receivedDate ? -1 : 1;
+        return a.tag < b.tag ? -1 : 1;
+      });
+
+      const search = (state.transferUnitSearch || "").toLowerCase();
+      const filtered = candidates.filter(
+        (u) => !search || u.tag.toLowerCase().includes(search)
+      );
+
+      const fromName = getLocation(fromId)?.name || "—";
+      const toName = getLocation(state.transferToId)?.name || "—";
+
+      return `
+        <div class="modal-overlay" onclick="if(event.target===this)closeTransferStockModal()">
+          <div class="modal">
+            <div class="modal-header">Change Units <button class="close-x" onclick="closeTransferChangeUnits()">×</button></div>
+            <div class="modal-body">
+
+              <p style="font-size:13px;">
+                <strong>${product.name}</strong> · Select exactly <strong>${qty}</strong> unit${qty === 1 ? "" : "s"} from ${fromName} to transfer to ${toName}.
+              </p>
+              <p style="font-size:12px; color:#666; margin-top:4px;">
+                ${candidates.length} unit${candidates.length === 1 ? "" : "s"} available at this location.
+              </p>
+
+              <input type="text" id="transferUnitSearch"
+                placeholder="🔍 Search by tag..."
+                value="${state.transferUnitSearch || ""}"
+                style="margin-top:8px;"
+                oninput="state.transferUnitSearch = this.value; render();">
+
+              <div style="max-height:320px; overflow-y:auto; border:2px solid #1a1a1a; border-radius:4px; padding:8px; margin-top:8px;">
+                ${filtered.length === 0
+          ? `<div class="empty-state">${candidates.length === 0 ? "No units available." : "No units match your search."}</div>`
+          : filtered.map((u) => {
+            const checked = selected.includes(u.id);
+            const isDisabled = !checked && selected.length >= qty;
+            return `
+                        <label style="display:flex; gap:8px; align-items:center; padding:6px 4px; border-bottom:1px dashed #ddd; font-size:12px; cursor:pointer; ${isDisabled ? "opacity:0.4;" : ""}">
+                          <input type="checkbox" ${checked ? "checked" : ""} ${isDisabled ? "disabled" : ""}
+                            style="width:auto;"
+                            onchange="toggleTransferUnit('${u.id}')">
+                          <span style="flex:1;">${u.tag}</span>
+                          <span style="font-size:11px; color:#888;">${u.condition || "New"}</span>
+                          <span style="font-size:11px; color:#888;">${formatDate(u.receivedDate)}</span>
+                        </label>
+                      `;
+          }).join("")}
+              </div>
+
+              <div style="margin-top:8px; font-size:12px;">
+                ${selected.length === qty
+          ? `<span class="green">✓ ${selected.length} of ${qty} selected</span>`
+          : `<span class="red">Select exactly ${qty}. Currently: ${selected.length}</span>`}
+              </div>
+
+            </div>
+            <div class="modal-footer">
+              <button onclick="closeTransferChangeUnits()">← Back</button>
+              <button class="btn-primary" onclick="confirmTransferChangeUnits()" ${selected.length !== qty ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ""}>Done</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function toggleTransferUnit(unitId) {
+      const qty = parseInt(state.transferQty, 10) || 0;
+      let selected = state.transferSelectedUnits || [];
+
+      if (selected.includes(unitId)) {
+        selected = selected.filter((id) => id !== unitId);
+      } else {
+        if (selected.length >= qty) {
+          alert(`You can select up to ${qty} units. Deselect one first.`);
+          return;
+        }
+        selected.push(unitId);
+      }
+
+      state.transferSelectedUnits = selected;
+      render();
+    }
+
+    function confirmTransferChangeUnits() {
+      const qty = parseInt(state.transferQty, 10) || 0;
+      const selected = state.transferSelectedUnits || [];
+      if (selected.length !== qty) {
+        return alert(`Select exactly ${qty} units.`);
+      }
+      state.transferChangingUnitsFor = false;
+      state.transferUnitSearch = "";
+      render();
+    }
+
+
+
+
     /* ============================================================
 ADJUST STOCK MODAL
 ============================================================ */
@@ -8735,6 +9112,85 @@ ADJUST STOCK MODAL
       document
         .getElementById("confirmAdjustBtn")
         ?.addEventListener("click", confirmAdjust);
+    }
+
+
+    function attachTransferStockHandlers() {
+      document
+        .getElementById("confirmTransferBtn")
+        ?.addEventListener("click", commitTransferStock);
+    }
+
+    function onTransferFromChange(fromId) {
+      state.transferFromId = fromId;
+      // Reset TO if it now equals FROM
+      if (state.transferToId === fromId) {
+        const alt = LOCATIONS.find((l) => l.id !== fromId);
+        state.transferToId = alt ? alt.id : null;
+      }
+      // Reset quantity/units — the availability changed
+      state.transferQty = "";
+      state.transferSelectedUnits = [];
+      // Re-seed if individual
+      const product = getInvProduct(state.inventoryProductId);
+      if (product && product.trackingType === "Individual") {
+        const avail = getTransferableStock(product.id, fromId);
+        if (avail > 0) {
+          state.transferQty = String(Math.min(1, avail));
+          state.transferSelectedUnits = getTransferCandidates(product.id, fromId, 1);
+        }
+      }
+      render();
+    }
+
+    function onTransferToChange(toId) {
+      state.transferToId = toId;
+      render();
+    }
+
+    function onTransferQtyChange(rawValue) {
+      const qty = Math.max(0, parseInt(rawValue, 10) || 0);
+      state.transferQty = rawValue;
+      // Changing qty invalidates any manual unit selection — re-seed FIFO
+      state.transferChangingUnitsFor = false;
+      const product = getInvProduct(state.inventoryProductId);
+      if (product && product.trackingType === "Individual") {
+        const available = getTransferableStock(product.id, state.transferFromId);
+        const cappedQty = Math.min(qty, available);
+        state.transferSelectedUnits = getTransferCandidates(
+          product.id,
+          state.transferFromId,
+          cappedQty
+        );
+      }
+      render();
+    }
+
+    function commitTransferStock() {
+      const productId = state.inventoryProductId;
+      const fromId = state.transferFromId;
+      const toId = state.transferToId;
+      const qty = parseInt(state.transferQty, 10) || 0;
+      const notes = (state.transferNotes || "").trim();
+
+      const available = getTransferableStock(productId, fromId);
+      if (qty <= 0 || qty > available) return alert("Invalid quantity.");
+      if (fromId === toId) return alert("From and To locations must be different.");
+
+      const product = getInvProduct(productId);
+      const selectedUnitIds =
+        product.trackingType === "Individual"
+          ? state.transferSelectedUnits
+          : [];
+
+      if (product.trackingType === "Individual" && selectedUnitIds.length !== qty) {
+        return alert(`Select exactly ${qty} units to transfer.`);
+      }
+
+      executeTransfer(productId, fromId, toId, qty, selectedUnitIds, notes);
+
+      // Clear state and close
+      closeTransferStockModal();
     }
 
     /* ============================================================
@@ -10247,7 +10703,7 @@ TRIP PAGE (Batch Dispatch)
     // Attach any handlers that aren't inlined via onchange/onclick.
     // The Trip Page currently uses inline handlers for all interactive elements,
     // so there's nothing to wire up here yet.
-        function attachTripHandlers() {
+    function attachTripHandlers() {
       // Intentionally empty — all handlers are inline.
     }
 
