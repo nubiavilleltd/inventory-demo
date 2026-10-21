@@ -2244,7 +2244,7 @@ DISPATCH DASHBOARD DEMO SEED
             <label>Scheduled Pickup Date *</label>
             <input type="date" id="scheduledDateInput" value="${o.scheduledDate}" ${locked ? "disabled" : ""}>
                       <div style="font-size:11px; color:#666; margin-top:4px;">
-              ${o.timing === "Immediate"
+              ${getTiming(o) === "Immediate"
             ? "💡 Pickup today — Stock is checked immediately."
             : "💡 Future pickup — Stock is checked when marked Ready."
           }
@@ -2836,10 +2836,10 @@ DISPATCH DASHBOARD DEMO SEED
                 const routedLocName =
                   LOCATIONS.find((l) => l.id === o.fulfilmentLocationId)?.name ||
                   o.pickupLocation;
-                return `
+                                return `
                     <div style="font-size:12px; color:#555; margin-bottom:8px;">
                       Remaining Items: <strong>Pickup</strong> — customer comes to ${routedLocName}
-                      <a href="#" onclick="event.preventDefault(); openFulfilmentRoutingModal();" style="margin-left:6px; color:#1e40af;">Change</a>
+                      ${!o.deliveryFeePaid ? `<a href="#" onclick="event.preventDefault(); openFulfilmentRoutingModal();" style="margin-left:6px; color:#1e40af;">Change</a>` : ""}
                     </div>
                     ${!canHandover
                     ? `<div style="font-size:12px; color:#92400e; padding:8px; border:1px dashed #92400e; border-radius:4px; margin-bottom:8px;">
@@ -2854,13 +2854,14 @@ DISPATCH DASHBOARD DEMO SEED
 
               // Case C — Delivery
               if (handling === "Delivery") {
-                const canChange = o.state !== "out-for-delivery";
+                const canChange =
+                  o.state !== "out-for-delivery" && !o.deliveryFeePaid;
                 return `
                     <div style="font-size:12px; color:#555; margin-bottom:8px;">
-                      Fulfilment Handling: <strong>Delivery</strong> — ship to the customer
+                      Remaining Items: <strong>Delivery</strong> — ship to the customer
                       ${canChange ? `<a href="#" onclick="event.preventDefault(); openFulfilmentRoutingModal();" style="margin-left:6px; color:#1e40af;">Change</a>` : ""}
                     </div>
-                    <button class="btn-primary" id="dispatchOutstandingBtn">Dispatch Outstanding Items</button>
+                    <button class="btn-primary" id="dispatchOutstandingBtn">Dispatch Remaining Items</button>
                     <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>
                   `;
               }
