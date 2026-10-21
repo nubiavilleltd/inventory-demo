@@ -2240,10 +2240,10 @@ DISPATCH DASHBOARD DEMO SEED
           <div class="col">
             <label>Scheduled Pickup Date *</label>
             <input type="date" id="scheduledDateInput" value="${o.scheduledDate}" ${locked ? "disabled" : ""}>
-            <div style="font-size:11px; color:#666; margin-top:4px;">
+                      <div style="font-size:11px; color:#666; margin-top:4px;">
               ${o.timing === "Immediate"
-            ? "💡 Pickup today — Stock is hard-blocked."
-            : "💡 Future pickup — Stock is soft-warned, reserved at Ready."
+            ? "💡 Pickup today — Stock is checked immediately."
+            : "💡 Future pickup — Stock is checked when marked Ready."
           }
             </div>
           </div>
@@ -2766,8 +2766,8 @@ DISPATCH DASHBOARD DEMO SEED
               // Case A — no handling decided yet
               if (!handling) {
                 return `
-                    <button class="btn-primary" id="markCollectedBtn">Hand Over Items</button>
-                    <button class="btn-secondary" id="fulfilOutstandingBtn">Fulfil Outstanding Items</button>
+                    <button class="btn-primary" id="markCollectedBtn">Pick Up Items</button>
+                    <button class="btn-secondary" id="fulfilOutstandingBtn">Send Remaining Items</button>
                     <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>
                   `;
               }
@@ -2843,7 +2843,7 @@ DISPATCH DASHBOARD DEMO SEED
               }
             }
 
-            // ----- Non-partial order: existing behaviour -----
+              // ----- Non-partial order: existing behaviour -----
             const totalFulfilled = (o.fulfilmentLines || []).reduce((s, l) => s + l.fulfilled, 0);
 
             // If nothing has been fulfilled yet, they can either hand over what's 
@@ -2853,31 +2853,37 @@ DISPATCH DASHBOARD DEMO SEED
               if (o.fulfilmentHandling === "Delivery") {
                 return `
                     <div style="font-size:12px; color:#555; margin-bottom:8px;">
-                      Fulfilment Handling: <strong>Delivery</strong> — ship to the customer
+                      Remaining Items: <strong>Delivery</strong> — ship to the customer
                       <a href="#" onclick="event.preventDefault(); openFulfilmentRoutingModal();" style="margin-left:6px; color:#1e40af;">Change</a>
                     </div>
-                    <button class="btn-primary" id="dispatchOutstandingBtn">Dispatch Outstanding Items</button>
+                    <button class="btn-primary" id="dispatchOutstandingBtn">Dispatch Remaining Items</button>
                     <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>
                   `;
               }
 
-              // Otherwise (no handling, or routed to Pickup), show hand over + fulfil.
+              // Otherwise (no handling, or routed to Pickup), show pick up + fulfil.
               return `
-                  <button class="btn-primary" id="markCollectedBtn">Hand Over Available Items</button>
-                  <button class="btn-secondary" id="fulfilOutstandingBtn">Fulfil Outstanding Items</button>
+                  <button class="btn-primary" id="markCollectedBtn">Pick Up Available Items</button>
+                  <button class="btn-secondary" id="fulfilOutstandingBtn">Send Remaining Items</button>
                   <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>
                 `;
             }
 
-            // If some were fulfilled, show the standard collection button
+            // If some were fulfilled, show the standard pickup button
             return `
-                <button class="btn-primary" id="markCollectedBtn">Mark as Collected</button>
+                <button class="btn-primary" id="markCollectedBtn">Pick Up Items</button>
                 ${isOverdue(o) ? `<button id="extendExpiryBtn">Extend Expiry</button>` : ""}
                 <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>
               `;
           })()
           : ""
         }
+
+
+
+
+
+        
 
       ${o.fulfillment === "Delivery" && o.state === "confirmed"
           ? `
@@ -3774,7 +3780,7 @@ DISPATCH DASHBOARD DEMO SEED
       return `
     <div class="modal-overlay" onclick="if(event.target===this)closeFulfilmentRoutingModal()">
       <div class="modal">
-        <div class="modal-header">Fulfil Outstanding Items <button class="close-x" onclick="closeFulfilmentRoutingModal()">×</button></div>
+                  <div class="modal-header">Send Remaining Items <button class="close-x" onclick="closeFulfilmentRoutingModal()">×</button></div>
         <div class="modal-body">
           <p style="font-size:13px;">
             Order <strong>${o.orderNumber}</strong> has <strong>${totalOutstanding} items</strong> outstanding:
@@ -5444,7 +5450,7 @@ DISPATCH DASHBOARD DEMO SEED
               Nothing is available to hand over right now.
             </div>
             <button class="btn-primary" style="width:100%; margin-bottom:12px;" onclick="closeModal(); openFulfilmentRoutingModal();">
-              Route Remainder →
+              Send Remaining Items →
             </button>
           `
           : `
@@ -5571,7 +5577,7 @@ DISPATCH DASHBOARD DEMO SEED
           ${!hasZeroStock
           ? `
             <button class="btn-primary" id="confirmPickupBtn">
-              ${isDeferred ? "Confirm Handover (0 items)" : "Confirm Pickup"}
+              ${isDeferred ? "Confirm Pickup (0 items)" : "Confirm Pickup"}
             </button>
           `
           : ""}
@@ -5814,10 +5820,10 @@ DISPATCH DASHBOARD DEMO SEED
           // -------- 2. Record the picked-up-by info --------
           if (isDeferred) {
             o.pickedUpBy = null; // Don't record anyone as taking goods
-            logTimeline("0 items handed over. Deferred by operator.");
+            logTimeline("0 items picked up. Deferred by operator.");
           } else {
             o.pickedUpBy = { name, phone, orderRefVerified, idPresented };
-            const logParts = [`Collected by ${name}`];
+            const logParts = [`Picked up by ${name}`];
             if (!isImmediate) {
               logParts.push(
                 orderRefVerified
@@ -5876,19 +5882,19 @@ DISPATCH DASHBOARD DEMO SEED
 
           const isWalkin =
             getTiming(o) === "Immediate" && o.fulfillment === "Pickup";
-          state.successContext = {
+                   state.successContext = {
             title: isFullyFulfilled
               ? isWalkin
                 ? "Order Completed"
-                : "Order Collected"
-              : (totalFulfilled === 0 ? "Handover Deferred" : "Partial Handover Recorded"),
+                : "Order Picked Up"
+              : (totalFulfilled === 0 ? "Pickup Deferred" : "Partial Pickup Recorded"),
             subtitle: isFullyFulfilled
               ? isWalkin
-                ? `${o.orderNumber} · Handover confirmed`
+                ? `${o.orderNumber} · Pickup confirmed`
                 : `${o.orderNumber} · Thank you`
               : (totalFulfilled === 0
-                ? `${o.orderNumber} · 0 items handed over, ${totalOutstanding} outstanding.`
-                : `${o.orderNumber} · ${totalFulfilled} items handed over, ${totalOutstanding} outstanding.`),
+                ? `${o.orderNumber} · 0 items picked up, ${totalOutstanding} outstanding.`
+                : `${o.orderNumber} · ${totalFulfilled} items picked up, ${totalOutstanding} outstanding.`),
             // Only show the receipt if a payment was just made in this session
             documentLabel: state.paymentRecordedThisSession ? "Receipt" : null,
             isWalkin: false,
