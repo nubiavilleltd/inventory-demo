@@ -2166,34 +2166,6 @@ DISPATCH DASHBOARD DEMO SEED
       return `<div class="scenario-banner"><strong>🎬 ${s.title}</strong>${s.description}</div>`;
     }
 
-    // Renders the partial-fulfilment acknowledgement card.
-    // Only shown when validateOrderStock reports a shortfall.
-    // function renderPartialFulfilmentCard(order) {
-    //   const stockResult = validateOrderStock();
-    //   if (!stockResult.warning) return "";
-
-    //   return `
-    //       <div style="margin-top:10px; padding:10px; border:2px dashed #92400e; border-radius:4px; background:#fef3c7;">
-    //         <div style="font-size:12px; font-weight:bold; color:#92400e; margin-bottom:8px;">
-    //           ⚠ Some items are not fully stocked
-    //         </div>
-
-    //         <div style="font-size:12px; color:#92400e; margin-bottom:10px; line-height:1.5;">
-    //           Some items cannot be fulfilled in full. The customer can receive what's available now, and the remainder later — either at another pickup location or by delivery.
-    //         </div>
-
-    //         <label style="display:flex; align-items:flex-start; gap:8px; font-size:12px; line-height:1.4; cursor:pointer; color:#92400e;">
-    //           <input type="checkbox" id="partialFulfilmentCheckbox"
-    //             style="width:auto; margin-top:2px;"
-    //             ${state.partialFulfilmentAcknowledged ? "checked" : ""}
-    //             onchange="state.partialFulfilmentAcknowledged = this.checked;">
-    //           <span>
-    //             <strong>Allow partial fulfilment.</strong>
-    //           </span>
-    //         </label>
-    //       </div>
-    //     `;
-    // }
 
 
     /* ============ ORDER CREATION PAGE ============ */
@@ -2401,7 +2373,6 @@ DISPATCH DASHBOARD DEMO SEED
         </tbody>
       </table>
          ${locked ? "" : `<button class="mt-8" id="addProductBtn">+ Add Product</button>`}
-
 
     <div class="summary-box">
          <div class="summary-box">
@@ -2794,7 +2765,7 @@ DISPATCH DASHBOARD DEMO SEED
               if (!handling) {
                 return `
                     <button class="btn-primary" id="markCollectedBtn">Pick Up Items</button>
-                    <button class="btn-secondary" id="fulfilOutstandingBtn">Send Remaining Items</button>
+                    <button class="btn-secondary" id="fulfilOutstandingBtn">Route Remaining Items</button>
                     <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>
                   `;
               }
@@ -2840,17 +2811,17 @@ DISPATCH DASHBOARD DEMO SEED
                 const routedLocName =
                   LOCATIONS.find((l) => l.id === o.fulfilmentLocationId)?.name ||
                   o.pickupLocation;
-                return `
+                          return `
                     <div style="font-size:12px; color:#555; margin-bottom:8px;">
-                      Fulfilment Handling: <strong>Pickup</strong> — customer comes to ${routedLocName}
+                      Remaining Items: <strong>Pickup</strong> — customer comes to ${routedLocName}
                       <a href="#" onclick="event.preventDefault(); openFulfilmentRoutingModal();" style="margin-left:6px; color:#1e40af;">Change</a>
                     </div>
                     ${!canHandover
                     ? `<div style="font-size:12px; color:#92400e; padding:8px; border:1px dashed #92400e; border-radius:4px; margin-bottom:8px;">
-                             ⚠ Nothing available to hand over right now. The outstanding items will become available once stock is restocked.
+                             ⚠ Nothing available to pick up right now. The outstanding items will become available once stock is restocked.
                            </div>
-                           <button class="btn-primary" disabled style="opacity:0.5; cursor:not-allowed;">Hand Over Available Items</button>`
-                    : `<button class="btn-primary" id="markCollectedBtn">Hand Over Available Items</button>`
+                           <button class="btn-primary" disabled style="opacity:0.5; cursor:not-allowed;">Pick Up Available Items</button>`
+                    : `<button class="btn-primary" id="markCollectedBtn">Pick Up Available Items</button>`
                   }
                     <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>
                   `;
@@ -2891,7 +2862,7 @@ DISPATCH DASHBOARD DEMO SEED
               // Otherwise (no handling, or routed to Pickup), show pick up + fulfil.
               return `
                   <button class="btn-primary" id="markCollectedBtn">Pick Up Available Items</button>
-                  <button class="btn-secondary" id="fulfilOutstandingBtn">Send Remaining Items</button>
+                  <button class="btn-secondary" id="fulfilOutstandingBtn">Route Remaining Items</button>
                   <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>
                 `;
             }
@@ -3591,8 +3562,46 @@ DISPATCH DASHBOARD DEMO SEED
        FULFILMENT ROUTING MODAL
        ============================================================ */
 
-    // Opens the routing modal. Seeds the draft from any existing handling.
-    function openFulfilmentRoutingModal() {
+    // // Opens the routing modal. Seeds the draft from any existing handling.
+    // function openFulfilmentRoutingModal() {
+    //   const o = state.order;
+    //   const cust = state.customer;
+
+    //   // Seed the draft from any existing choice, or the defaults.
+    //   state.routingDraft = o.fulfilmentHandling || "";
+
+    //   // Pickup location: existing fulfilmentLocationId, or the order's
+    //   // original pickupLocation mapped to its ID.
+    //   if (o.fulfilmentLocationId) {
+    //     state.routingLocationId = o.fulfilmentLocationId;
+    //   } else {
+    //     const originalLoc = LOCATIONS.find(
+    //       (l) => l.name === o.pickupLocation,
+    //     );
+    //     state.routingLocationId = originalLoc ? originalLoc.id : LOCATIONS[0].id;
+    //   }
+
+    //   // Address: existing fulfilmentAddressId, or the customer's default.
+    //   if (o.fulfilmentAddressId) {
+    //     state.routingAddressId = o.fulfilmentAddressId;
+    //   } else {
+    //     const addrs = cust.addresses || [];
+    //     const preferred =
+    //       addrs.find((a) => a.isDefault) || addrs[0] || null;
+    //     state.routingAddressId = preferred ? preferred.id : null;
+    //   }
+
+    //   state.routingUrgency = o.fulfilmentUrgency || "Standard";
+    //   state.routingRecordNow = false;
+
+    //   state.activeModal = "fulfilment-routing";
+    //   render();
+    // }
+
+
+
+
+        function openFulfilmentRoutingModal() {
       const o = state.order;
       const cust = state.customer;
 
@@ -3623,10 +3632,19 @@ DISPATCH DASHBOARD DEMO SEED
       state.routingUrgency = o.fulfilmentUrgency || "Standard";
       state.routingRecordNow = false;
 
+      // Reset pickup working state
+      state.collectionSelections = {};
+      state.collectionQuantities = {};
+      state.collectionUnitSearch = "";
+      state.collectionChangingUnitsFor = null;
+      state.deferAllItems = false;
+
       state.activeModal = "fulfilment-routing";
       render();
     }
-
+    
+    
+    
     function closeFulfilmentRoutingModal() {
       state.routingDraft = "";
       state.routingLocationId = null;
@@ -3639,139 +3657,113 @@ DISPATCH DASHBOARD DEMO SEED
 
 
 
-    // Writes the chosen handling onto the order and logs the change.
-    function confirmFulfilmentRouting() {
+    // // Writes the chosen handling onto the order and logs the change.
+
+        function confirmFulfilmentRouting() {
       const o = state.order;
-      const cust = state.customer;
       if (!state.routingDraft) return;
 
       const previous = o.fulfilmentHandling;
       const next = state.routingDraft;
 
-      // ----- 1. Handle the fee side of the change -----
-
       if (next === "Delivery") {
-        // Set the address and urgency, compute the new fee.
+        // --- Existing Delivery Logic ---
         o.fulfilmentAddressId = state.routingAddressId;
         o.fulfilmentUrgency = state.routingUrgency;
-
-        const newFee = calculateShippingFee(
-          o,
-          state.routingAddressId,
-          state.routingUrgency,
-        );
-
-        // If the fee changes, reset the paid flag.
+        const newFee = calculateShippingFee(o, state.routingAddressId, state.routingUrgency);
+        
         if (newFee !== o.deliveryFee) {
           if (o.deliveryFeePaid && o.deliveryFee > 0) {
-            // Fee was paid at an old amount; treat the change as a
-            // reversal of the old fee plus a new charge.
             const d = new Date();
             d.setDate(d.getDate() + CREDIT_VALIDITY_DAYS);
-            cust.credit += o.deliveryFee;
-            cust.creditExpiryDate = d.toISOString().split("T")[0];
-            const master = getCustomer(cust.id);
+            state.customer.credit += o.deliveryFee;
+            state.customer.creditExpiryDate = d.toISOString().split("T")[0];
+            const master = getCustomer(state.customer.id);
             if (master) {
-              master.credit = cust.credit;
-              master.creditExpiryDate = cust.creditExpiryDate;
+              master.credit = state.customer.credit;
+              master.creditExpiryDate = state.customer.creditExpiryDate;
             }
-            pushCreditEvent(
-              cust.id,
-              `Delivery fee adjusted — order ${o.orderNumber}`,
-              o.deliveryFee,
-            );
-            logTimeline(
-              `Delivery fee adjusted. Old fee ${money(o.deliveryFee)} credited back. New fee ${money(newFee)}.`,
-            );
+            pushCreditEvent(state.customer.id, `Delivery fee adjusted — order ${o.orderNumber}`, o.deliveryFee);
+            logTimeline(`Delivery fee adjusted. Old fee ${money(o.deliveryFee)} credited back. New fee ${money(newFee)}.`);
           }
           o.deliveryFee = newFee;
           o.deliveryFeePaid = false;
         }
-      } else {
-        // next === "Pickup"
-        // Clear any fee. If it was paid, credit the customer.
+        
+        o.fulfilmentHandling = "Delivery";
+        o.fulfilmentLocationId = null;
+        
+        if (!previous) logTimeline(`Remaining items set to Delivery`);
+        else if (previous !== next) logTimeline(`Remaining items changed from ${previous} to Delivery`);
+        
+        ensureOrderInDispatchPool(o);
+        
+        const recordNow = state.routingRecordNow;
+        state.routingDraft = "";
+        state.activeModal = null;
+        
+        if (recordNow && o.deliveryFee > 0 && !o.deliveryFeePaid) {
+          state.activeModal = "payment";
+        }
+        render();
+        return;
+      }
+
+      // --- NEW: Pickup Logic ---
+      if (next === "Pickup") {
+        // 1. Clear any delivery fees (if switching from Delivery to Pickup)
         if (o.deliveryFee > 0) {
           if (o.deliveryFeePaid) {
-            cust.credit += o.deliveryFee;
+            state.customer.credit += o.deliveryFee;
             const d = new Date();
             d.setDate(d.getDate() + CREDIT_VALIDITY_DAYS);
-            cust.creditExpiryDate = d.toISOString().split("T")[0];
-            const master = getCustomer(cust.id);
+            state.customer.creditExpiryDate = d.toISOString().split("T")[0];
+            const master = getCustomer(state.customer.id);
             if (master) {
-              master.credit = cust.credit;
-              master.creditExpiryDate = cust.creditExpiryDate;
+              master.credit = state.customer.credit;
+              master.creditExpiryDate = state.customer.creditExpiryDate;
             }
-            pushCreditEvent(
-              cust.id,
-              `Delivery fee reversed — order ${o.orderNumber} reverted to Pickup`,
-              o.deliveryFee,
-            );
-            logTimeline(
-              `Fulfilment handling changed to Pickup. Delivery fee of ${money(o.deliveryFee)} credited back.`,
-            );
+            pushCreditEvent(state.customer.id, `Delivery fee reversed — order ${o.orderNumber} reverted to Pickup`, o.deliveryFee);
+            logTimeline(`Remaining items changed to Pickup. Delivery fee of ${money(o.deliveryFee)} credited back.`);
           } else {
-            logTimeline(
-              `Fulfilment handling changed to Pickup. Delivery fee of ${money(o.deliveryFee)} removed (was unpaid).`,
-            );
+            logTimeline(`Remaining items changed to Pickup. Delivery fee of ${money(o.deliveryFee)} removed (was unpaid).`);
           }
           o.deliveryFee = 0;
           o.deliveryFeePaid = false;
         }
-      }
 
-      // ----- 2. Apply the handling change itself -----
-
-      o.fulfilmentHandling = next;
-
-      // Save the pickup location if the remainder is being routed to
-      // Pickup. Clear it otherwise so it doesn't linger if the operator
-      // later switches to Delivery.
-      if (next === "Pickup") {
+        // 2. Set handling and location
+        o.fulfilmentHandling = "Pickup";
         o.fulfilmentLocationId = state.routingLocationId;
-      } else {
-        o.fulfilmentLocationId = null;
+        
+        if (!previous) logTimeline(`Remaining items set to Pickup`);
+        else if (previous !== next) logTimeline(`Remaining items changed from ${previous} to Pickup`);
+
+        // 3. Apply the pickup selections that were captured in the modal
+        applyRoutingPickupSelections();
+        
+        // 4. Clear working state
+        state.routingDraft = "";
+        state.routingLocationId = null;
+        state.routingAddressId = null;
+        state.routingUrgency = "Standard";
+        state.routingRecordNow = false;
+        state.collectionSelections = {};
+        state.collectionQuantities = {};
+        state.collectionUnitSearch = "";
+        state.collectionChangingUnitsFor = null;
+        state.deferAllItems = false;
+        state.activeModal = null;
+        
+        render();
+        return;
       }
-
-
-      if (!previous) {
-        logTimeline(`Fulfilment handling set to ${next}`);
-      } else if (previous !== next) {
-        logTimeline(
-          `Fulfilment handling changed from ${previous} to ${next}`,
-        );
-      }
-
-      // ----- 3. Adjust pool membership -----
-
-      if (o.fulfilmentHandling === "Delivery") {
-        ensureOrderInDispatchPool(o);
-      } else {
-        removeOrderFromDispatchPool(o.orderNumber);
-      }
-
-      // ----- 4. If the operator asked to record the fee now, open the
-      //          payment modal so they can. The payment modal already
-      //          sees the fee in the outstanding because calcTotals
-      //          includes deliveryFee in total. -----
-
-      const recordNow = state.routingRecordNow;
-
-      state.routingDraft = "";
-      state.routingLocationId = null;
-      state.routingAddressId = null;
-      state.routingUrgency = "Standard";
-      state.routingRecordNow = false;
-      state.activeModal = null;
-
-      if (recordNow && o.deliveryFee > 0 && !o.deliveryFeePaid) {
-        state.activeModal = "payment";
-      }
-
-      render();
     }
+   
 
+    
 
-    function renderFulfilmentRoutingModal() {
+         function renderFulfilmentRoutingModal() {
       const o = state.order;
       const cust = state.customer;
       const outstanding = calcOutstandingLines(o);
@@ -3781,14 +3773,10 @@ DISPATCH DASHBOARD DEMO SEED
       );
       const draft = state.routingDraft;
       const isUpdate = !!o.fulfilmentHandling;
-
-      // The delivery-specific panel is only shown when Delivery is chosen.
       const showDelivery = draft === "Delivery";
+      const showPickup = draft === "Pickup";
       const addrs = cust.addresses || [];
-
-      // If the operator hasn't picked an address yet, use the draft.
       const currentAddressId = state.routingAddressId;
-
       const liveFee =
         showDelivery && currentAddressId !== null
           ? calculateShippingFee(o, currentAddressId, state.routingUrgency)
@@ -3803,10 +3791,88 @@ DISPATCH DASHBOARD DEMO SEED
         return `${labelPart}${a.street}`;
       };
 
+      // Drill-in view for Change Units
+      if (state.collectionChangingUnitsFor) {
+        return renderCollectionChangeUnitsView();
+      }
+
+      // Pickup UI Logic
+      const pickupLoc = state.routingLocationId;
+      const handoverLines = showPickup
+        ? calcOutstandingLines(o)
+            .map((line) => {
+              const product = getInvProduct(line.productId);
+              if (!product) return null;
+              let availableHere = 0;
+              if (product.trackingType === "Individual") {
+                availableHere = UNITS.filter(
+                  (u) =>
+                    u.productId === line.productId &&
+                    u.locationId === pickupLoc &&
+                    (u.status === "Available" ||
+                      (u.status === "Reserved" &&
+                        u.reservedForOrder === o.orderNumber)),
+                ).length;
+              } else {
+                const s = getStockSummary(line.productId, pickupLoc);
+                availableHere = s.available + (s.reserved || 0);
+              }
+              return {
+                ...line,
+                availableHere,
+                handoverCap: Math.min(line.outstanding, availableHere),
+              };
+            })
+            .filter((line) => line && line.handoverCap > 0)
+        : [];
+
+      // Auto-select logic for pickup (only on first render of the pickup view)
+      if (
+        showPickup &&
+        Object.keys(state.collectionSelections).length === 0 &&
+        Object.keys(state.collectionQuantities).length === 0
+      ) {
+        handoverLines.forEach((line) => {
+          const product = getInvProduct(line.productId);
+          if (!product) return;
+          if (product.trackingType === "Individual") {
+            const cap = line.handoverCap;
+            let candidates = UNITS.filter(
+              (u) =>
+                u.productId === line.productId &&
+                u.locationId === pickupLoc &&
+                u.status === "Reserved" &&
+                u.reservedForOrder === o.orderNumber,
+            );
+            if (candidates.length === 0) {
+              candidates = UNITS.filter(
+                (u) =>
+                  u.productId === line.productId &&
+                  u.locationId === pickupLoc &&
+                  u.status === "Available",
+              );
+            }
+            candidates.sort((a, b) => {
+              if (a.receivedDate !== b.receivedDate)
+                return a.receivedDate < b.receivedDate ? -1 : 1;
+              return a.tag < b.tag ? -1 : 1;
+            });
+            state.collectionSelections[line.productId] = candidates
+              .slice(0, cap)
+              .map((u) => u.id);
+          } else {
+            state.collectionQuantities[line.productId] = line.handoverCap;
+          }
+        });
+      }
+
+      const isDeferred = state.deferAllItems || false;
+      const hasZeroStock = handoverLines.length === 0;
+
       return `
     <div class="modal-overlay" onclick="if(event.target===this)closeFulfilmentRoutingModal()">
       <div class="modal">
-                  <div class="modal-header">Send Remaining Items <button class="close-x" onclick="closeFulfilmentRoutingModal()">×</button></div>
+                <div class="modal-header">Route Remaining Items <button class="close-x" onclick="closeFulfilmentRoutingModal()">×</button></div>
         <div class="modal-body">
           <p style="font-size:13px;">
             Order <strong>${o.orderNumber}</strong> has <strong>${totalOutstanding} items</strong> outstanding:
@@ -3814,18 +3880,18 @@ DISPATCH DASHBOARD DEMO SEED
 
           <ul style="margin:8px 0 16px 20px; font-size:12px; color:#555;">
             ${outstanding
-          .map((l) => {
-            const p = getProduct(l.productId);
-            return p ? `<li>${p.name}: ${l.outstanding}</li>` : "";
-          })
-          .join("")}
+              .map((l) => {
+                const p = getProduct(l.productId);
+                return p ? `<li>${p.name}: ${l.outstanding}</li>` : "";
+              })
+              .join("")}
           </ul>
 
           <div style="font-size:13px; margin-bottom:8px;">
             How should the customer receive the remainder?
           </div>
 
-                <label style="display:flex; align-items:flex-start; gap:8px; font-size:13px; line-height:1.4; padding:8px; border:2px solid ${draft === "Pickup" ? "#1a1a1a" : "#ddd"}; border-radius:4px; background:${draft === "Pickup" ? "#dbeafe" : "#fff"}; cursor:pointer; margin-bottom:6px;">
+          <label style="display:flex; align-items:flex-start; gap:8px; font-size:13px; line-height:1.4; padding:8px; border:2px solid ${draft === "Pickup" ? "#1a1a1a" : "#ddd"}; border-radius:4px; background:${draft === "Pickup" ? "#dbeafe" : "#fff"}; cursor:pointer; margin-bottom:6px;">
             <input type="radio" name="routingChoice" value="Pickup"
               style="width:auto; margin-top:2px;"
               ${draft === "Pickup" ? "checked" : ""}
@@ -3833,21 +3899,21 @@ DISPATCH DASHBOARD DEMO SEED
             <span style="flex:1;">
               <strong>Pickup</strong> — customer picks up at:
               ${draft === "Pickup"
-          ? `
+                ? `
                 <select
                   style="margin-top:6px;"
                   onchange="state.routingLocationId=this.value; render();">
                   ${LOCATIONS.map(
-            (l) => `
+                    (l) => `
                     <option value="${l.id}" ${state.routingLocationId === l.id ? "selected" : ""}>
                       ${l.name}
                     </option>
                   `,
-          ).join("")}
+                  ).join("")}
                 </select>
               `
-          : `<em style="color:#666;">select to choose location</em>`
-        }
+                : `<em style="color:#666;">select to choose location</em>`
+              }
             </span>
           </label>
 
@@ -3862,33 +3928,33 @@ DISPATCH DASHBOARD DEMO SEED
           </label>
 
           ${showDelivery
-          ? `
+            ? `
             <div style="margin-top:14px; padding-top:12px; border-top:1px dashed #ccc;">
               <label>Delivery Address *</label>
               ${addrs.length === 0
-            ? `<div style="padding:8px; border:1px dashed #999; border-radius:4px; font-size:12px; color:#991b1b; margin-bottom:6px;">
+                ? `<div style="padding:8px; border:1px dashed #999; border-radius:4px; font-size:12px; color:#991b1b; margin-bottom:6px;">
                        No saved addresses for this customer. Add one to continue.
                      </div>
                      <button onclick="event.preventDefault(); state.activeModal='add-address'; render();" style="font-size:12px;">+ Add Address</button>`
-            : `
+                : `
                 <div style="display:flex; gap:8px; align-items:center;">
                   <select id="routingAddressSelect"
                     style="flex:1;"
                     onchange="state.routingAddressId=this.value; render();">
                     ${addrs
-              .map(
-                (a) => `
+                      .map(
+                        (a) => `
                       <option value="${a.id}" ${a.id === currentAddressId ? "selected" : ""}>
                         ${displayAddr(a)}
                       </option>
                     `,
-              )
-              .join("")}
+                      )
+                      .join("")}
                   </select>
                   <button onclick="event.preventDefault(); state.activeModal='add-address'; render();" style="font-size:12px;">+ Add</button>
                 </div>
               `
-          }
+              }
 
               <label class="mt-12">Delivery Urgency *</label>
               <div class="toggle-group">
@@ -3924,8 +3990,102 @@ DISPATCH DASHBOARD DEMO SEED
               </label>
             </div>
           `
-          : ""
-        }
+            : ""
+          }
+
+          ${showPickup
+            ? `
+            <div style="margin-top:14px; padding-top:12px; border-top:1px dashed #ccc;">
+              ${hasZeroStock
+                ? `
+                <div style="padding:12px; border:2px dashed #92400e; border-radius:4px; background:#fef3c7; font-size:12px; color:#92400e; margin-bottom:8px;">
+                  Nothing is available to pick up right now.
+                </div>
+              `
+                : `
+                <label class="mb-12" style="display:flex; align-items:flex-start; gap:8px; font-size:12px; line-height:1.3; padding:10px; background:#fdfdfd; border:2px solid ${isDeferred ? '#1a1a1a' : '#ccc'}; border-radius:4px; cursor:pointer; margin-bottom:12px;">
+                  <input type="checkbox" id="deferAllCheckbox"
+                    style="width:auto; margin-top:2px;"
+                    ${isDeferred ? "checked" : ""}
+                    onchange="state.deferAllItems = this.checked; render();">
+                  <span>
+                    <strong>Customer is not taking anything at the moment (defer all items)</strong>
+                    <br>
+                    <span style="color:#666;">The operator will log a pickup of 0 items.</span>
+                  </span>
+                </label>
+
+                <div style="font-weight:bold; font-size:13px; margin-bottom:8px;">Items being collected</div>
+
+                ${handoverLines
+                  .map((line) => {
+                    const p = getInvProduct(line.productId);
+                    if (!p) return "";
+                    const cap = line.handoverCap;
+
+                    if (p.trackingType === "Individual") {
+                      const selected = state.collectionSelections[line.productId] || [];
+                      const count = selected.length;
+                      const tags = selected
+                        .map((id) => UNITS.find((u) => u.id === id)?.tag)
+                        .filter(Boolean);
+                      const tagSummary =
+                        tags.length <= 3
+                          ? tags.join(", ")
+                          : `${tags.slice(0, 3).join(", ")}, and ${tags.length - 3} more`;
+
+                      return `
+                        <div class="card" style="margin-bottom:8px; padding:10px; ${isDeferred ? 'opacity:0.5; pointer-events:none;' : ''}">
+                          <div>
+                            <strong>${p.name}</strong> · ×${line.outstanding}
+                            <span style="font-size:11px; color:#888;">[Individual Item]</span>
+                          </div>
+                          <div style="margin-top:8px; font-size:13px; display:flex; align-items:center; gap:6px;">
+                            Handing over:
+                            <input type="number" min="0" max="${cap}"
+                              value="${isDeferred ? 0 : count}"
+                              ${isDeferred ? "disabled" : ""}
+                              style="width:70px; padding:4px 6px;"
+                              onchange="onRoutingPickupQtyChange('${line.productId}', this.value, ${cap})">
+                            <span style="color:#666;">of ${cap}</span>
+                          </div>
+                          ${tags.length > 0 && !isDeferred
+                            ? `<div style="margin-top:6px; font-size:11px; color:#666;">${tagSummary}</div>`
+                            : `<div style="margin-top:6px; font-size:11px; color:#666;">No units selected.</div>`
+                          }
+                          <div style="margin-top:8px;">
+                            <button onclick="openCollectionChangeUnits('${line.productId}')" ${isDeferred ? "disabled" : ""} style="font-size:12px;">Change Units</button>
+                          </div>
+                        </div>
+                      `;
+                    } else {
+                      const q = isDeferred ? 0 : (state.collectionQuantities[line.productId] ?? cap);
+                      return `
+                        <div class="card" style="margin-bottom:8px; padding:10px; ${isDeferred ? 'opacity:0.5; pointer-events:none;' : ''}">
+                          <div>
+                            <strong>${p.name}</strong> · ×${line.outstanding}
+                            <span style="font-size:11px; color:#888;">[Stock Quantity]</span>
+                          </div>
+                          <div style="margin-top:8px; font-size:13px; display:flex; align-items:center; gap:6px;">
+                            Handing over:
+                            <input type="number" min="0" max="${cap}"
+                              value="${q}"
+                              ${isDeferred ? "disabled" : ""}
+                              style="width:70px; padding:4px 6px;"
+                              onchange="onRoutingPickupQtyChange('${line.productId}', this.value, ${cap})">
+                            <span style="color:#666;">of ${cap}</span>
+                          </div>
+                        </div>
+                      `;
+                    }
+                  })
+                  .join("")}
+              `
+              }
+            </div>
+          `
+            : ""
+          }
         </div>
         <div class="modal-footer">
           <button onclick="closeFulfilmentRoutingModal()">Cancel</button>
@@ -3937,9 +4097,6 @@ DISPATCH DASHBOARD DEMO SEED
     </div>
   `;
     }
-
-
-
 
 
     function attachFulfilmentRoutingHandlers() {
@@ -5173,9 +5330,12 @@ DISPATCH DASHBOARD DEMO SEED
       );
       if (!product || !line) return "";
 
-      const pickupLoc =
-        o.fulfilmentLocationId ||
-        LOCATIONS.find((l) => l.name === o.pickupLocation)?.id;
+      const isRoutingPickup =
+  state.activeModal === "fulfilment-routing" && state.routingDraft === "Pickup";
+const pickupLoc = isRoutingPickup
+  ? state.routingLocationId
+  : o.fulfilmentLocationId ||
+    LOCATIONS.find((l) => l.name === o.pickupLocation)?.id;
 
       // Cap the handover quantity by both outstanding and available-at-location.
       const availableHere =
@@ -5221,9 +5381,9 @@ DISPATCH DASHBOARD DEMO SEED
       <div class="modal">
         <div class="modal-header">Change Units <button class="close-x" onclick="closeModal()">×</button></div>
         <div class="modal-body">
-          <p style="font-size:13px;">
-            <strong>${product.name}</strong> · Select up to ${cap} unit${cap === 1 ? "" : "s"} from ${o.pickupLocation}
-          </p>
+         <p style="font-size:13px;">
+  <strong>${product.name}</strong> · Select up to ${cap} unit${cap === 1 ? "" : "s"} from ${getLocation(pickupLoc)?.name || o.pickupLocation}
+</p>
           <p style="font-size:12px; color:#666; margin-top:4px;">
             ${unitsAtLocation.length} unit${unitsAtLocation.length === 1 ? "" : "s"} available.
           </p>
@@ -5305,9 +5465,12 @@ DISPATCH DASHBOARD DEMO SEED
       );
       if (!line) return;
 
-      const pickupLoc =
-        o.fulfilmentLocationId ||
-        LOCATIONS.find((l) => l.name === o.pickupLocation)?.id;
+      const isRoutingPickup =
+  state.activeModal === "fulfilment-routing" && state.routingDraft === "Pickup";
+const pickupLoc = isRoutingPickup
+  ? state.routingLocationId
+  : o.fulfilmentLocationId ||
+    LOCATIONS.find((l) => l.name === o.pickupLocation)?.id;
       const product = getInvProduct(productId);
       const availableHere =
         product.trackingType === "Individual"
@@ -5465,18 +5628,18 @@ DISPATCH DASHBOARD DEMO SEED
 
           <div style="padding:8px; border:1px dashed #999; border-radius:4px; font-size:12px; color:#555; margin-bottom:12px;">
             ${isImmediate
-          ? "Walk-in pickup — confirm the items being handed over now."
-          : `Pickup from <strong>${o.pickupLocation}</strong> — confirm which items are being handed over.`
+          ? "Walk-in pickup — confirm the items being picked up now."
+          : `Pickup from <strong>${o.pickupLocation}</strong> — confirm which items are being picked up.`
         }
           </div>
 
           ${hasZeroStock
           ? `
             <div style="padding:12px; border:2px dashed #92400e; border-radius:4px; background:#fef3c7; font-size:12px; color:#92400e; margin-bottom:8px;">
-              Nothing is available to hand over right now.
+              Nothing is available to pick up right now.
             </div>
             <button class="btn-primary" style="width:100%; margin-bottom:12px;" onclick="closeModal(); openFulfilmentRoutingModal();">
-              Send Remaining Items →
+              Route Remaining Items →
             </button>
           `
           : `
@@ -5665,6 +5828,170 @@ DISPATCH DASHBOARD DEMO SEED
         ];
       }
       render();
+    }
+
+
+        function onRoutingPickupQtyChange(productId, rawValue, cap) {
+      // Reuse the same logic, which already calls render() at the end
+      onPickupQtyChange(productId, rawValue, cap);
+    }
+
+
+
+        function applyRoutingPickupSelections() {
+      const o = state.order;
+      const cust = state.customer;
+      const isImmediate = getTiming(o) === "Immediate";
+      const isDeferred = state.deferAllItems || false;
+
+      let name = "", phone = "", orderRefVerified = true, idPresented = false;
+
+      // If not deferred, we need to validate name (defaulting to customer)
+      if (!isDeferred) {
+        // Use customer name/phone since the routing modal doesn't have input fields for them
+        name = cust.name;
+        phone = cust.phone;
+        orderRefVerified = true; // For routing pickup, we assume verified
+        idPresented = false;
+        
+        // Guard: at least one unit must be selected
+        const totalSelected = calcOutstandingLines(o).reduce(
+          (sum, line) => {
+            const product = getInvProduct(line.productId);
+            if (!product) return sum;
+            if (product.trackingType === "Individual") {
+              return sum + (state.collectionSelections[line.productId] || []).length;
+            }
+            return sum + (state.collectionQuantities[line.productId] || 0);
+          },
+          0,
+        );
+        if (totalSelected === 0 && !isDeferred) {
+          alert("Select at least one unit to pick up, or tick the defer checkbox.");
+          return false;
+        }
+      }
+
+      // -------- 1. Apply stock changes --------
+      const pickupLoc = state.routingLocationId;
+      const handoverLines = calcOutstandingLines(o).map((line) => {
+          const product = getInvProduct(line.productId);
+          if (!product) return null;
+          let availableHere = 0;
+          if (product.trackingType === "Individual") {
+            availableHere = UNITS.filter(
+              (u) => u.productId === line.productId && u.locationId === pickupLoc &&
+                (u.status === "Available" || (u.status === "Reserved" && u.reservedForOrder === o.orderNumber))
+            ).length;
+          } else {
+            const s = getStockSummary(line.productId, pickupLoc);
+            availableHere = s.available + (s.reserved || 0);
+          }
+          return { ...line, handoverCap: Math.min(line.outstanding, availableHere) };
+        }).filter((line) => line && line.handoverCap > 0);
+
+      if (!isDeferred) {
+        handoverLines.forEach((line) => {
+          const product = getInvProduct(line.productId);
+          if (!product) return;
+          let qty;
+          if (product.trackingType === "Individual") {
+            qty = (state.collectionSelections[line.productId] || []).length;
+          } else {
+            qty = state.collectionQuantities[line.productId] ?? line.handoverCap;
+            qty = Math.max(0, Math.min(qty, line.handoverCap));
+          }
+          if (qty === 0) return;
+
+          if (product.trackingType === "Individual") {
+            const selectedIds = state.collectionSelections[line.productId] || [];
+            // Release originally reserved units not chosen
+            UNITS.filter((u) => u.reservedForOrder === o.orderNumber && u.status === "Reserved").forEach((u) => {
+                if (!selectedIds.includes(u.id)) {
+                  u.status = "Available";
+                  u.reservedForOrder = null;
+                }
+            });
+            // Mark chosen units as Sold
+            selectedIds.forEach((uid) => {
+              const u = UNITS.find((x) => x.id === uid);
+              if (u) {
+                u.status = "Sold";
+                u.reservedForOrder = null;
+                u.softReservedFor = null;
+              }
+            });
+            logMovement(line.productId, pickupLoc, "check_out", selectedIds.length, o.orderNumber);
+          } else {
+            let remaining = qty;
+            STOCK.filter((s) => s.productId === line.productId && (!pickupLoc || s.locationId === pickupLoc)).forEach((row) => {
+              if (remaining <= 0) return;
+              if (row.reserved > 0) {
+                const fromReserved = Math.min(row.reserved, remaining);
+                row.reserved -= fromReserved;
+                row.onHand -= fromReserved;
+                remaining -= fromReserved;
+              } else if (row.onHand > 0) {
+                const fromOnHand = Math.min(row.onHand, remaining);
+                row.onHand -= fromOnHand;
+                remaining -= fromOnHand;
+              }
+            });
+            logMovement(line.productId, pickupLoc, "check_out", qty, o.orderNumber);
+          }
+          const fl = getFulfilmentLine(o, line.productId);
+          if (fl) fl.fulfilled += qty;
+        });
+      }
+
+      recomputeFulfilmentStatus(o);
+
+      // -------- 2. Log the event --------
+      if (isDeferred) {
+        o.pickedUpBy = null;
+        logTimeline("0 items picked up. Deferred by operator.");
+      } else {
+        o.pickedUpBy = { name, phone, orderRefVerified, idPresented };
+        logTimeline(`Picked up by ${name}`);
+      }
+
+      // -------- 3. Transition state --------
+      const isFullyFulfilled = o.fulfilmentStatus === "complete";
+      if (isFullyFulfilled) {
+        o.state = "completed";
+        logTimeline("Order completed.");
+      } else {
+        o.state = "ready";
+        if (isDeferred) {
+          const expiry = new Date();
+          expiry.setDate(expiry.getDate() + PICKUP_EXPIRY_DAYS);
+          o.pickupExpiryDate = expiry.toISOString().split("T")[0];
+        }
+        logTimeline(`Partial pickup complete. ${calcOutstandingLines(o).length} line(s) still outstanding.`);
+      }
+
+      // -------- 4. Show Success Screen --------
+      const totalOrdered = (o.fulfilmentLines || []).reduce((s, l) => s + l.ordered, 0);
+      const totalFulfilled = (o.fulfilmentLines || []).reduce((s, l) => s + l.fulfilled, 0);
+      const totalOutstanding = Math.max(0, totalOrdered - totalFulfilled);
+      const isWalkin = getTiming(o) === "Immediate" && o.fulfillment === "Pickup";
+
+      state.successContext = {
+        title: isFullyFulfilled
+          ? isWalkin ? "Order Completed" : "Order Picked Up"
+          : (totalFulfilled === 0 ? "Pickup Deferred" : "Partial Pickup Recorded"),
+        subtitle: isFullyFulfilled
+          ? isWalkin ? `${o.orderNumber} · Pickup confirmed` : `${o.orderNumber} · Thank you`
+          : (totalFulfilled === 0
+            ? `${o.orderNumber} · 0 items picked up, ${totalOutstanding} outstanding.`
+            : `${o.orderNumber} · ${totalFulfilled} items picked up, ${totalOutstanding} outstanding.`),
+        documentLabel: state.paymentRecordedThisSession ? "Receipt" : null,
+        isWalkin: false,
+      };
+      state.paymentRecordedThisSession = false;
+      state.currentPage = "success";
+      
+      return true;
     }
 
 
