@@ -1191,6 +1191,10 @@
       collectionUnitSearch: "",
       collectionChangingUnitsFor: null,
       deferAllItems: false,
+      // Tags-detail modal working state
+      tagsDetailOrderNumber: null,   // which order's history we're viewing
+      tagsDetailIndex: null,         // which history entry (index in fulfilmentHistory)
+      tagsDetailProductId: null,     // which line item within that entry
 
 
 
@@ -1537,6 +1541,42 @@
       );
     }
 
+
+
+    // Records a physical fulfilment event (pickup or delivery).
+    // Called exactly once per real handover (not per partial line).
+    function recordFulfilmentEvent(order, event) {
+      if (!order.fulfilmentHistory) order.fulfilmentHistory = [];
+
+      const totalOrdered = (order.fulfilmentLines || []).reduce(
+        (s, l) => s + l.ordered, 0
+      );
+      const totalFulfilled = (order.fulfilmentLines || []).reduce(
+        (s, l) => s + l.fulfilled, 0
+      );
+
+      // Deep-copy the items snapshot so later mutations don't corrupt history
+      const items = (event.items || []).map((item) => ({
+        productId: item.productId,
+        name: item.name,
+        qty: item.qty,
+        tags: item.tags ? [...item.tags] : [],
+        trackingType: item.trackingType,
+      }));
+
+      order.fulfilmentHistory.push({
+        timestamp: new Date().toISOString(),
+        type: event.type,               // 'Pickup' | 'Delivery'
+        location: event.location || null, // e.g., "VI Store" or "Main Warehouse"
+        handler: event.handler || {},
+        items,
+        remainingAfter: Math.max(
+          0,
+          totalOrdered - totalFulfilled - (event.type === "Delivery" ? event.items.reduce((s, i) => s + i.qty, 0) : 0)
+        ),
+      });
+    }
+
     /* ============ FULFILMENT TRACKING ============ */
 
     // Initialise fulfilment lines from an order's items.
@@ -1550,6 +1590,7 @@
       }));
       order.fulfilmentStatus = "pending";
       order.fulfilmentHandling = null; // null | 'Pickup' | 'Delivery'
+      order.fulfilmentHistory = []; // Rich ledger of all physical handovers
 
       // Delivery-specific fields. Zero/null for Pickup orders.
       order.deliveryUrgency = null; // null | 'Standard' | 'Express'
@@ -2249,13 +2290,13 @@ DISPATCH DASHBOARD DEMO SEED
             </div>
             
             ${(() => {
-              const urgency = o.deliveryUrgency || "Standard";
-              const isExpress = urgency === "Express";
-              const days = isExpress ? DELIVERY_DAYS_EXPRESS : DELIVERY_DAYS_STANDARD;
-              const estDate = getEstimatedDeliveryDate(days);
-              const fee = calculateShippingFee(o, o.deliveryAddressId || null, urgency);
-              
-              return `
+            const urgency = o.deliveryUrgency || "Standard";
+            const isExpress = urgency === "Express";
+            const days = isExpress ? DELIVERY_DAYS_EXPRESS : DELIVERY_DAYS_STANDARD;
+            const estDate = getEstimatedDeliveryDate(days);
+            const fee = calculateShippingFee(o, o.deliveryAddressId || null, urgency);
+
+            return `
                 <div style="margin-top:8px; padding:8px; border:2px dashed ${isExpress ? "#991b1b" : "#166534"}; border-radius:4px; background:${isExpress ? "#fee2e2" : "#f0fdf4"}; font-size:12px; color:${isExpress ? "#991b1b" : "#166534"};">
                   <div style="font-weight:bold; margin-bottom:4px;">
                     ${isExpress ? "⚡ Express Delivery" : "🚚 Standard Delivery"}
@@ -2269,7 +2310,7 @@ DISPATCH DASHBOARD DEMO SEED
                   </div>
                 </div>
               `;
-            })()}
+          })()}
           </div>
         </div>
 
@@ -2621,10 +2662,12 @@ DISPATCH DASHBOARD DEMO SEED
             .join("")}
           </tbody>
         </table>
-      </div>
+         </div>
     `
           : ""
         }
+
+    ${renderFulfilmentHistory(o)}
 
     <div class="card">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
@@ -2811,7 +2854,7 @@ DISPATCH DASHBOARD DEMO SEED
                 const routedLocName =
                   LOCATIONS.find((l) => l.id === o.fulfilmentLocationId)?.name ||
                   o.pickupLocation;
-                          return `
+                return `
                     <div style="font-size:12px; color:#555; margin-bottom:8px;">
                       Remaining Items: <strong>Pickup</strong> — customer comes to ${routedLocName}
                       <a href="#" onclick="event.preventDefault(); openFulfilmentRoutingModal();" style="margin-left:6px; color:#1e40af;">Change</a>
@@ -2841,7 +2884,7 @@ DISPATCH DASHBOARD DEMO SEED
               }
             }
 
-              // ----- Non-partial order: existing behaviour -----
+            // ----- Non-partial order: existing behaviour -----
             const totalFulfilled = (o.fulfilmentLines || []).reduce((s, l) => s + l.fulfilled, 0);
 
             // If nothing has been fulfilled yet, they can either hand over what's 
@@ -3416,7 +3459,7 @@ DISPATCH DASHBOARD DEMO SEED
         return;
       }
 
-           const stockResult = validateOrderStock();
+      const stockResult = validateOrderStock();
 
       // Auto-flag partial orders based on stock availability.
       // For Pickup: if there's a shortfall, it's a partial order.
@@ -3601,7 +3644,7 @@ DISPATCH DASHBOARD DEMO SEED
 
 
 
-        function openFulfilmentRoutingModal() {
+    function openFulfilmentRoutingModal() {
       const o = state.order;
       const cust = state.customer;
 
@@ -3642,9 +3685,9 @@ DISPATCH DASHBOARD DEMO SEED
       state.activeModal = "fulfilment-routing";
       render();
     }
-    
-    
-    
+
+
+
     function closeFulfilmentRoutingModal() {
       state.routingDraft = "";
       state.routingLocationId = null;
@@ -3659,7 +3702,7 @@ DISPATCH DASHBOARD DEMO SEED
 
     // // Writes the chosen handling onto the order and logs the change.
 
-        function confirmFulfilmentRouting() {
+    function confirmFulfilmentRouting() {
       const o = state.order;
       if (!state.routingDraft) return;
 
@@ -3671,7 +3714,7 @@ DISPATCH DASHBOARD DEMO SEED
         o.fulfilmentAddressId = state.routingAddressId;
         o.fulfilmentUrgency = state.routingUrgency;
         const newFee = calculateShippingFee(o, state.routingAddressId, state.routingUrgency);
-        
+
         if (newFee !== o.deliveryFee) {
           if (o.deliveryFeePaid && o.deliveryFee > 0) {
             const d = new Date();
@@ -3689,19 +3732,19 @@ DISPATCH DASHBOARD DEMO SEED
           o.deliveryFee = newFee;
           o.deliveryFeePaid = false;
         }
-        
+
         o.fulfilmentHandling = "Delivery";
         o.fulfilmentLocationId = null;
-        
+
         if (!previous) logTimeline(`Remaining items set to Delivery`);
         else if (previous !== next) logTimeline(`Remaining items changed from ${previous} to Delivery`);
-        
+
         ensureOrderInDispatchPool(o);
-        
+
         const recordNow = state.routingRecordNow;
         state.routingDraft = "";
         state.activeModal = null;
-        
+
         if (recordNow && o.deliveryFee > 0 && !o.deliveryFeePaid) {
           state.activeModal = "payment";
         }
@@ -3735,13 +3778,13 @@ DISPATCH DASHBOARD DEMO SEED
         // 2. Set handling and location
         o.fulfilmentHandling = "Pickup";
         o.fulfilmentLocationId = state.routingLocationId;
-        
+
         if (!previous) logTimeline(`Remaining items set to Pickup`);
         else if (previous !== next) logTimeline(`Remaining items changed from ${previous} to Pickup`);
 
         // 3. Apply the pickup selections that were captured in the modal
         applyRoutingPickupSelections();
-        
+
         // 4. Clear working state
         state.routingDraft = "";
         state.routingLocationId = null;
@@ -3754,16 +3797,16 @@ DISPATCH DASHBOARD DEMO SEED
         state.collectionChangingUnitsFor = null;
         state.deferAllItems = false;
         state.activeModal = null;
-        
+
         render();
         return;
       }
     }
-   
 
-    
 
-         function renderFulfilmentRoutingModal() {
+
+
+    function renderFulfilmentRoutingModal() {
       const o = state.order;
       const cust = state.customer;
       const outstanding = calcOutstandingLines(o);
@@ -3800,30 +3843,30 @@ DISPATCH DASHBOARD DEMO SEED
       const pickupLoc = state.routingLocationId;
       const handoverLines = showPickup
         ? calcOutstandingLines(o)
-            .map((line) => {
-              const product = getInvProduct(line.productId);
-              if (!product) return null;
-              let availableHere = 0;
-              if (product.trackingType === "Individual") {
-                availableHere = UNITS.filter(
-                  (u) =>
-                    u.productId === line.productId &&
-                    u.locationId === pickupLoc &&
-                    (u.status === "Available" ||
-                      (u.status === "Reserved" &&
-                        u.reservedForOrder === o.orderNumber)),
-                ).length;
-              } else {
-                const s = getStockSummary(line.productId, pickupLoc);
-                availableHere = s.available + (s.reserved || 0);
-              }
-              return {
-                ...line,
-                availableHere,
-                handoverCap: Math.min(line.outstanding, availableHere),
-              };
-            })
-            .filter((line) => line && line.handoverCap > 0)
+          .map((line) => {
+            const product = getInvProduct(line.productId);
+            if (!product) return null;
+            let availableHere = 0;
+            if (product.trackingType === "Individual") {
+              availableHere = UNITS.filter(
+                (u) =>
+                  u.productId === line.productId &&
+                  u.locationId === pickupLoc &&
+                  (u.status === "Available" ||
+                    (u.status === "Reserved" &&
+                      u.reservedForOrder === o.orderNumber)),
+              ).length;
+            } else {
+              const s = getStockSummary(line.productId, pickupLoc);
+              availableHere = s.available + (s.reserved || 0);
+            }
+            return {
+              ...line,
+              availableHere,
+              handoverCap: Math.min(line.outstanding, availableHere),
+            };
+          })
+          .filter((line) => line && line.handoverCap > 0)
         : [];
 
       // Auto-select logic for pickup (only on first render of the pickup view)
@@ -3880,11 +3923,11 @@ DISPATCH DASHBOARD DEMO SEED
 
           <ul style="margin:8px 0 16px 20px; font-size:12px; color:#555;">
             ${outstanding
-              .map((l) => {
-                const p = getProduct(l.productId);
-                return p ? `<li>${p.name}: ${l.outstanding}</li>` : "";
-              })
-              .join("")}
+          .map((l) => {
+            const p = getProduct(l.productId);
+            return p ? `<li>${p.name}: ${l.outstanding}</li>` : "";
+          })
+          .join("")}
           </ul>
 
           <div style="font-size:13px; margin-bottom:8px;">
@@ -3899,21 +3942,21 @@ DISPATCH DASHBOARD DEMO SEED
             <span style="flex:1;">
               <strong>Pickup</strong> — customer picks up at:
               ${draft === "Pickup"
-                ? `
+          ? `
                 <select
                   style="margin-top:6px;"
                   onchange="state.routingLocationId=this.value; render();">
                   ${LOCATIONS.map(
-                    (l) => `
+            (l) => `
                     <option value="${l.id}" ${state.routingLocationId === l.id ? "selected" : ""}>
                       ${l.name}
                     </option>
                   `,
-                  ).join("")}
+          ).join("")}
                 </select>
               `
-                : `<em style="color:#666;">select to choose location</em>`
-              }
+          : `<em style="color:#666;">select to choose location</em>`
+        }
             </span>
           </label>
 
@@ -3928,33 +3971,33 @@ DISPATCH DASHBOARD DEMO SEED
           </label>
 
           ${showDelivery
-            ? `
+          ? `
             <div style="margin-top:14px; padding-top:12px; border-top:1px dashed #ccc;">
               <label>Delivery Address *</label>
               ${addrs.length === 0
-                ? `<div style="padding:8px; border:1px dashed #999; border-radius:4px; font-size:12px; color:#991b1b; margin-bottom:6px;">
+            ? `<div style="padding:8px; border:1px dashed #999; border-radius:4px; font-size:12px; color:#991b1b; margin-bottom:6px;">
                        No saved addresses for this customer. Add one to continue.
                      </div>
                      <button onclick="event.preventDefault(); state.activeModal='add-address'; render();" style="font-size:12px;">+ Add Address</button>`
-                : `
+            : `
                 <div style="display:flex; gap:8px; align-items:center;">
                   <select id="routingAddressSelect"
                     style="flex:1;"
                     onchange="state.routingAddressId=this.value; render();">
                     ${addrs
-                      .map(
-                        (a) => `
+              .map(
+                (a) => `
                       <option value="${a.id}" ${a.id === currentAddressId ? "selected" : ""}>
                         ${displayAddr(a)}
                       </option>
                     `,
-                      )
-                      .join("")}
+              )
+              .join("")}
                   </select>
                   <button onclick="event.preventDefault(); state.activeModal='add-address'; render();" style="font-size:12px;">+ Add</button>
                 </div>
               `
-              }
+          }
 
               <label class="mt-12">Delivery Urgency *</label>
               <div class="toggle-group">
@@ -3990,19 +4033,19 @@ DISPATCH DASHBOARD DEMO SEED
               </label>
             </div>
           `
-            : ""
-          }
+          : ""
+        }
 
           ${showPickup
-            ? `
+          ? `
             <div style="margin-top:14px; padding-top:12px; border-top:1px dashed #ccc;">
               ${hasZeroStock
-                ? `
+            ? `
                 <div style="padding:12px; border:2px dashed #92400e; border-radius:4px; background:#fef3c7; font-size:12px; color:#92400e; margin-bottom:8px;">
                   Nothing is available to pick up right now.
                 </div>
               `
-                : `
+            : `
                 <label class="mb-12" style="display:flex; align-items:flex-start; gap:8px; font-size:12px; line-height:1.3; padding:10px; background:#fdfdfd; border:2px solid ${isDeferred ? '#1a1a1a' : '#ccc'}; border-radius:4px; cursor:pointer; margin-bottom:12px;">
                   <input type="checkbox" id="deferAllCheckbox"
                     style="width:auto; margin-top:2px;"
@@ -4018,23 +4061,23 @@ DISPATCH DASHBOARD DEMO SEED
                 <div style="font-weight:bold; font-size:13px; margin-bottom:8px;">Items being collected</div>
 
                 ${handoverLines
-                  .map((line) => {
-                    const p = getInvProduct(line.productId);
-                    if (!p) return "";
-                    const cap = line.handoverCap;
+              .map((line) => {
+                const p = getInvProduct(line.productId);
+                if (!p) return "";
+                const cap = line.handoverCap;
 
-                    if (p.trackingType === "Individual") {
-                      const selected = state.collectionSelections[line.productId] || [];
-                      const count = selected.length;
-                      const tags = selected
-                        .map((id) => UNITS.find((u) => u.id === id)?.tag)
-                        .filter(Boolean);
-                      const tagSummary =
-                        tags.length <= 3
-                          ? tags.join(", ")
-                          : `${tags.slice(0, 3).join(", ")}, and ${tags.length - 3} more`;
+                if (p.trackingType === "Individual") {
+                  const selected = state.collectionSelections[line.productId] || [];
+                  const count = selected.length;
+                  const tags = selected
+                    .map((id) => UNITS.find((u) => u.id === id)?.tag)
+                    .filter(Boolean);
+                  const tagSummary =
+                    tags.length <= 3
+                      ? tags.join(", ")
+                      : `${tags.slice(0, 3).join(", ")}, and ${tags.length - 3} more`;
 
-                      return `
+                  return `
                         <div class="card" style="margin-bottom:8px; padding:10px; ${isDeferred ? 'opacity:0.5; pointer-events:none;' : ''}">
                           <div>
                             <strong>${p.name}</strong> · ×${line.outstanding}
@@ -4050,17 +4093,17 @@ DISPATCH DASHBOARD DEMO SEED
                             <span style="color:#666;">of ${cap}</span>
                           </div>
                           ${tags.length > 0 && !isDeferred
-                            ? `<div style="margin-top:6px; font-size:11px; color:#666;">${tagSummary}</div>`
-                            : `<div style="margin-top:6px; font-size:11px; color:#666;">No units selected.</div>`
-                          }
+                      ? `<div style="margin-top:6px; font-size:11px; color:#666;">${tagSummary}</div>`
+                      : `<div style="margin-top:6px; font-size:11px; color:#666;">No units selected.</div>`
+                    }
                           <div style="margin-top:8px;">
                             <button onclick="openCollectionChangeUnits('${line.productId}')" ${isDeferred ? "disabled" : ""} style="font-size:12px;">Change Units</button>
                           </div>
                         </div>
                       `;
-                    } else {
-                      const q = isDeferred ? 0 : (state.collectionQuantities[line.productId] ?? cap);
-                      return `
+                } else {
+                  const q = isDeferred ? 0 : (state.collectionQuantities[line.productId] ?? cap);
+                  return `
                         <div class="card" style="margin-bottom:8px; padding:10px; ${isDeferred ? 'opacity:0.5; pointer-events:none;' : ''}">
                           <div>
                             <strong>${p.name}</strong> · ×${line.outstanding}
@@ -4077,15 +4120,15 @@ DISPATCH DASHBOARD DEMO SEED
                           </div>
                         </div>
                       `;
-                    }
-                  })
-                  .join("")}
+                }
+              })
+              .join("")}
               `
-              }
+          }
             </div>
           `
-            : ""
-          }
+          : ""
+        }
         </div>
         <div class="modal-footer">
           <button onclick="closeFulfilmentRoutingModal()">Cancel</button>
@@ -4096,6 +4139,115 @@ DISPATCH DASHBOARD DEMO SEED
       </div>
     </div>
   `;
+    }
+
+
+
+
+    function renderFulfilmentHistory(o) {
+      const history = o.fulfilmentHistory || [];
+      if (history.length === 0) return "";
+
+      // Newest first
+      const sorted = history.slice().reverse();
+
+      const renderEntry = (entry, idx) => {
+        const isDelivery = entry.type === "Delivery";
+        const icon = isDelivery ? "🚚" : "📦";
+        const title = isDelivery ? "Delivery" : "Pickup";
+        const handler = entry.handler || {};
+        const itemCount = entry.items.reduce((s, i) => s + i.qty, 0);
+
+        // Handler block
+        let handlerBlock = "";
+        if (isDelivery) {
+          handlerBlock = handler.driver
+            ? `<div style="font-size:12px;">Driver: <strong>${handler.driver}</strong> · Vehicle: <strong>${handler.vehicle || "—"}</strong></div>`
+            : `<div style="font-size:12px;">Courier: <strong>${handler.courier || "—"}</strong> · Tracking: <strong>${handler.trackingNumber || "—"}</strong></div>`;
+        } else if (handler.deferred) {
+          handlerBlock = `<div style="font-size:12px; color:#92400e; font-style:italic;">Customer deferred all items at ${entry.location || "—"}</div>`;
+        } else {
+          const badges = [];
+          badges.push(
+            `Order Ref ${handler.orderRefVerified ? "✅" : "❌"}`
+          );
+          badges.push(
+            `Photo ID ${handler.idPresented ? "✅" : "❌"}`
+          );
+          handlerBlock = `
+            <div style="font-size:12px;">Picked up by: <strong>${handler.name || "—"}</strong> ${handler.phone ? `(${handler.phone})` : ""}</div>
+            <div style="font-size:12px; margin-top:2px;">Location: <strong>${entry.location || "—"}</strong></div>
+            <div style="font-size:11px; color:#555; margin-top:2px;">${badges.join(" · ")}</div>
+          `;
+        }
+
+        // Items table rows
+        const itemRows = entry.items.map((item) => {
+          const tagsPreview =
+            item.tags.length === 0
+              ? (item.trackingType === "StockQuantity" ? "(Stock Quantity)" : "—")
+              : item.tags.length <= 3
+                ? item.tags.join(", ")
+                : `${item.tags.slice(0, 3).join(", ")}, and ${item.tags.length - 3} more`;
+
+          const showViewAll =
+            item.trackingType === "Individual" && item.tags.length > 3;
+
+          return `
+            <tr>
+              <td style="padding:6px; border-bottom:1px solid #eee;">${item.name}</td>
+              <td style="padding:6px; border-bottom:1px solid #eee; text-align:center; font-weight:bold;">${item.qty}</td>
+              <td style="padding:6px; border-bottom:1px solid #eee; font-size:11px; color:#666;">
+                ${tagsPreview}
+                ${showViewAll
+              ? `<a href="#" style="margin-left:6px; color:#1e40af;" onclick="event.preventDefault(); openTagsDetail('${entry.orderNumber || ""}', ${idx}, '${item.productId}')">View all</a>`
+              : ""
+            }
+              </td>
+            </tr>
+          `;
+        }).join("");
+
+        const dateStr = new Date(entry.timestamp).toLocaleString("en-GB", {
+          day: "2-digit", month: "short", year: "numeric",
+          hour: "2-digit", minute: "2-digit",
+        });
+
+        return `
+          <div style="padding:10px 0; ${idx > 0 ? "border-top:1px dashed #ddd;" : ""}">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+              <div>
+                <div style="font-weight:bold;">${icon} ${title}</div>
+                <div style="font-size:11px; color:#888;">${dateStr}</div>
+              </div>
+              <div style="font-size:11px; color:#92400e; font-weight:bold; text-align:right;">
+                ${itemCount} item${itemCount === 1 ? "" : "s"}
+                <div style="font-size:10px; color:#888; font-weight:normal; margin-top:2px;">
+                  ${entry.remainingAfter} remaining
+                </div>
+              </div>
+            </div>
+            <div style="margin-top:8px;">${handlerBlock}</div>
+            <table style="margin-top:8px; width:100%; border-collapse:collapse; font-size:12px;">
+              <thead>
+                <tr>
+                  <th style="text-align:left; padding:4px 6px; border-bottom:1px solid #ccc; font-size:10px; color:#555;">Product</th>
+                  <th style="text-align:center; padding:4px 6px; border-bottom:1px solid #ccc; font-size:10px; color:#555; width:50px;">Qty</th>
+                  <th style="text-align:left; padding:4px 6px; border-bottom:1px solid #ccc; font-size:10px; color:#555;">Tags</th>
+                </tr>
+              </thead>
+              <tbody>${itemRows}</tbody>
+            </table>
+          </div>
+        `;
+      };
+
+      return `
+        <div class="card">
+          <div class="card-title">Fulfilment History</div>
+          ${sorted.map((entry, idx) => renderEntry(entry, idx)).join("")}
+        </div>
+      `;
     }
 
 
@@ -4506,6 +4658,8 @@ DISPATCH DASHBOARD DEMO SEED
       } else if (state.activeModal === "bulk-confirm-delivery") {
         c.innerHTML = renderBulkConfirmDeliveryModal();
         attachBulkConfirmDeliveryHandlers();
+      } else if (state.activeModal === "tags-detail") {
+        c.innerHTML = renderTagsDetailModal();
       }
     }
 
@@ -5331,11 +5485,11 @@ DISPATCH DASHBOARD DEMO SEED
       if (!product || !line) return "";
 
       const isRoutingPickup =
-  state.activeModal === "fulfilment-routing" && state.routingDraft === "Pickup";
-const pickupLoc = isRoutingPickup
-  ? state.routingLocationId
-  : o.fulfilmentLocationId ||
-    LOCATIONS.find((l) => l.name === o.pickupLocation)?.id;
+        state.activeModal === "fulfilment-routing" && state.routingDraft === "Pickup";
+      const pickupLoc = isRoutingPickup
+        ? state.routingLocationId
+        : o.fulfilmentLocationId ||
+        LOCATIONS.find((l) => l.name === o.pickupLocation)?.id;
 
       // Cap the handover quantity by both outstanding and available-at-location.
       const availableHere =
@@ -5466,11 +5620,11 @@ const pickupLoc = isRoutingPickup
       if (!line) return;
 
       const isRoutingPickup =
-  state.activeModal === "fulfilment-routing" && state.routingDraft === "Pickup";
-const pickupLoc = isRoutingPickup
-  ? state.routingLocationId
-  : o.fulfilmentLocationId ||
-    LOCATIONS.find((l) => l.name === o.pickupLocation)?.id;
+        state.activeModal === "fulfilment-routing" && state.routingDraft === "Pickup";
+      const pickupLoc = isRoutingPickup
+        ? state.routingLocationId
+        : o.fulfilmentLocationId ||
+        LOCATIONS.find((l) => l.name === o.pickupLocation)?.id;
       const product = getInvProduct(productId);
       const availableHere =
         product.trackingType === "Individual"
@@ -5831,14 +5985,14 @@ const pickupLoc = isRoutingPickup
     }
 
 
-        function onRoutingPickupQtyChange(productId, rawValue, cap) {
+    function onRoutingPickupQtyChange(productId, rawValue, cap) {
       // Reuse the same logic, which already calls render() at the end
       onPickupQtyChange(productId, rawValue, cap);
     }
 
 
 
-        function applyRoutingPickupSelections() {
+    function applyRoutingPickupSelections() {
       const o = state.order;
       const cust = state.customer;
       const isImmediate = getTiming(o) === "Immediate";
@@ -5853,7 +6007,7 @@ const pickupLoc = isRoutingPickup
         phone = cust.phone;
         orderRefVerified = true; // For routing pickup, we assume verified
         idPresented = false;
-        
+
         // Guard: at least one unit must be selected
         const totalSelected = calcOutstandingLines(o).reduce(
           (sum, line) => {
@@ -5875,20 +6029,20 @@ const pickupLoc = isRoutingPickup
       // -------- 1. Apply stock changes --------
       const pickupLoc = state.routingLocationId;
       const handoverLines = calcOutstandingLines(o).map((line) => {
-          const product = getInvProduct(line.productId);
-          if (!product) return null;
-          let availableHere = 0;
-          if (product.trackingType === "Individual") {
-            availableHere = UNITS.filter(
-              (u) => u.productId === line.productId && u.locationId === pickupLoc &&
-                (u.status === "Available" || (u.status === "Reserved" && u.reservedForOrder === o.orderNumber))
-            ).length;
-          } else {
-            const s = getStockSummary(line.productId, pickupLoc);
-            availableHere = s.available + (s.reserved || 0);
-          }
-          return { ...line, handoverCap: Math.min(line.outstanding, availableHere) };
-        }).filter((line) => line && line.handoverCap > 0);
+        const product = getInvProduct(line.productId);
+        if (!product) return null;
+        let availableHere = 0;
+        if (product.trackingType === "Individual") {
+          availableHere = UNITS.filter(
+            (u) => u.productId === line.productId && u.locationId === pickupLoc &&
+              (u.status === "Available" || (u.status === "Reserved" && u.reservedForOrder === o.orderNumber))
+          ).length;
+        } else {
+          const s = getStockSummary(line.productId, pickupLoc);
+          availableHere = s.available + (s.reserved || 0);
+        }
+        return { ...line, handoverCap: Math.min(line.outstanding, availableHere) };
+      }).filter((line) => line && line.handoverCap > 0);
 
       if (!isDeferred) {
         handoverLines.forEach((line) => {
@@ -5907,10 +6061,10 @@ const pickupLoc = isRoutingPickup
             const selectedIds = state.collectionSelections[line.productId] || [];
             // Release originally reserved units not chosen
             UNITS.filter((u) => u.reservedForOrder === o.orderNumber && u.status === "Reserved").forEach((u) => {
-                if (!selectedIds.includes(u.id)) {
-                  u.status = "Available";
-                  u.reservedForOrder = null;
-                }
+              if (!selectedIds.includes(u.id)) {
+                u.status = "Available";
+                u.reservedForOrder = null;
+              }
             });
             // Mark chosen units as Sold
             selectedIds.forEach((uid) => {
@@ -5946,14 +6100,60 @@ const pickupLoc = isRoutingPickup
 
       recomputeFulfilmentStatus(o);
 
+      // -------- 1b. Record the fulfilment event (before we reset state) --------
+      {
+        const items = [];
+        handoverLines.forEach((line) => {
+          const product = getInvProduct(line.productId);
+          if (!product) return;
+          let qty = 0;
+          let tags = [];
+          if (product.trackingType === "Individual") {
+            const selectedIds = state.collectionSelections[line.productId] || [];
+            qty = selectedIds.length;
+            tags = selectedIds
+              .map((uid) => UNITS.find((u) => u.id === uid)?.tag)
+              .filter(Boolean);
+          } else {
+            qty = state.collectionQuantities[line.productId] ?? 0;
+            qty = Math.max(0, Math.min(qty, line.handoverCap));
+          }
+          if (qty > 0) {
+            items.push({
+              productId: line.productId,
+              name: product.name,
+              qty,
+              tags,
+              trackingType: product.trackingType,
+            });
+          }
+        });
+
+        if (items.length > 0 || isDeferred) {
+          recordFulfilmentEvent(o, {
+            type: "Pickup",
+            location: getLocation(o.fulfilmentLocationId)?.name || o.pickupLocation,
+            handler: isDeferred
+              ? { name: null, phone: null, idPresented: false, orderRefVerified: false, deferred: true }
+              : { name, phone, idPresented, orderRefVerified },
+            items,
+          });
+        }
+
+
+      }
+
       // -------- 2. Log the event --------
       if (isDeferred) {
         o.pickedUpBy = null;
         logTimeline("0 items picked up. Deferred by operator.");
-      } else {
-        o.pickedUpBy = { name, phone, orderRefVerified, idPresented };
-        logTimeline(`Picked up by ${name}`);
       }
+      // else {
+      //   o.pickedUpBy = { name, phone, orderRefVerified, idPresented };
+      //   logTimeline(`Picked up by ${name}`);
+      // }
+
+
 
       // -------- 3. Transition state --------
       const isFullyFulfilled = o.fulfilmentStatus === "complete";
@@ -5990,7 +6190,7 @@ const pickupLoc = isRoutingPickup
       };
       state.paymentRecordedThisSession = false;
       state.currentPage = "success";
-      
+
       return true;
     }
 
@@ -6166,27 +6366,74 @@ const pickupLoc = isRoutingPickup
 
           }
 
-
           // Recompute fulfilment status now that lines have moved.
           recomputeFulfilmentStatus(o);
 
+          // -------- 1b. Record the fulfilment event (before we reset state) --------
+          {
+            const items = [];
+            handoverLines.forEach((line) => {
+              const product = getInvProduct(line.productId);
+              if (!product) return;
+              let qty = 0;
+              let tags = [];
+              if (product.trackingType === "Individual") {
+                const selectedIds = state.collectionSelections[line.productId] || [];
+                qty = selectedIds.length;
+                tags = selectedIds
+                  .map((uid) => UNITS.find((u) => u.id === uid)?.tag)
+                  .filter(Boolean);
+              } else {
+                qty = state.collectionQuantities[line.productId] ?? 0;
+                qty = Math.max(0, Math.min(qty, line.handoverCap));
+              }
+              if (qty > 0) {
+                items.push({
+                  productId: line.productId,
+                  name: product.name,
+                  qty,
+                  tags,
+                  trackingType: product.trackingType,
+                });
+              }
+            });
+
+            if (items.length > 0 || isDeferred) {
+              recordFulfilmentEvent(o, {
+                type: "Pickup",
+                location: o.fulfilmentLocationId
+                  ? getLocation(o.fulfilmentLocationId)?.name
+                  : o.pickupLocation,
+                handler: isDeferred
+                  ? { name: null, phone: null, idPresented: false, orderRefVerified: false, deferred: true }
+                  : { name, phone, idPresented, orderRefVerified },
+                items,
+              });
+            }
+
+
+          }
+
           // -------- 2. Record the picked-up-by info --------
+
           if (isDeferred) {
             o.pickedUpBy = null; // Don't record anyone as taking goods
             logTimeline("0 items picked up. Deferred by operator.");
-          } else {
-            o.pickedUpBy = { name, phone, orderRefVerified, idPresented };
-            const logParts = [`Picked up by ${name}`];
-            if (!isImmediate) {
-              logParts.push(
-                orderRefVerified
-                  ? "Order reference verified"
-                  : "Order reference NOT verified",
-              );
-              if (idPresented) logParts.push("Photo ID presented");
-            }
-            logTimeline(logParts.join(" · "));
           }
+
+          // else {
+          //   o.pickedUpBy = { name, phone, orderRefVerified, idPresented };
+          //   const logParts = [`Picked up by ${name}`];
+          //   if (!isImmediate) {
+          //     logParts.push(
+          //       orderRefVerified
+          //         ? "Order reference verified"
+          //         : "Order reference NOT verified",
+          //     );
+          //     if (idPresented) logParts.push("Photo ID presented");
+          //   }
+          //   logTimeline(logParts.join(" · "));
+          // }
 
           // -------- 3. Transition based on remaining fulfilment --------
           const isFullyFulfilled = o.fulfilmentStatus === "complete";
@@ -6235,7 +6482,7 @@ const pickupLoc = isRoutingPickup
 
           const isWalkin =
             getTiming(o) === "Immediate" && o.fulfillment === "Pickup";
-                   state.successContext = {
+          state.successContext = {
             title: isFullyFulfilled
               ? isWalkin
                 ? "Order Completed"
@@ -6259,6 +6506,75 @@ const pickupLoc = isRoutingPickup
           state.currentPage = "success";
           render();
         });
+    }
+
+
+
+
+
+    function renderTagsDetailModal() {
+      const o = state.order;
+      const idx = state.tagsDetailIndex;
+      const productId = state.tagsDetailProductId;
+      if (!o || idx === null || !o.fulfilmentHistory) return "";
+
+      const history = o.fulfilmentHistory;
+      const sorted = history.slice().reverse();
+      const entry = sorted[idx];
+      if (!entry) return "";
+
+      const item = entry.items.find((i) => i.productId === productId);
+      if (!item) return "";
+
+      const dateStr = new Date(entry.timestamp).toLocaleString("en-GB", {
+        day: "2-digit", month: "short", year: "numeric",
+        hour: "2-digit", minute: "2-digit",
+      });
+
+      const handlerName = entry.type === "Delivery"
+        ? (entry.handler.driver || entry.handler.courier || "—")
+        : (entry.handler.name || "—");
+
+      return `
+        <div class="modal-overlay" onclick="if(event.target===this)closeTagsDetail()">
+          <div class="modal">
+            <div class="modal-header">Tags Handed Over <button class="close-x" onclick="closeTagsDetail()">×</button></div>
+            <div class="modal-body">
+              <div style="padding:8px; border:1px dashed #999; border-radius:4px; font-size:12px; margin-bottom:12px;">
+                <div><strong>${item.name}</strong> · Qty: <strong>${item.qty}</strong></div>
+                <div style="font-size:11px; color:#555; margin-top:2px;">${dateStr} · ${entry.type} · ${handlerName}</div>
+              </div>
+              <div style="padding:6px 0;">
+                ${item.tags.map((tag, i) => `
+                  <div style="padding:4px 8px; border-bottom:1px dashed #eee; font-size:12px;">
+                    <span style="color:#888; margin-right:8px;">${String(i + 1).padStart(2, "0")}.</span>
+                    ${tag}
+                  </div>
+                `).join("")}
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button onclick="closeTagsDetail()">Close</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function openTagsDetail(orderNumber, index, productId) {
+      state.tagsDetailOrderNumber = orderNumber;
+      state.tagsDetailIndex = index;
+      state.tagsDetailProductId = productId;
+      state.activeModal = "tags-detail";
+      render();
+    }
+
+    function closeTagsDetail() {
+      state.tagsDetailOrderNumber = null;
+      state.tagsDetailIndex = null;
+      state.tagsDetailProductId = null;
+      state.activeModal = null;
+      render();
     }
 
     /* ============ EXTEND EXPIRY MODAL ============ */
@@ -6975,8 +7291,41 @@ DISPATCH WIZARD HANDLERS
         }
       });
 
+
       // 3. Clear soft reservation record on the order (it's now hard-reserved)
       o.softReservation = null;
+
+      // 3b. Record the fulfilment event (physical handover to driver/courier)
+      {
+        const items = [];
+        calcOutstandingLines(o).forEach((line) => {
+          const product = getInvProduct(line.productId);
+          if (!product) return;
+          const tags = [];
+          if (product.trackingType === "Individual") {
+            const selectedIds = w.unitSelections[line.productId] || [];
+            selectedIds.forEach((uid) => {
+              const u = UNITS.find((x) => x.id === uid);
+              if (u) tags.push(u.tag);
+            });
+          }
+          items.push({
+            productId: line.productId,
+            name: product.name,
+            qty: line.outstanding,
+            tags,
+            trackingType: product.trackingType,
+          });
+        });
+
+        recordFulfilmentEvent(o, {
+          type: "Delivery",
+          handler: w.deliveryMode === "Company Fleet"
+            ? { driver: w.driver, vehicle: w.vehicle }
+            : { courier: w.courier, trackingNumber: w.trackingNumber },
+          items,
+        });
+      }
 
       // 4. Move order to Out for Delivery
       o.state = "out-for-delivery";
@@ -9987,6 +10336,37 @@ TRIP PAGE (Batch Dispatch)
           dispatchDate: trip.dispatchDate,
           notes: trip.dispatchNotes,
         };
+
+        // Record the fulfilment event (physical handover to driver/courier)
+        {
+          const items = [];
+          calcOutstandingLines(order).forEach((line) => {
+            const product = getInvProduct(line.productId);
+            if (!product) return;
+            const key = order.orderNumber + "|" + line.productId;
+            const selectedIds = trip.orderUnitSelections[key] || [];
+            const tags = selectedIds
+              .map((uid) => UNITS.find((u) => u.id === uid)?.tag)
+              .filter(Boolean);
+            items.push({
+              productId: line.productId,
+              name: product.name,
+              qty: line.outstanding,
+              tags,
+              trackingType: product.trackingType,
+            });
+          });
+
+          recordFulfilmentEvent(order, {
+            type: "Delivery",
+            handler: trip.mode === "Company Fleet"
+              ? { driver: trip.driver, vehicle: trip.vehicle }
+              : { courier: trip.courier, trackingNumber: trip.trackingNumber },
+            items,
+          });
+        }
+
+
         order.timeline = order.timeline || [];
         order.timeline.push({
           time: new Date().toISOString(),
