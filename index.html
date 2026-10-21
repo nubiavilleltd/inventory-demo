@@ -541,6 +541,10 @@
     // Applies to all orders until per-customer terms are introduced.
     const DEFAULT_PAYMENT_TERMS_DAYS = 7;
 
+    // Number of days for delivery based on urgency
+    const DELIVERY_DAYS_STANDARD = 7;
+    const DELIVERY_DAYS_EXPRESS = 2;
+
     // Number of days a customer's credit balance remains valid from issuance.
     // Auto-applied to any new order. Non-deferrable, non-removable.
     const CREDIT_VALIDITY_DAYS = 60;
@@ -1158,7 +1162,6 @@
       editingUnitId: null,
       isEditing: false,
       successContext: null,
-      partialFulfilmentAcknowledged: false,
       paymentRecordedThisSession: false,
       // Fulfilment routing modal working state
       routingDraft: "", // '' | 'Pickup' | 'Delivery'
@@ -1257,6 +1260,12 @@
     function getTiming(order) {
       if (!order || !order.scheduledDate) return "Immediate";
       return order.scheduledDate <= todayISO() ? "Immediate" : "Scheduled";
+    }
+
+    function getEstimatedDeliveryDate(days) {
+      const d = new Date();
+      d.setDate(d.getDate() + days);
+      return d.toISOString().split("T")[0];
     }
     const formatDate = (iso) =>
       iso
@@ -1809,7 +1818,6 @@ DISPATCH DASHBOARD DEMO SEED
       state.currentPage = "order-creation";
       state.activeModal = null;
       state.successContext = null;
-      state.partialFulfilmentAcknowledged = false;
     }
 
     /* ============ STATUS BAR ============ */
@@ -2160,32 +2168,32 @@ DISPATCH DASHBOARD DEMO SEED
 
     // Renders the partial-fulfilment acknowledgement card.
     // Only shown when validateOrderStock reports a shortfall.
-    function renderPartialFulfilmentCard(order) {
-      const stockResult = validateOrderStock();
-      if (!stockResult.warning) return "";
+    // function renderPartialFulfilmentCard(order) {
+    //   const stockResult = validateOrderStock();
+    //   if (!stockResult.warning) return "";
 
-      return `
-          <div style="margin-top:10px; padding:10px; border:2px dashed #92400e; border-radius:4px; background:#fef3c7;">
-            <div style="font-size:12px; font-weight:bold; color:#92400e; margin-bottom:8px;">
-              ⚠ Some items are not fully stocked
-            </div>
+    //   return `
+    //       <div style="margin-top:10px; padding:10px; border:2px dashed #92400e; border-radius:4px; background:#fef3c7;">
+    //         <div style="font-size:12px; font-weight:bold; color:#92400e; margin-bottom:8px;">
+    //           ⚠ Some items are not fully stocked
+    //         </div>
 
-            <div style="font-size:12px; color:#92400e; margin-bottom:10px; line-height:1.5;">
-              Some items cannot be fulfilled in full. The customer can receive what's available now, and the remainder later — either at another pickup location or by delivery.
-            </div>
+    //         <div style="font-size:12px; color:#92400e; margin-bottom:10px; line-height:1.5;">
+    //           Some items cannot be fulfilled in full. The customer can receive what's available now, and the remainder later — either at another pickup location or by delivery.
+    //         </div>
 
-            <label style="display:flex; align-items:flex-start; gap:8px; font-size:12px; line-height:1.4; cursor:pointer; color:#92400e;">
-              <input type="checkbox" id="partialFulfilmentCheckbox"
-                style="width:auto; margin-top:2px;"
-                ${state.partialFulfilmentAcknowledged ? "checked" : ""}
-                onchange="state.partialFulfilmentAcknowledged = this.checked;">
-              <span>
-                <strong>Allow partial fulfilment.</strong>
-              </span>
-            </label>
-          </div>
-        `;
-    }
+    //         <label style="display:flex; align-items:flex-start; gap:8px; font-size:12px; line-height:1.4; cursor:pointer; color:#92400e;">
+    //           <input type="checkbox" id="partialFulfilmentCheckbox"
+    //             style="width:auto; margin-top:2px;"
+    //             ${state.partialFulfilmentAcknowledged ? "checked" : ""}
+    //             onchange="state.partialFulfilmentAcknowledged = this.checked;">
+    //           <span>
+    //             <strong>Allow partial fulfilment.</strong>
+    //           </span>
+    //         </label>
+    //       </div>
+    //     `;
+    // }
 
 
     /* ============ ORDER CREATION PAGE ============ */
@@ -2250,7 +2258,7 @@ DISPATCH DASHBOARD DEMO SEED
         </div>
       `
           : `
-                         <div class="row mt-8">
+              <div class="row mt-8">
           <div class="col">
             <label>Delivery Urgency *</label>
             <div class="toggle-group">
@@ -2267,9 +2275,29 @@ DISPATCH DASHBOARD DEMO SEED
                 Express
               </button>
             </div>
-            <div style="font-size:11px; color:#666; margin-top:4px;">
-              💡 Express adds a surcharge. Dispatch decides the mode.
-            </div>
+            
+            ${(() => {
+              const urgency = o.deliveryUrgency || "Standard";
+              const isExpress = urgency === "Express";
+              const days = isExpress ? DELIVERY_DAYS_EXPRESS : DELIVERY_DAYS_STANDARD;
+              const estDate = getEstimatedDeliveryDate(days);
+              const fee = calculateShippingFee(o, o.deliveryAddressId || null, urgency);
+              
+              return `
+                <div style="margin-top:8px; padding:8px; border:2px dashed ${isExpress ? "#991b1b" : "#166534"}; border-radius:4px; background:${isExpress ? "#fee2e2" : "#f0fdf4"}; font-size:12px; color:${isExpress ? "#991b1b" : "#166534"};">
+                  <div style="font-weight:bold; margin-bottom:4px;">
+                    ${isExpress ? "⚡ Express Delivery" : "🚚 Standard Delivery"}
+                  </div>
+                  <div style="display:flex; justify-content:space-between;">
+                    <span>Arrives by: <strong>${formatDate(estDate)}</strong> (${days} days)</span>
+                  </div>
+                  <div style="display:flex; justify-content:space-between; margin-top:2px;">
+                    <span>Delivery Fee:</span>
+                    <strong>${money(fee)}</strong>
+                  </div>
+                </div>
+              `;
+            })()}
           </div>
         </div>
 
@@ -2374,7 +2402,6 @@ DISPATCH DASHBOARD DEMO SEED
       </table>
          ${locked ? "" : `<button class="mt-8" id="addProductBtn">+ Add Product</button>`}
 
-            ${!locked && o.fulfillment === "Pickup" ? renderPartialFulfilmentCard(o) : ""}
 
     <div class="summary-box">
          <div class="summary-box">
@@ -3385,7 +3412,6 @@ DISPATCH DASHBOARD DEMO SEED
             );
           }
           autoApplyCredit(state.order, state.customer);
-          state.partialFulfilmentAcknowledged = false;
           state.currentPage = "order-creation";
           render();
         });
@@ -3419,18 +3445,18 @@ DISPATCH DASHBOARD DEMO SEED
         return;
       }
 
-      const stockResult = validateOrderStock();
-      const partialAck = state.partialFulfilmentAcknowledged === true;
+           const stockResult = validateOrderStock();
 
-      // Any shortfall must be explicitly acknowledged by the operator.
-      // The system no longer hard-blocks; it forces the checkbox instead.
-      // NOTE: This only applies to Pickup. Delivery shortfalls are handled
-      // by the dispatch team, not the POS operator.
-      if (o.fulfillment === "Pickup" && stockResult.warning && !partialAck) {
-        alert(
-          'This order has a stock shortfall. Tick "Allow partial fulfilment" to proceed.',
+      // Auto-flag partial orders based on stock availability.
+      // For Pickup: if there's a shortfall, it's a partial order.
+      // For Delivery: the dispatch team handles shortfalls, but we can still
+      // flag it as partial for tracking purposes.
+      if (stockResult.warning) {
+        o.fulfilmentStatus = "partial";
+        o._partialAcknowledged = true;
+        logTimeline(
+          `Partial fulfilment acknowledged at submission — ${calcOutstandingLines(o).length} line(s) outstanding.`,
         );
-        return;
       }
 
       // Record the acknowledgement on the order.
