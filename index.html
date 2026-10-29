@@ -721,11 +721,12 @@
     // NOTE: this replaces the earlier simple PRODUCTS array
     // (we will rename the old one to make migration easy)
 
-    const PRODUCTS_INV = [
+      const PRODUCTS_INV = [
       {
         id: "p1",
         name: "MacBook Pro 2021",
         sku: "MBP-2021",
+        images: ["https://placehold.co/150x150?text=MacBook+Front", "https://placehold.co/150x150?text=MacBook+Back"],
         price: 200000,
         category: "Electronics",
         unitOfMeasure: "Unit",
@@ -737,6 +738,7 @@
         id: "p2",
         name: "Cartons of Oil",
         sku: "OIL-001",
+        images: ["https://placehold.co/150x150?text=Oil+Carton"],
         price: 16000,
         category: "Food",
         unitOfMeasure: "Carton",
@@ -748,6 +750,7 @@
         id: "p3",
         name: "iPhone 15 Pro",
         sku: "IPH-15P",
+        images: ["https://placehold.co/150x150?text=iPhone"],
         price: 500000,
         category: "Electronics",
         unitOfMeasure: "Unit",
@@ -759,6 +762,7 @@
         id: "p4",
         name: "Office Chair",
         sku: "CHR-001",
+        images: ["https://placehold.co/150x150?text=Office+Chair"],
         price: 85000,
         category: "Furniture",
         unitOfMeasure: "Unit",
@@ -8055,17 +8059,35 @@ INVENTORY LIST PAGE
       <button onclick="state.inventoryView='list'; state.inventoryProductId=null; render();">← Back to Inventory</button>
     </div>
 
-    <div class="card">
-      <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-        <div>
-          <h2 style="font-size:20px;">${p.name}</h2>
-          <div style="font-size:12px; color:#555; margin-top:4px;">
-            ${p.sku} · ${p.category} · ${p.trackingType === "Individual" ? "Individual Items" : "Stock Quantity"} · ${p.unitOfMeasure}
+       <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px;">
+        <div style="display:flex; gap:16px;">
+          <!-- Image Gallery -->
+          <div style="flex-shrink:0;">
+            <div style="width:120px; height:120px; border:2px solid #1a1a1a; border-radius:6px; overflow:hidden; background:#f0f0f0; display:flex; align-items:center; justify-content:center;">
+              <img id="mainProductImage" src="${p.images && p.images.length > 0 ? p.images[0] : 'https://placehold.co/150x150?text=No+Image'}" alt="${p.name}" style="width:100%; height:100%; object-fit:cover;">
+            </div>
+            ${p.images && p.images.length > 1 ? `
+              <div style="display:flex; gap:4px; margin-top:8px;">
+                ${p.images.map((img, idx) => `
+                  <div style="width:32px; height:32px; border:1px solid #ccc; border-radius:4px; overflow:hidden; cursor:pointer;" onclick="document.getElementById('mainProductImage').src='${img}'">
+                    <img src="${img}" style="width:100%; height:100%; object-fit:cover;">
+                  </div>
+                `).join("")}
+              </div>
+            ` : ""}
           </div>
-          <div style="font-size:12px; color:#555; margin-top:2px;">
-            Default price: ${money(p.price)}
-            ${p.tagPrefix ? " · Tag prefix: " + p.tagPrefix : ""}
-            ${p.minimumStock ? " · Min stock: " + p.minimumStock : ""}
+
+          <div>
+            <h2 style="font-size:20px;">${p.name}</h2>
+            <div style="font-size:12px; color:#555; margin-top:4px;">
+              ${p.sku} · ${p.category} · ${p.trackingType === "Individual" ? "Individual Items" : "Stock Quantity"} · ${p.unitOfMeasure}
+            </div>
+            <div style="font-size:12px; color:#555; margin-top:2px;">
+              Default price: ${money(p.price)}
+              ${p.tagPrefix ? " · Tag prefix: " + p.tagPrefix : ""}
+              ${p.minimumStock ? " · Min stock: " + p.minimumStock : ""}
+            </div>
           </div>
         </div>
         <div style="text-align:right;">
