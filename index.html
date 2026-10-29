@@ -8928,10 +8928,10 @@ RECEIVE STOCK MODAL
           }).join("")}
               </div>
 
-              <div style="margin-top:8px; font-size:12px;">
+                         <div style="margin-top:8px; font-size:12px;">
                 ${selected.length === qty
-          ? `<span class="green">✓ ${selected.length} of ${qty} selected</span>`
-          : `<span class="red">Select exactly ${qty}. Currently: ${selected.length}</span>`}
+                  ? `<span class="green">✓ ${selected.length} of ${qty} selected. Deselect one to swap.</span>`
+                  : `<span class="red">Select exactly ${qty}. Currently: ${selected.length}</span>`}
               </div>
 
             </div>
@@ -9616,9 +9616,20 @@ ADJUST STOCK MODAL
         transfer.receivedBy = "You";
         transfer.qtyReceived = qtyReceived;
       } else {
-        // Individual items
+               // Individual items
         const unitsToReceive = state.receiveSelectedUnits || [];
         if (unitsToReceive.length === 0) return alert("Select at least one unit.");
+
+        // If the operator is receiving fewer than expected, force a confirmation.
+        if (unitsToReceive.length < transfer.qty) {
+          const shortage = transfer.qty - unitsToReceive.length;
+          const ok = confirm(
+            `You are receiving ${unitsToReceive.length} of ${transfer.qty} unit(s).\n\n` +
+            `${shortage} unit(s) will be marked as lost in transit (variance).\n\n` +
+            `Continue?`
+          );
+          if (!ok) return;
+        }
 
         const units = unitsToReceive
           .map((uid) => UNITS.find((u) => u.id === uid))
