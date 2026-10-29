@@ -1047,7 +1047,7 @@
       return map[status] || "badge-draft";
     }
 
-      // Log a movement
+    // Log a movement
     function logMovement(productId, locationId, type, quantity, reference, unitId = null, batchId = null, operator = "You") {
       MOVEMENTS.push({
         id: "mov-" + Date.now() + "-" + Math.floor(Math.random() * 999),
@@ -1249,8 +1249,10 @@
       addOrdersSelected: {},
 
       // Inventory page state
-      inventoryView: "list", // 'list' | 'product' | 'movements' | 'transfers-in-transit'
+      inventoryView: "list", // 'list' | 'product' | 'unit' | 'batch' | 'movements' | 'transfers-in-transit'
       inventoryProductId: null,
+      inventoryUnitId: null,
+      inventoryBatchId: null,
       receivingTransferId: null,  // NEW
       receiveQty: "",             // NEW (Stock Quantity only)
       receiveSelectedUnits: [],   // NEW (Individual Items only)
@@ -1909,6 +1911,10 @@ DISPATCH DASHBOARD DEMO SEED
       if (state.activeTab === "inventory") {
         if (state.inventoryView === "product") {
           renderProductDetail(c, state.inventoryProductId);
+        } else if (state.inventoryView === "unit") {
+          renderUnitDetail(c, state.inventoryUnitId);
+        } else if (state.inventoryView === "batch") {
+          renderBatchDetail(c, state.inventoryBatchId);
         } else if (state.inventoryView === "movements") {
           renderMovementsList(c);
         } else if (state.inventoryView === "transfers-in-transit") {
@@ -7591,6 +7597,335 @@ INVENTORY LIST PAGE
    PRODUCT DETAIL PAGE
    ============================================================ */
 
+    function renderUnitDetail(c, unitId) {
+      const unit = UNITS.find((u) => u.id === unitId);
+      if (!unit) {
+        c.innerHTML = '<div class="empty-state">Unit not found.</div>';
+        return;
+      }
+
+      const product = getInvProduct(unit.productId);
+      const batch = unit.batchId ? getBatch(unit.batchId) : null;
+      const loc = getLocation(unit.locationId);
+
+      const statusClass =
+        unit.status === "Available"
+          ? "badge-paid"
+          : unit.status === "Reserved"
+            ? "badge-partial"
+            : unit.status === "Removed"
+              ? "badge-cancelled"
+              : "badge-draft";
+      const conditionClass =
+        unit.condition === "New"
+          ? "badge-paid"
+          : unit.condition === "Used"
+            ? "badge-partial"
+            : unit.condition === "Refurbished"
+              ? "badge-ready"
+              : unit.condition === "Damaged"
+                ? "badge-cancelled"
+                : unit.condition === "Returned"
+                  ? "badge-unpaid"
+                  : "badge-draft";
+
+      // Filter movements for this specific unit
+      const unitMovements = MOVEMENTS.filter((m) => m.unitId === unit.id).sort(
+        (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
+      );
+
+      c.innerHTML = `
+    <div style="margin-bottom:12px;">
+      <button onclick="state.inventoryView='product'; state.inventoryUnitId=null; render();">← Back to ${product.name}</button>
+    </div>
+
+    <div style="margin-bottom:16px;">
+      <h2 style="font-size:20px;">${unit.tag}</h2>
+      <div style="font-size:14px; color:#555;">${product.name}</div>
+    </div>
+
+    <div class="card" style="padding:16px;">
+      <div style="font-weight:bold; font-size:14px; margin-bottom:16px; border-bottom:1px solid #eee; padding-bottom:8px;">Item Details</div>
+      
+      <div class="row" style="margin-bottom:16px;">
+        <div class="col">
+          <div style="font-size:11px; color:#666;">Tag Number</div>
+          <div style="font-weight:bold; font-size:13px;">${unit.tag}</div>
+        </div>
+        <div class="col">
+          <div style="font-size:11px; color:#666;">Product</div>
+          <div style="font-weight:bold; font-size:13px;">${product.name}</div>
+        </div>
+        <div class="col" style="max-width:150px; text-align:right;">
+          <div style="border:2px solid #1a1a1a; border-radius:4px; padding:8px; display:inline-block; background:#fff;">
+            <div style="width:80px; height:80px; background:#eee; display:flex; align-items:center; justify-content:center; font-size:10px; text-align:center; color:#555;">
+              QR<br>CODE
+            </div>
+          </div>
+          <div style="margin-top:8px;">
+             <button onclick="alert('Printing QR Code for ${unit.tag}...')" style="font-size:11px;">Print QR Code</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="row" style="margin-bottom:16px;">
+        <div class="col">
+          <div style="font-size:11px; color:#666;">Status</div>
+          <div><span class="badge ${statusClass}">${unit.status}</span></div>
+        </div>
+        <div class="col">
+          <div style="font-size:11px; color:#666;">Condition</div>
+          <div><span class="badge ${conditionClass}">${unit.condition || "New"}</span></div>
+        </div>
+        <div class="col" style="max-width:150px;"></div>
+      </div>
+
+      <div class="row" style="margin-bottom:16px;">
+        <div class="col">
+          <div style="font-size:11px; color:#666;">Batch</div>
+          <div style="font-size:13px;">
+                       ${batch ? `<a href="#" onclick="event.preventDefault(); state.inventoryView='batch'; state.inventoryBatchId='${batch.id}'; render();" style="color:#1e40af;">${batch.batchNumber}</a>` : "—"}
+            ${batch ? `<div style="font-size:11px; color:#555;">${batch.supplier}</div>` : ""}
+          </div>
+        </div>
+        <div class="col">
+          <div style="font-size:11px; color:#666;">Location</div>
+          <div style="font-weight:bold; font-size:13px;">${loc ? loc.name : "—"}</div>
+        </div>
+        <div class="col" style="max-width:150px;"></div>
+      </div>
+
+      <div class="row">
+        <div class="col">
+          <div style="font-size:11px; color:#666;">Received</div>
+          <div style="font-weight:bold; font-size:13px;">${formatDate(unit.receivedDate)}</div>
+        </div>
+        <div class="col"></div>
+        <div class="col" style="max-width:150px;"></div>
+      </div>
+    </div>
+
+    <div class="card" style="padding:16px;">
+      <div style="font-weight:bold; font-size:14px; margin-bottom:16px; border-bottom:1px solid #eee; padding-bottom:8px;">Movement History</div>
+      
+      ${unitMovements.length === 0 ? `<div class="empty-state">No movements recorded yet.</div>` : ""}
+      
+      ${unitMovements.map((m) => {
+        return `
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; padding:12px 0; border-bottom:1px dashed #eee;">
+            <div>
+              <span class="badge badge-draft" style="font-size:11px; margin-bottom:4px; display:inline-block;">${m.type.replace(/_/g, " ")}</span>
+              <div style="font-size:12px; color:#555; margin-top:4px;">
+                ${m.locationId ? (getLocation(m.locationId)?.name || "—") : "—"} 
+                ${m.reference ? `· ${m.reference}` : ""}
+              </div>
+            </div>
+            <div style="font-size:11px; color:#888; text-align:right; white-space:nowrap;">
+              ${new Date(m.timestamp).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "2-digit" })}
+              <div style="margin-top:2px;">By ${m.operator}</div>
+            </div>
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
+    }
+
+
+    function renderBatchDetail(c, batchId) {
+      const batch = getBatch(batchId);
+      if (!batch) {
+        c.innerHTML = '<div class="empty-state">Batch not found.</div>';
+        return;
+      }
+
+      const product = getInvProduct(batch.productId);
+      const isIndividual = product.trackingType === "Individual";
+      const unitLabel = product.unitOfMeasure || "unit";
+
+      let totalOnHand = 0;
+      let totalReserved = 0;
+      let locationBreakdownHtml = "";
+      let hasStock = false;
+
+      if (isIndividual) {
+        // For Individual Items, count physical units that are still here.
+        // EXCLUDE Sold, Removed, and Lost units.
+        const liveUnits = UNITS.filter((u) =>
+          u.batchId === batch.id &&
+          ["Available", "Reserved", "In Transit"].includes(u.status)
+        );
+        hasStock = liveUnits.length > 0;
+
+        if (hasStock) {
+          // Group by location
+          const byLoc = {};
+          liveUnits.forEach((u) => {
+            const locId = u.locationId || "loc2";
+            byLoc[locId] = byLoc[locId] || { count: 0, reserved: 0 };
+            byLoc[locId].count++;
+            if (u.status === "Reserved") byLoc[locId].reserved++;
+          });
+
+          Object.keys(byLoc).forEach((locId) => {
+            const data = byLoc[locId];
+            totalOnHand += data.count;
+            totalReserved += data.reserved;
+            locationBreakdownHtml += `
+              <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px dashed #eee; font-size:13px;">
+                <div style="flex:1;"><strong>${getLocation(locId)?.name || "—"}</strong></div>
+                <div style="width:100px; text-align:right; color:#555;">${data.count}</div>
+                <div style="width:100px; text-align:right; color:#555;">${data.reserved}</div>
+                <div style="width:100px; text-align:right; font-weight:bold; color:#166534;">${data.count - data.reserved}</div>
+              </div>
+            `;
+          });
+        }
+      } else {
+        // For Stock Quantity, look at the STOCK array
+        const stockRows = STOCK.filter((s) => s.batchId === batch.id && s.onHand > 0);
+        hasStock = stockRows.length > 0;
+
+        if (hasStock) {
+          stockRows.forEach((row) => {
+            totalOnHand += row.onHand;
+            totalReserved += (row.reserved || 0);
+            locationBreakdownHtml += `
+              <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px dashed #eee; font-size:13px;">
+                <div style="flex:1;"><strong>${getLocation(row.locationId)?.name || "—"}</strong></div>
+                <div style="width:100px; text-align:right; color:#555;">${row.onHand} on hand</div>
+                <div style="width:100px; text-align:right; color:#555;">${row.reserved || 0} reserved</div>
+                <div style="width:100px; text-align:right; font-weight:bold; color:#166534;">${row.onHand - (row.reserved || 0)} avail</div>
+              </div>
+            `;
+          });
+        }
+      }
+
+      const totalAvailable = totalOnHand - totalReserved;
+
+      // Filter movements for this specific batch
+      const batchMovements = MOVEMENTS.filter((m) => m.batchId === batch.id).sort(
+        (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
+      );
+
+      c.innerHTML = `
+    <div style="margin-bottom:12px;">
+      <button onclick="state.inventoryView='product'; state.inventoryBatchId=null; render();">← Back to ${product.name}</button>
+    </div>
+
+    <div style="margin-bottom:16px;">
+      <h2 style="font-size:20px;">${batch.batchNumber}</h2>
+      <div style="font-size:14px; color:#555;">${product.name}</div>
+    </div>
+
+    <div class="card" style="padding:16px;">
+      <div style="font-weight:bold; font-size:14px; margin-bottom:16px; border-bottom:1px solid #eee; padding-bottom:8px;">Batch Details</div>
+      
+      <div class="row" style="margin-bottom:16px;">
+        <div class="col">
+          <div style="font-size:11px; color:#666;">Batch Number</div>
+          <div style="font-weight:bold; font-size:13px;">${batch.batchNumber}</div>
+        </div>
+        <div class="col">
+          <div style="font-size:11px; color:#666;">Product</div>
+          <div style="font-weight:bold; font-size:13px;">${product.name}</div>
+        </div>
+        <div class="col" style="max-width:150px; text-align:right;">
+          <div style="border:2px solid #1a1a1a; border-radius:4px; padding:8px; display:inline-block; background:#fff;">
+            <div style="width:80px; height:80px; background:#eee; display:flex; align-items:center; justify-content:center; font-size:10px; text-align:center; color:#555;">
+              QR<br>CODE
+            </div>
+          </div>
+          <div style="margin-top:8px;">
+             <button onclick="alert('Printing Delivery Note QR for ${batch.batchNumber}...')" style="font-size:11px;">Print QR</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="row" style="margin-bottom:16px;">
+        <div class="col">
+          <div style="font-size:11px; color:#666;">Supplier</div>
+          <div style="font-weight:bold; font-size:13px;">${batch.supplier}</div>
+        </div>
+        <div class="col">
+          <div style="font-size:11px; color:#666;">Initial Qty</div>
+          <div style="font-weight:bold; font-size:13px;">${batch.initialQty.toLocaleString()} ${unitLabel}s</div>
+        </div>
+        <div class="col" style="max-width:150px;"></div>
+      </div>
+
+      <div class="row">
+        <div class="col">
+          <div style="font-size:11px; color:#666;">Received</div>
+          <div style="font-weight:bold; font-size:13px;">${formatDate(batch.receivedDate)}</div>
+        </div>
+        <div class="col">
+          <div style="font-size:11px; color:#666;">Notes</div>
+          <div style="font-size:13px;">${batch.notes || "—"}</div>
+        </div>
+        <div class="col" style="max-width:150px;"></div>
+      </div>
+    </div>
+
+      <div class="card" style="padding:16px;">
+      <div style="font-weight:bold; font-size:14px; margin-bottom:16px; border-bottom:1px solid #eee; padding-bottom:8px;">Current Stock</div>
+      
+      ${!hasStock ? `<div class="empty-state">No stock remaining in this batch.</div>` : ""}
+      
+      ${hasStock && isIndividual ? `
+        <!-- Headers for Individual Items -->
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:4px 0; font-size:11px; color:#666; border-bottom:1px solid #eee;">
+          <div style="flex:1;">Location</div>
+          <div style="width:100px; text-align:right;">Units</div>
+          <div style="width:100px; text-align:right;">Reserved</div>
+          <div style="width:100px; text-align:right;">Available</div>
+        </div>
+      ` : ""}
+      
+      ${locationBreakdownHtml}
+      
+      ${hasStock && !isIndividual ? `
+        <!-- Footer for Stock Quantity -->
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 0 0 0; font-size:13px; font-weight:bold; border-top:2px solid #1a1a1a; margin-top:8px;">
+          <div style="flex:1;">TOTAL</div>
+          <div style="width:100px; text-align:right;">${totalOnHand}</div>
+          <div style="width:100px; text-align:right;">${totalReserved}</div>
+          <div style="width:100px; text-align:right; color:#166534;">${totalAvailable}</div>
+        </div>
+      ` : ""}
+    </div>
+
+    <div class="card" style="padding:16px;">
+      <div style="font-weight:bold; font-size:14px; margin-bottom:16px; border-bottom:1px solid #eee; padding-bottom:8px;">Movement History</div>
+      
+      ${batchMovements.length === 0 ? `<div class="empty-state">No movements recorded yet.</div>` : ""}
+      
+      ${batchMovements.map((m) => {
+        return `
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; padding:12px 0; border-bottom:1px dashed #eee;">
+            <div>
+              <span class="badge badge-draft" style="font-size:11px; margin-bottom:4px; display:inline-block;">${m.type.replace(/_/g, " ")}</span>
+              <div style="font-size:12px; color:#555; margin-top:4px;">
+                ${m.locationId ? (getLocation(m.locationId)?.name || "—") : "—"} 
+                · ${m.quantity > 0 ? "+" : ""}${m.quantity} ${unitLabel}s
+                ${m.reference ? `· ${m.reference}` : ""}
+              </div>
+            </div>
+            <div style="font-size:11px; color:#888; text-align:right; white-space:nowrap;">
+              ${new Date(m.timestamp).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "2-digit" })}
+              <div style="margin-top:2px;">By ${m.operator}</div>
+            </div>
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
+    }
+
+
+
+
     function renderProductDetail(c, productId) {
       const p = getInvProduct(productId);
       if (!p) {
@@ -7654,8 +7989,10 @@ INVENTORY LIST PAGE
 
               const batch = u.batchId ? getBatch(u.batchId) : null;
               return `
-                            <tr style="${isRemoved ? "opacity:0.5;" : ""}">
-                              <td style="padding-left:12px; ${isRemoved ? "text-decoration:line-through;" : ""}">${u.tag}</td>
+                                                        <tr style="${isRemoved ? "opacity:0.5;" : ""}">
+                              <td style="padding-left:12px; ${isRemoved ? "text-decoration:line-through;" : ""}">
+                                <a href="#" onclick="event.preventDefault(); state.inventoryView='unit'; state.inventoryUnitId='${u.id}'; render();" style="color:#1e40af; text-decoration:underline;">${u.tag}</a>
+                              </td>
                               <td style="font-size:11px; color:#555;">${batch ? batch.batchNumber : "—"}</td>
                               <td><span class="badge ${conditionClass}">${u.condition || "New"}</span></td>
                               <td><span class="badge ${statusClass}">${u.status}</span></td>
@@ -7693,8 +8030,10 @@ INVENTORY LIST PAGE
             .map((st) => {
               const batch = st.batchId ? getBatch(st.batchId) : null;
               return `
-                          <tr>
-                            <td style="padding-left:12px; font-size:12px;">${batch ? batch.batchNumber : "—"}</td>
+                                                    <tr>
+                            <td style="padding-left:12px; font-size:12px;">
+                              ${batch ? `<a href="#" onclick="event.preventDefault(); state.inventoryView='batch'; state.inventoryBatchId='${batch.id}'; render();" style="color:#1e40af; text-decoration:underline;">${batch.batchNumber}</a>` : "—"}
+                            </td>
                             <td style="font-size:12px;">${batch ? batch.supplier : "—"}</td>
                             <td>${getLocation(st.locationId)?.name || "—"}</td>
                             <td>${st.onHand}</td>
@@ -7891,7 +8230,7 @@ INVENTORY LIST PAGE
           notes: notes || "",
         });
 
-             logMovement(
+        logMovement(
           productId,
           fromId,
           "transfer_out",
@@ -7946,7 +8285,7 @@ INVENTORY LIST PAGE
         notes: notes || "",
       });
 
-          logMovement(
+      logMovement(
         productId,
         fromId,
         "transfer_out",
@@ -8174,7 +8513,7 @@ RECEIVE STOCK MODAL
                 receivedDate,
               });
             }
-                  logMovement(
+            logMovement(
               productId,
               locationId,
               "check_in",
@@ -8940,8 +9279,8 @@ RECEIVE STOCK MODAL
 
                          <div style="margin-top:8px; font-size:12px;">
                 ${selected.length === qty
-                  ? `<span class="green">✓ ${selected.length} of ${qty} selected. Deselect one to swap.</span>`
-                  : `<span class="red">Select exactly ${qty}. Currently: ${selected.length}</span>`}
+          ? `<span class="green">✓ ${selected.length} of ${qty} selected. Deselect one to swap.</span>`
+          : `<span class="red">Select exactly ${qty}. Currently: ${selected.length}</span>`}
               </div>
 
             </div>
@@ -9509,7 +9848,7 @@ ADJUST STOCK MODAL
         batchRow.onHand -= reduceQty;
         const batch = getBatch(state.adjustBatchId);
         const batchLabel = batch ? `${batch.batchNumber} (${batch.supplier})` : "batch";
-            logMovement(
+        logMovement(
           productId,
           locationId,
           movementType,
@@ -9605,7 +9944,7 @@ ADJUST STOCK MODAL
         const batch = getBatch(transfer.batchId);
         const batchLabel = batch ? `${batch.batchNumber} (${batch.supplier})` : "batch";
 
-              logMovement(
+        logMovement(
           transfer.productId,
           transfer.toLocationId,
           "transfer_in",
@@ -9630,7 +9969,7 @@ ADJUST STOCK MODAL
         transfer.receivedBy = "You";
         transfer.qtyReceived = qtyReceived;
       } else {
-               // Individual items
+        // Individual items
         const unitsToReceive = state.receiveSelectedUnits || [];
         if (unitsToReceive.length === 0) return alert("Select at least one unit.");
 
@@ -9670,7 +10009,7 @@ ADJUST STOCK MODAL
           }
         });
 
-               logMovement(
+        logMovement(
           transfer.productId,
           transfer.toLocationId,
           "transfer_in",
@@ -9999,7 +10338,7 @@ EDIT UNIT CONDITION MODAL
 
           unit.condition = newCondition;
 
-                logMovement(
+          logMovement(
             unit.productId,
             unit.locationId,
             "condition_change",
