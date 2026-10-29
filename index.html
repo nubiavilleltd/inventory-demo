@@ -2238,12 +2238,10 @@ DISPATCH DASHBOARD DEMO SEED
         });
     }
 
-    function scenarioBanner() {
-      const s = SCENARIOS[state.currentScenario];
-      if (!s) return "";
-      return `<div class="scenario-banner"><strong>🎬 ${s.title}</strong>${s.description}</div>`;
+      function scenarioBanner() {
+      // Hiding the banner for now to clean up the UI.
+      return "";
     }
-
 
 
     /* ============ ORDER CREATION PAGE ============ */
