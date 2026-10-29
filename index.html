@@ -1047,8 +1047,8 @@
       return map[status] || "badge-draft";
     }
 
-    // Log a movement
-    function logMovement(productId, locationId, type, quantity, reference) {
+      // Log a movement
+    function logMovement(productId, locationId, type, quantity, reference, unitId = null, batchId = null, operator = "You") {
       MOVEMENTS.push({
         id: "mov-" + Date.now() + "-" + Math.floor(Math.random() * 999),
         productId,
@@ -1056,7 +1056,9 @@
         type,
         quantity,
         reference: reference || null,
-        operator: "You",
+        unitId: unitId,
+        batchId: batchId,
+        operator: operator,
         timestamp: new Date().toISOString(),
       });
     }
@@ -7889,12 +7891,14 @@ INVENTORY LIST PAGE
           notes: notes || "",
         });
 
-        logMovement(
+             logMovement(
           productId,
           fromId,
           "transfer_out",
           qty,
-          `${getLocation(fromId)?.name || "—"} → ${getLocation(toId)?.name || "—"} (In Transit)${notes ? " · " + notes : ""}`
+          `${getLocation(fromId)?.name || "—"} → ${getLocation(toId)?.name || "—"} (In Transit)${notes ? " · " + notes : ""}`,
+          null,
+          units[0]?.batchId || null
         );
         return;
       }
@@ -7942,12 +7946,14 @@ INVENTORY LIST PAGE
         notes: notes || "",
       });
 
-      logMovement(
+          logMovement(
         productId,
         fromId,
         "transfer_out",
         qty,
-        `${getLocation(fromId)?.name || "—"} → ${getLocation(toId)?.name || "—"} (In Transit)${notes ? " · " + notes : ""}`
+        `${getLocation(fromId)?.name || "—"} → ${getLocation(toId)?.name || "—"} (In Transit)${notes ? " · " + notes : ""}`,
+        null,
+        batchId
       );
     }
 
@@ -8168,12 +8174,14 @@ RECEIVE STOCK MODAL
                 receivedDate,
               });
             }
-            logMovement(
+                  logMovement(
               productId,
               locationId,
               "check_in",
               qty,
               `${batchNumber} · ${notes || supplier}`,
+              null,
+              newBatchId
             );
           } else {
             STOCK.push({
@@ -8189,6 +8197,8 @@ RECEIVE STOCK MODAL
               "check_in",
               qty,
               `${batchNumber} · ${notes || supplier}`,
+              null,
+              newBatchId
             );
           }
 
@@ -9499,12 +9509,14 @@ ADJUST STOCK MODAL
         batchRow.onHand -= reduceQty;
         const batch = getBatch(state.adjustBatchId);
         const batchLabel = batch ? `${batch.batchNumber} (${batch.supplier})` : "batch";
-        logMovement(
+            logMovement(
           productId,
           locationId,
           movementType,
           reduceQty,
           `${batchLabel}${notes ? " · " + notes : ""}`,
+          null,
+          state.adjustBatchId
         );
       }
 
@@ -9593,12 +9605,14 @@ ADJUST STOCK MODAL
         const batch = getBatch(transfer.batchId);
         const batchLabel = batch ? `${batch.batchNumber} (${batch.supplier})` : "batch";
 
-        logMovement(
+              logMovement(
           transfer.productId,
           transfer.toLocationId,
           "transfer_in",
           qtyReceived,
-          `${transfer.transferNumber} · ${batchLabel}${shortage > 0 ? ` · SHORTAGE: ${shortage}` : ""}`
+          `${transfer.transferNumber} · ${batchLabel}${shortage > 0 ? ` · SHORTAGE: ${shortage}` : ""}`,
+          null,
+          transfer.batchId
         );
 
         if (shortage > 0) {
@@ -9656,12 +9670,14 @@ ADJUST STOCK MODAL
           }
         });
 
-        logMovement(
+               logMovement(
           transfer.productId,
           transfer.toLocationId,
           "transfer_in",
           unitsToReceive.length,
-          transfer.transferNumber + (missingUnitIds.length > 0 ? ` · ${missingUnitIds.length} lost in transit` : "")
+          transfer.transferNumber + (missingUnitIds.length > 0 ? ` · ${missingUnitIds.length} lost in transit` : ""),
+          null,
+          transfer.batchId
         );
 
         if (missingUnitIds.length > 0) {
@@ -9983,14 +9999,15 @@ EDIT UNIT CONDITION MODAL
 
           unit.condition = newCondition;
 
-          logMovement(
+                logMovement(
             unit.productId,
             unit.locationId,
             "condition_change",
             0,
             `${unit.tag}: ${oldCondition} → ${newCondition}${reason ? " · " + reason : ""}`,
+            unit.id,
+            unit.batchId
           );
-
           state.editingUnitId = null;
           state.activeModal = null;
           render();
