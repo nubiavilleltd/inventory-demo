@@ -4657,7 +4657,10 @@ DISPATCH DASHBOARD DEMO SEED
       } else if (state.activeModal === "add-product") {
         c.innerHTML = renderAddProductModal();
         attachAddProductHandlers();
-      } else if (state.activeModal === "create-customer") {
+      }   else if (state.activeModal === "edit-product") {
+        c.innerHTML = renderEditProductModal();
+        attachEditProductHandlers();
+      }else if (state.activeModal === "create-customer") {
         c.innerHTML = renderCreateCustomerModal();
         attachCreateCustomerHandlers();
       } else if (state.activeModal === "add-address") {
@@ -5130,7 +5133,7 @@ DISPATCH DASHBOARD DEMO SEED
           <label>Product *</label>
           <select id="newProductId" onchange="updateAddProductStockInfo()">
             <option value="">Select product</option>
-            ${PRODUCTS_INV.map((p) => {
+               ${PRODUCTS_INV.filter(p => p.status !== "Inactive").map((p) => {
         const s = getStockSummary(p.id);
         return `<option value="${p.id}">${p.name} — ${money(p.price)} (${s.available} available)</option>`;
       }).join("")}
@@ -8083,19 +8086,28 @@ INVENTORY LIST PAGE
             <div style="font-size:12px; color:#555; margin-top:4px;">
               ${p.sku} · ${p.category} · ${p.trackingType === "Individual" ? "Individual Items" : "Stock Quantity"} · ${p.unitOfMeasure}
             </div>
-            <div style="font-size:12px; color:#555; margin-top:2px;">
+               <div style="font-size:12px; color:#555; margin-top:2px;">
               Default price: ${money(p.price)}
               ${p.tagPrefix ? " · Tag prefix: " + p.tagPrefix : ""}
               ${p.minimumStock ? " · Min stock: " + p.minimumStock : ""}
             </div>
+            ${p.status === "Inactive" ? `<div style="font-size:11px; color:#991b1b; font-weight:bold; margin-top:6px;">⚠ This product is Inactive and cannot be sold.</div>` : ""}
           </div>
         </div>
         <div style="text-align:right;">
-          <span class="badge ${getStockStatusBadge(status)}">${status}</span>
-                   <div style="margin-top:8px;">
-            <button class="btn-primary" onclick="state.activeModal='receive-stock'; render();">+ Check In Stock</button>
-            <button onclick="openTransferStockModal('${p.id}');">Transfer Stock</button>
-            <button onclick="state.activeModal='adjust-stock'; render();">Adjust Stock</button>
+          <div style="margin-bottom:8px;">
+            <span class="badge ${getStockStatusBadge(status)}" style="margin-right:8px;">${status}</span>
+            <span class="badge ${p.status === "Active" ? "badge-paid" : "badge-cancelled"}">${p.status || "Active"}</span>
+          </div>
+          <div style="margin-top:8px;">
+            <button class="btn-primary" onclick="state.activeModal='receive-stock'; render();">+ Check In</button>
+            <button onclick="openTransferStockModal('${p.id}');">Transfer</button>
+            <button onclick="state.activeModal='adjust-stock'; render();">Adjust</button>
+            <button onclick="state.activeModal='edit-product'; render();" style="margin-left:8px;">Edit</button>
+            ${p.status === "Active" 
+              ? `<button class="btn-danger" onclick="deactivateProduct('${p.id}')">Deactivate</button>`
+              : `<button onclick="activateProduct('${p.id}')">Re-activate</button>`
+            }
           </div>
         </div>
       </div>
@@ -8782,6 +8794,111 @@ RECEIVE STOCK MODAL
       // No render() — DOM and state are consistent as-is.
       // The input's value will be read fresh next time we need it
       // (e.g. on save or on the next combobox interaction).
+    }
+
+
+
+        function renderEditProductModal() {
+      const p = getInvProduct(state.inventoryProductId);
+      if (!p) return "";
+      
+      return `
+    <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+      <div class="modal">
+        <div class="modal-header">Edit Product <button class="close-x" onclick="closeModal()">×</button></div>
+        <div class="modal-body">
+
+          <label>Product Name *</label>
+          <input type="text" id="epName" value="${p.name}">
+
+          <label class="mt-12">SKU *</label>
+          <input type="text" id="epSku" value="${p.sku}">
+
+          <div class="row mt-12">
+            <div class="col">
+              <label>Category *</label>
+              <select id="epCategory">
+                ${PRODUCT_CATEGORIES.map((c) => `<option value="${c}" ${p.category === c ? "selected" : ""}>${c}</option>`).join("")}
+              </select>
+            </div>
+            <div class="col">
+              <label>Unit of Measure *</label>
+              <select id="epUnit">
+                ${PRODUCT_UNITS.map((u) => `<option value="${u}" ${p.unitOfMeasure === u ? "selected" : ""}>${u}</option>`).join("")}
+              </select>
+            </div>
+          </div>
+
+          <div class="row mt-12">
+            <div class="col">
+              <label>Default Unit Price (₦) *</label>
+              <input type="number" id="epPrice" value="${p.price}" min="0">
+            </div>
+            <div class="col">
+              <label>Minimum Stock Threshold</label>
+              <input type="number" id="epMinStock" value="${p.minimumStock}" min="0">
+            </div>
+          </div>
+
+          <label class="mt-12">Description</label>
+          <textarea id="epDesc" placeholder="Optional notes about this product.">${p.description || ""}</textarea>
+
+        </div>
+        <div class="modal-footer">
+          <button onclick="closeModal()">Cancel</button>
+          <button class="btn-primary" id="confirmEditProductBtn">Save Changes</button>
+        </div>
+      </div>
+    </div>
+  `;
+    }
+
+    function attachEditProductHandlers() {
+      document.getElementById("confirmEditProductBtn")?.addEventListener("click", () => {
+        const p = getInvProduct(state.inventoryProductId);
+        if (!p) return;
+
+        const name = document.getElementById("epName").value.trim();
+        const sku = document.getElementById("epSku").value.trim();
+        const category = document.getElementById("epCategory").value;
+        const unitOfMeasure = document.getElementById("epUnit").value;
+        const price = +document.getElementById("epPrice").value || 0;
+        const minimumStock = +document.getElementById("epMinStock").value || 0;
+        const description = document.getElementById("epDesc").value.trim();
+
+        if (!name) return alert("Enter product name.");
+        if (!sku) return alert("Enter SKU.");
+        if (!category) return alert("Select a category.");
+        if (!unitOfMeasure) return alert("Select a unit of measure.");
+
+        p.name = name;
+        p.sku = sku;
+        p.category = category;
+        p.unitOfMeasure = unitOfMeasure;
+        p.price = price;
+        p.minimumStock = minimumStock;
+        p.description = description;
+
+        state.activeModal = null;
+        render();
+      });
+    }
+
+    function deactivateProduct(productId) {
+      if (!confirm("Deactivate this product? It will no longer be available for new orders.")) return;
+      const p = getInvProduct(productId);
+      if (p) {
+        p.status = "Inactive";
+        render();
+      }
+    }
+
+    function activateProduct(productId) {
+      const p = getInvProduct(productId);
+      if (p) {
+        p.status = "Active";
+        render();
+      }
     }
 
     /* ============================================================
