@@ -868,6 +868,30 @@
     const getLocation = (id) => LOCATIONS.find((l) => l.id === id);
     const getBatch = (id) => BATCHES.find((b) => b.id === id);
 
+        // Get all batches for a product at a specific location, with their stock.
+    // Returns [{ batchId, batchNumber, supplier, onHand, reserved, available }]
+    function getBatchesAtLocation(productId, locationId) {
+      const product = getInvProduct(productId);
+      if (!product || product.trackingType !== "StockQuantity") return [];
+      
+      const rows = STOCK.filter(
+        (s) => s.productId === productId && s.locationId === locationId && s.onHand > 0
+      );
+      
+      return rows.map((r) => {
+        const batch = r.batchId ? getBatch(r.batchId) : null;
+        return {
+          batchId: r.batchId,
+          batchNumber: batch?.batchNumber || "—",
+          supplier: batch?.supplier || "—",
+          receivedDate: batch?.receivedDate || null,
+          onHand: r.onHand,
+          reserved: r.reserved || 0,
+          available: Math.max(0, r.onHand - (r.reserved || 0)),
+        };
+      });
+    }
+
     // Compute stock for any product (Individual or StockQuantity)
     function getStockSummary(productId, locationId) {
       const product = getInvProduct(productId);
@@ -1129,9 +1153,10 @@
       adjustQty: "",
       adjustLocationId: null, // location selected in the modal dropdown
 
-      // Transfer Stock modal working state
+           // Transfer Stock modal working state
       transferFromId: null,
       transferToId: null,
+      transferBatchId: null, // NEW: specific batch for Stock Quantity transfers
       transferQty: "",
       transferSelectedUnits: [],   // array of unit IDs (for Individual items)
       transferUnitSearch: "",
@@ -7741,7 +7766,8 @@ INVENTORY LIST PAGE
     // Execute the transfer. Assumes validation already happened.
     // Handles both Individual units and StockQuantity rows.
     // Logs two movements (transfer_out at FROM, transfer_in at TO).
-    function executeTransfer(productId, fromId, toId, qty, selectedUnitIds, notes) {
+    
+        function executeTransfer(productId, fromId, toId, qty, selectedUnitIds, notes, batchId) {
       const product = getInvProduct(productId);
       if (!product) return;
 
@@ -7754,24 +7780,48 @@ INVENTORY LIST PAGE
         logMovement(productId, fromId, "transfer_out", qty, notes || null);
         logMovement(productId, toId, "transfer_in", qty, notes || null);
       } else {
-        // StockQuantity: decrement FROM, increment TO.
+        // StockQuantity: batch-aware decrement FROM, increment TO.
+        if (!batchId) {
+          console.warn("executeTransfer called without a batchId for StockQuantity");
+          return;
+        }
+
+        // Decrement from the source batch
         const fromRow = STOCK.find(
-          (s) => s.productId === productId && s.locationId === fromId
+          (s) =>
+            s.productId === productId &&
+            s.locationId === fromId &&
+            s.batchId === batchId
         );
+        if (!fromRow) {
+          console.warn(`No stock row found for batch ${batchId} at ${fromId}`);
+          return;
+        }
+        fromRow.onHand -= qty;
+
+        // Increment at the destination — same batch, new location
         const toRow = STOCK.find(
-          (s) => s.productId === productId && s.locationId === toId
+          (s) =>
+            s.productId === productId &&
+            s.locationId === toId &&
+            s.batchId === batchId
         );
-        if (fromRow) fromRow.onHand -= qty;
         if (toRow) {
           toRow.onHand += qty;
         } else {
-          STOCK.push({ productId, locationId: toId, onHand: qty, reserved: 0 });
+          STOCK.push({
+            productId,
+            locationId: toId,
+            batchId,
+            onHand: qty,
+            reserved: 0,
+          });
         }
+
         logMovement(productId, fromId, "transfer_out", qty, notes || null);
         logMovement(productId, toId, "transfer_in", qty, notes || null);
       }
     }
-
     /* ============================================================
 RECEIVE STOCK MODAL
 ============================================================ */
@@ -8401,12 +8451,26 @@ RECEIVE STOCK MODAL
       // Pick a default TO: any location that isn't FROM.
       const toLoc = LOCATIONS.find((l) => l.id !== fromLoc.id);
 
-      state.transferFromId = fromLoc.id;
+           state.transferFromId = fromLoc.id;
       state.transferToId = toLoc ? toLoc.id : LOCATIONS[0].id;
       state.transferQty = "";
       state.transferSelectedUnits = [];
       state.transferUnitSearch = "";
       state.transferNotes = "";
+
+      // For Stock Quantity, seed the batch selection (FIFO default)
+      if (product.trackingType === "StockQuantity") {
+        const batches = getBatchesAtLocation(productId, fromLoc.id);
+        // Seed with the oldest batch (batches are sorted by receivedDate? let's do FIFO explicitly)
+        const sortedBatches = batches.slice().sort((a, b) => {
+          if (a.receivedDate !== b.receivedDate)
+            return a.receivedDate < b.receivedDate ? -1 : 1;
+          return a.batchId < b.batchId ? -1 : 1;
+        });
+        state.transferBatchId = sortedBatches.length > 0 ? sortedBatches[0].batchId : null;
+      } else {
+        state.transferBatchId = null;
+      }
 
       // Pre-seed the units for individual items (FIFO)
       if (product.trackingType === "Individual") {
@@ -8499,15 +8563,51 @@ RECEIVE STOCK MODAL
       }).join("")}
               </select>
 
-              <label class="mt-12">To Location *</label>
+                           <label class="mt-12">To Location *</label>
               <select id="transferToSelect" onchange="onTransferToChange(this.value)">
                 ${LOCATIONS.filter((l) => l.id !== fromId).map((l) => {
-        return `<option value="${l.id}" ${toId === l.id ? "selected" : ""}>${l.name}</option>`;
-      }).join("")}
+                  return `<option value="${l.id}" ${toId === l.id ? "selected" : ""}>${l.name}</option>`;
+                }).join("")}
               </select>
 
+              ${(() => {
+                // For Stock Quantity, show a Batch selector
+                if (product.trackingType !== "StockQuantity") return "";
+                const batches = getBatchesAtLocation(productId, fromId);
+                if (batches.length === 0) {
+                  return `
+                    <label class="mt-12">Batch *</label>
+                    <div style="padding:8px; border:1px dashed #991b1b; border-radius:4px; font-size:12px; color:#991b1b;">
+                      No batches available at this location.
+                    </div>
+                  `;
+                }
+                const sortedBatches = batches.slice().sort((a, b) => {
+                  if (a.receivedDate !== b.receivedDate)
+                    return a.receivedDate < b.receivedDate ? -1 : 1;
+                  return a.batchId < b.batchId ? -1 : 1;
+                });
+                return `
+                  <label class="mt-12">Batch *</label>
+                  <select onchange="onTransferBatchChange(this.value)">
+                    ${sortedBatches.map((b) => `
+                      <option value="${b.batchId}" ${state.transferBatchId === b.batchId ? "selected" : ""}>
+                        ${b.batchNumber} · ${b.supplier} (${b.available} available)
+                      </option>
+                    `).join("")}
+                  </select>
+                `;
+              })()}
+
               <div style="margin-top:10px; padding:8px; border:1px dashed #999; border-radius:4px; font-size:12px;">
-                Available to transfer: <strong>${available}</strong>
+                ${(() => {
+                  if (product.trackingType === "StockQuantity") {
+                    const selectedBatch = getBatchesAtLocation(productId, fromId).find((b) => b.batchId === state.transferBatchId);
+                    const batchAvail = selectedBatch ? selectedBatch.available : 0;
+                    return `Available in selected batch: <strong>${batchAvail}</strong>`;
+                  }
+                  return `Available to transfer: <strong>${available}</strong>`;
+                })()}
                 ${isZeroStock ? `<div style="color:#991b1b; margin-top:4px;">⚠ No stock available to transfer from this location.</div>` : ""}
               </div>
 
@@ -9161,9 +9261,26 @@ ADJUST STOCK MODAL
       }
       render();
     }
+    
 
     function onTransferToChange(toId) {
       state.transferToId = toId;
+      render();
+    }
+
+        function onTransferBatchChange(batchId) {
+      state.transferBatchId = batchId;
+      // Re-clamp the quantity input if it now exceeds the batch's availability
+      const product = getInvProduct(state.inventoryProductId);
+      if (product && product.trackingType === "StockQuantity") {
+        const batches = getBatchesAtLocation(product.id, state.transferFromId);
+        const selectedBatch = batches.find((b) => b.batchId === batchId);
+        const maxQty = selectedBatch ? selectedBatch.available : 0;
+        const currentQty = parseInt(state.transferQty, 10) || 0;
+        if (currentQty > maxQty) {
+          state.transferQty = String(maxQty);
+        }
+      }
       render();
     }
 
@@ -9185,33 +9302,46 @@ ADJUST STOCK MODAL
       render();
     }
 
-    function commitTransferStock() {
+
+
+        function commitTransferStock() {
       const productId = state.inventoryProductId;
       const fromId = state.transferFromId;
       const toId = state.transferToId;
       const qty = parseInt(state.transferQty, 10) || 0;
       const notes = (state.transferNotes || "").trim();
 
-      const available = getTransferableStock(productId, fromId);
-      if (qty <= 0 || qty > available) return alert("Invalid quantity.");
       if (fromId === toId) return alert("From and To locations must be different.");
 
       const product = getInvProduct(productId);
-      const selectedUnitIds =
-        product.trackingType === "Individual"
-          ? state.transferSelectedUnits
-          : [];
 
-      if (product.trackingType === "Individual" && selectedUnitIds.length !== qty) {
-        return alert(`Select exactly ${qty} units to transfer.`);
+      // Validate quantity — either against total available, or against batch available
+      if (product.trackingType === "StockQuantity") {
+        if (!state.transferBatchId) return alert("Select a batch to transfer from.");
+        const batches = getBatchesAtLocation(productId, fromId);
+        const selectedBatch = batches.find((b) => b.batchId === state.transferBatchId);
+        if (!selectedBatch) return alert("Batch not found at this location.");
+        if (qty <= 0 || qty > selectedBatch.available) {
+          return alert(`Invalid quantity. Available in this batch: ${selectedBatch.available}.`);
+        }
+      } else {
+        const available = getTransferableStock(productId, fromId);
+        if (qty <= 0 || qty > available) return alert("Invalid quantity.");
+        const selectedUnitIds = state.transferSelectedUnits || [];
+        if (selectedUnitIds.length !== qty) {
+          return alert(`Select exactly ${qty} units to transfer.`);
+        }
       }
 
-      executeTransfer(productId, fromId, toId, qty, selectedUnitIds, notes);
+      const selectedUnitIds =
+        product.trackingType === "Individual" ? state.transferSelectedUnits : [];
 
-      // Clear state and close
+      executeTransfer(productId, fromId, toId, qty, selectedUnitIds, notes, state.transferBatchId);
+
       closeTransferStockModal();
     }
 
+    
     /* ============================================================
 MOVEMENT LOG PAGE
 ============================================================ */
