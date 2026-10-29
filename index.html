@@ -773,7 +773,9 @@
 
         // Batches represent physical delivery events from suppliers.
     // Every unit and every stock row belongs to a batch.
-    const BATCHES = [
+   
+
+        const BATCHES = [
       {
         id: "b1",
         batchNumber: "BATCH-20261001-A",
@@ -803,16 +805,16 @@
       },
       {
         id: "b4",
-        batchNumber: "TANKER-20261001-A",
+        batchNumber: "BATCH-20261001-C",
         productId: "p2",
         supplier: "Dangote",
         receivedDate: "2026-10-01",
         initialQty: 1500,
-        notes: "Tanker delivery",
+        notes: "Bulk delivery",
       },
       {
         id: "b5",
-        batchNumber: "BATCH-20261001-C",
+        batchNumber: "BATCH-20261001-D",
         productId: "p4",
         supplier: "Local Furniture Co.",
         receivedDate: "2026-10-01",
@@ -820,7 +822,6 @@
         notes: "",
       },
     ];
-
 
 
 
@@ -7514,8 +7515,9 @@ INVENTORY LIST PAGE
                     <div style="padding:12px; font-weight:bold;">Units (${units.length})</div>
                     <table>
                       <thead>
-                        <tr>
+                                              <tr>
                           <th style="padding-left:12px;">Tag Number</th>
+                          <th>Batch</th>
                           <th>Condition</th>
                           <th>Status</th>
                           <th>Location</th>
@@ -7548,9 +7550,12 @@ INVENTORY LIST PAGE
                         : u.condition === "Returned"
                           ? "badge-unpaid"
                           : "badge-draft";
+
+                    const batch = u.batchId ? getBatch(u.batchId) : null;
               return `
                             <tr style="${isRemoved ? "opacity:0.5;" : ""}">
                               <td style="padding-left:12px; ${isRemoved ? "text-decoration:line-through;" : ""}">${u.tag}</td>
+                              <td style="font-size:11px; color:#555;">${batch ? batch.batchNumber : "—"}</td>
                               <td><span class="badge ${conditionClass}">${u.condition || "New"}</span></td>
                               <td><span class="badge ${statusClass}">${u.status}</span></td>
                               <td>${getLocation(u.locationId)?.name || "—"}</td>
@@ -7558,17 +7563,16 @@ INVENTORY LIST PAGE
                               <td style="font-size:11px; color:#666;">
                                 ${isRemoved
                   ? `Removed ${formatDate(u.removedDate)} · ${u.removedReason || "—"} · Ref ${u.removalReference || "—"}`
-                  : ""
-                }
+                  : ""}
                               </td>
                               <td>
                                 ${!isRemoved && u.status !== "Sold"
                   ? `<button onclick="state.activeModal='edit-unit-condition'; state.editingUnitId='${u.id}'; render();" style="font-size:11px; padding:2px 8px;">Edit</button>`
-                  : ""
-                }
+                  : ""}
                               </td>
                             </tr>
                           `;
+         
             })
             .join("")}
                       </tbody>
@@ -7576,29 +7580,34 @@ INVENTORY LIST PAGE
                   </div>
                 `;
       } else {
-        const rows = STOCK.filter((st) => st.productId === p.id);
+
+                const rows = STOCK.filter((st) => st.productId === p.id);
         breakdownHtml = `
                   <div class="card" style="padding:0;">
-                    <div style="padding:12px; font-weight:bold;">Stock by Location</div>
+                    <div style="padding:12px; font-weight:bold;">Stock by Batch / Location</div>
                     <table>
-                      <thead><tr><th style="padding-left:12px;">Location</th><th>On Hand</th><th>Reserved</th><th>Available</th></tr></thead>
+                      <thead><tr><th style="padding-left:12px;">Batch</th><th>Supplier</th><th>Location</th><th>On Hand</th><th>Reserved</th><th>Available</th></tr></thead>
                       <tbody>
                         ${rows
-            .map(
-              (st) => `
+            .map((st) => {
+              const batch = st.batchId ? getBatch(st.batchId) : null;
+              return `
                           <tr>
-                            <td style="padding-left:12px;">${getLocation(st.locationId)?.name || "—"}</td>
+                            <td style="padding-left:12px; font-size:12px;">${batch ? batch.batchNumber : "—"}</td>
+                            <td style="font-size:12px;">${batch ? batch.supplier : "—"}</td>
+                            <td>${getLocation(st.locationId)?.name || "—"}</td>
                             <td>${st.onHand}</td>
                             <td>${st.reserved}</td>
                             <td>${st.onHand - st.reserved}</td>
                           </tr>
-                        `,
-            )
+                        `;
+            })
             .join("")}
                       </tbody>
                     </table>
                   </div>
                 `;
+       
       }
 
       c.innerHTML = `
@@ -7767,7 +7776,8 @@ INVENTORY LIST PAGE
 RECEIVE STOCK MODAL
 ============================================================ */
 
-    function renderReceiveStockModal() {
+
+        function renderReceiveStockModal() {
       const productId =
         state.inventoryProductId ||
         state.order?.items[0]?.productId ||
@@ -7775,6 +7785,26 @@ RECEIVE STOCK MODAL
       const product = getInvProduct(productId);
 
       const today = todayISO();
+      // Suggest a batch number based on product prefix + date
+
+            // Suggest a batch number in the format BATCH-YYYYMMDD-X
+      // X is the next available letter of the alphabet for that day.
+      const suggestedBatchNumber = (() => {
+        const ymd = today.replace(/-/g, "");
+        const prefix = `BATCH-${ymd}-`;
+        const todaysBatches = BATCHES.filter((b) =>
+          b.batchNumber.startsWith(prefix)
+        );
+        // Find highest letter used today (A=0, B=1, ...)
+        const usedLetters = todaysBatches.map((b) => {
+          const lastChar = b.batchNumber.slice(-1);
+          return lastChar.charCodeAt(0) - 65; // 'A' → 0
+        });
+        const nextIndex = usedLetters.length > 0 ? Math.max(...usedLetters) + 1 : 0;
+        const nextLetter = String.fromCharCode(65 + nextIndex);
+        return `${prefix}${nextLetter}`;
+      })();
+    
 
       return `
     <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
@@ -7808,6 +7838,15 @@ RECEIVE STOCK MODAL
             </div>
           `
         }
+
+          <label class="mt-12">Batch Number *</label>
+          <input type="text" id="receiveBatchNumber" value="${suggestedBatchNumber}" placeholder="e.g. BATCH-20261028-A">
+          <div style="font-size:11px; color:#666; margin-top:4px;">
+            A unique ID for this delivery. Auto-suggested, editable.
+          </div>
+
+          <label class="mt-12">Supplier *</label>
+          <input type="text" id="receiveSupplier" placeholder="e.g. Apple Authorized Reseller">
 
           <div id="receivePreview" class="mt-12"></div>
 
@@ -7844,7 +7883,7 @@ RECEIVE STOCK MODAL
     </div>
   `;
     }
-
+   
     function renderReceivePreview(productId) {
       const product = getInvProduct(productId);
       if (!product) return;
@@ -7887,11 +7926,14 @@ RECEIVE STOCK MODAL
               prod?.trackingType === "Individual" ? "block" : "none";
         });
 
-      document
+
+              document
         .getElementById("confirmReceiveBtn")
         ?.addEventListener("click", () => {
           const productId = document.getElementById("receiveProductId").value;
           const locationId = document.getElementById("receiveLocation").value;
+          const batchNumber = (document.getElementById("receiveBatchNumber").value || "").trim();
+          const supplier = (document.getElementById("receiveSupplier").value || "").trim();
           const qty = parseInt(
             document.getElementById("receiveQty").value,
             10,
@@ -7903,12 +7945,30 @@ RECEIVE STOCK MODAL
 
           if (!productId) return alert("Select a product.");
           if (!locationId) return alert("Select a location.");
+          if (!batchNumber) return alert("Enter a batch number.");
+          if (!supplier) return alert("Enter a supplier.");
           if (!qty || qty <= 0) return alert("Enter a valid quantity.");
+          // Uniqueness check on batch number
+          if (BATCHES.some((b) => b.batchNumber === batchNumber)) {
+            return alert(`Batch number "${batchNumber}" already exists.`);
+          }
 
           const product = getInvProduct(productId);
 
+          // 1. Create the batch record
+          const newBatchId = "b" + (BATCHES.length + 1);
+          BATCHES.push({
+            id: newBatchId,
+            batchNumber,
+            productId,
+            supplier,
+            receivedDate,
+            initialQty: qty,
+            notes: notes || "",
+          });
+
+          // 2. Create units (Individual) or stock rows (StockQuantity) tied to this batch
           if (product.trackingType === "Individual") {
-            // Create individual units with auto-generated tags
             const prefix = product.tagPrefix || product.sku.split("-")[0];
             const ymd = receivedDate.replace(/-/g, "");
             const existing = UNITS.filter((u) =>
@@ -7922,6 +7982,7 @@ RECEIVE STOCK MODAL
                 id: "u-" + Date.now() + "-" + i,
                 productId,
                 tag: `${prefix}-${ymd}-${seqStr}`,
+                batchId: newBatchId,
                 status: "Available",
                 condition: condition,
                 locationId,
@@ -7933,31 +7994,38 @@ RECEIVE STOCK MODAL
               locationId,
               "check_in",
               qty,
-              notes || null,
+              `${batchNumber} · ${notes || supplier}`,
             );
           } else {
-            // Stock quantity — find or create row
-            let row = STOCK.find(
-              (s) => s.productId === productId && s.locationId === locationId,
-            );
-            if (row) {
-              row.onHand += qty;
-            } else {
-              STOCK.push({ productId, locationId, onHand: qty, reserved: 0 });
-            }
+            STOCK.push({
+              productId,
+              locationId,
+              batchId: newBatchId,
+              onHand: qty,
+              reserved: 0,
+            });
             logMovement(
               productId,
               locationId,
               "check_in",
               qty,
-              notes || null,
+              `${batchNumber} · ${notes || supplier}`,
             );
           }
 
           state.activeModal = null;
           render();
         });
-    }
+
+    
+    
+    
+    
+    
+    
+    
+    
+      }
 
     /* ============================================================
    COMBOBOX
