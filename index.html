@@ -769,13 +769,13 @@
     ];
 
 
-    
 
-        // Batches represent physical delivery events from suppliers.
+
+    // Batches represent physical delivery events from suppliers.
     // Every unit and every stock row belongs to a batch.
-   
 
-        const BATCHES = [
+
+    const BATCHES = [
       {
         id: "b1",
         batchNumber: "BATCH-20261001-A",
@@ -825,7 +825,7 @@
 
 
 
-        // Individual item units — each with tag, batch, status, condition, location, received date
+    // Individual item units — each with tag, batch, status, condition, location, received date
     const UNITS = [
       // MacBook Pro (p1) - Batch b1 at Main Warehouse
       { id: "u1", productId: "p1", tag: "MBP-20261001-001", batchId: "b1", status: "Available", condition: "New", locationId: "loc2", receivedDate: "2026-10-01" },
@@ -846,9 +846,9 @@
       { id: "u14", productId: "p3", tag: "IPH-20261002-005", batchId: "b3", status: "Available", condition: "New", locationId: "loc2", receivedDate: "2026-10-02" },
     ];
 
-   
-   
-      // Stock levels for stock-quantity products per location, per batch.
+
+
+    // Stock levels for stock-quantity products per location, per batch.
     // Each row is a "batch at a location".
     const STOCK = [
       // Cartons of Oil (p2) - Batch b4 (Dangote)
@@ -868,16 +868,16 @@
     const getLocation = (id) => LOCATIONS.find((l) => l.id === id);
     const getBatch = (id) => BATCHES.find((b) => b.id === id);
 
-        // Get all batches for a product at a specific location, with their stock.
+    // Get all batches for a product at a specific location, with their stock.
     // Returns [{ batchId, batchNumber, supplier, onHand, reserved, available }]
     function getBatchesAtLocation(productId, locationId) {
       const product = getInvProduct(productId);
       if (!product || product.trackingType !== "StockQuantity") return [];
-      
+
       const rows = STOCK.filter(
         (s) => s.productId === productId && s.locationId === locationId && s.onHand > 0
       );
-      
+
       return rows.map((r) => {
         const batch = r.batchId ? getBatch(r.batchId) : null;
         return {
@@ -889,6 +889,26 @@
           reserved: r.reserved || 0,
           available: Math.max(0, r.onHand - (r.reserved || 0)),
         };
+      });
+    }
+
+
+    // Returns stock rows for a product at a location, sorted by FIFO 
+    // (oldest batch received date first). Only rows with onHand > 0.
+    function getFIFOStockRows(productId, locationId) {
+      return STOCK.filter(
+        (s) =>
+          s.productId === productId &&
+          (!locationId || s.locationId === locationId) &&
+          s.onHand > 0
+      ).sort((a, b) => {
+        const batchA = getBatch(a.batchId);
+        const batchB = getBatch(b.batchId);
+        const dateA = batchA ? batchA.receivedDate : "9999-12-31";
+        const dateB = batchB ? batchB.receivedDate : "9999-12-31";
+        if (dateA !== dateB) return dateA < dateB ? -1 : 1;
+        // Tiebreaker: batch id
+        return (a.batchId || "") < (b.batchId || "") ? -1 : 1;
       });
     }
 
@@ -1150,10 +1170,10 @@
       // Adjust Stock modal working state
       adjustReasonOpen: false,
       adjustReason: "", // '' | 'stock_count' | 'damage' | 'loss' | 'return_to_supplier'
-      adjustQty: "",
       adjustLocationId: null, // location selected in the modal dropdown
+      adjustBatchId: null, // batch being adjusted (Stock Quantity only)
 
-           // Transfer Stock modal working state
+      // Transfer Stock modal working state
       transferFromId: null,
       transferToId: null,
       transferBatchId: null, // NEW: specific batch for Stock Quantity transfers
@@ -2812,7 +2832,7 @@ DISPATCH DASHBOARD DEMO SEED
                 const routedLocName =
                   LOCATIONS.find((l) => l.id === o.fulfilmentLocationId)?.name ||
                   o.pickupLocation;
-                                return `
+                return `
                     <div style="font-size:12px; color:#555; margin-bottom:8px;">
                       Remaining Items: <strong>Pickup</strong> — customer comes to ${routedLocName}
                       ${!o.deliveryFeePaid ? `<a href="#" onclick="event.preventDefault(); openFulfilmentRoutingModal();" style="margin-left:6px; color:#1e40af;">Change</a>` : ""}
@@ -4638,6 +4658,7 @@ DISPATCH DASHBOARD DEMO SEED
       state.adjustReason = "";
       state.adjustQty = "";
       state.adjustLocationId = null;
+      state.adjustBatchId = null;
       state.pendingDeliveryOrderNumber = null;
       state.deliveryFeeAction = "pay";
       state.deliveryFeeMethod = "Cash";
@@ -7576,7 +7597,7 @@ INVENTORY LIST PAGE
                           ? "badge-unpaid"
                           : "badge-draft";
 
-                    const batch = u.batchId ? getBatch(u.batchId) : null;
+              const batch = u.batchId ? getBatch(u.batchId) : null;
               return `
                             <tr style="${isRemoved ? "opacity:0.5;" : ""}">
                               <td style="padding-left:12px; ${isRemoved ? "text-decoration:line-through;" : ""}">${u.tag}</td>
@@ -7597,7 +7618,7 @@ INVENTORY LIST PAGE
                               </td>
                             </tr>
                           `;
-         
+
             })
             .join("")}
                       </tbody>
@@ -7606,7 +7627,7 @@ INVENTORY LIST PAGE
                 `;
       } else {
 
-                const rows = STOCK.filter((st) => st.productId === p.id);
+        const rows = STOCK.filter((st) => st.productId === p.id);
         breakdownHtml = `
                   <div class="card" style="padding:0;">
                     <div style="padding:12px; font-weight:bold;">Stock by Batch / Location</div>
@@ -7632,7 +7653,7 @@ INVENTORY LIST PAGE
                     </table>
                   </div>
                 `;
-       
+
       }
 
       c.innerHTML = `
@@ -7766,8 +7787,8 @@ INVENTORY LIST PAGE
     // Execute the transfer. Assumes validation already happened.
     // Handles both Individual units and StockQuantity rows.
     // Logs two movements (transfer_out at FROM, transfer_in at TO).
-    
-        function executeTransfer(productId, fromId, toId, qty, selectedUnitIds, notes, batchId) {
+
+    function executeTransfer(productId, fromId, toId, qty, selectedUnitIds, notes, batchId) {
       const product = getInvProduct(productId);
       if (!product) return;
 
@@ -7827,7 +7848,7 @@ RECEIVE STOCK MODAL
 ============================================================ */
 
 
-        function renderReceiveStockModal() {
+    function renderReceiveStockModal() {
       const productId =
         state.inventoryProductId ||
         state.order?.items[0]?.productId ||
@@ -7837,7 +7858,7 @@ RECEIVE STOCK MODAL
       const today = todayISO();
       // Suggest a batch number based on product prefix + date
 
-            // Suggest a batch number in the format BATCH-YYYYMMDD-X
+      // Suggest a batch number in the format BATCH-YYYYMMDD-X
       // X is the next available letter of the alphabet for that day.
       const suggestedBatchNumber = (() => {
         const ymd = today.replace(/-/g, "");
@@ -7854,7 +7875,7 @@ RECEIVE STOCK MODAL
         const nextLetter = String.fromCharCode(65 + nextIndex);
         return `${prefix}${nextLetter}`;
       })();
-    
+
 
       return `
     <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
@@ -7933,7 +7954,7 @@ RECEIVE STOCK MODAL
     </div>
   `;
     }
-   
+
     function renderReceivePreview(productId) {
       const product = getInvProduct(productId);
       if (!product) return;
@@ -7977,7 +7998,7 @@ RECEIVE STOCK MODAL
         });
 
 
-              document
+      document
         .getElementById("confirmReceiveBtn")
         ?.addEventListener("click", () => {
           const productId = document.getElementById("receiveProductId").value;
@@ -8067,15 +8088,15 @@ RECEIVE STOCK MODAL
           render();
         });
 
-    
-    
-    
-    
-    
-    
-    
-    
-      }
+
+
+
+
+
+
+
+
+    }
 
     /* ============================================================
    COMBOBOX
@@ -8451,7 +8472,7 @@ RECEIVE STOCK MODAL
       // Pick a default TO: any location that isn't FROM.
       const toLoc = LOCATIONS.find((l) => l.id !== fromLoc.id);
 
-           state.transferFromId = fromLoc.id;
+      state.transferFromId = fromLoc.id;
       state.transferToId = toLoc ? toLoc.id : LOCATIONS[0].id;
       state.transferQty = "";
       state.transferSelectedUnits = [];
@@ -8566,28 +8587,28 @@ RECEIVE STOCK MODAL
                            <label class="mt-12">To Location *</label>
               <select id="transferToSelect" onchange="onTransferToChange(this.value)">
                 ${LOCATIONS.filter((l) => l.id !== fromId).map((l) => {
-                  return `<option value="${l.id}" ${toId === l.id ? "selected" : ""}>${l.name}</option>`;
-                }).join("")}
+        return `<option value="${l.id}" ${toId === l.id ? "selected" : ""}>${l.name}</option>`;
+      }).join("")}
               </select>
 
               ${(() => {
-                // For Stock Quantity, show a Batch selector
-                if (product.trackingType !== "StockQuantity") return "";
-                const batches = getBatchesAtLocation(productId, fromId);
-                if (batches.length === 0) {
-                  return `
+          // For Stock Quantity, show a Batch selector
+          if (product.trackingType !== "StockQuantity") return "";
+          const batches = getBatchesAtLocation(productId, fromId);
+          if (batches.length === 0) {
+            return `
                     <label class="mt-12">Batch *</label>
                     <div style="padding:8px; border:1px dashed #991b1b; border-radius:4px; font-size:12px; color:#991b1b;">
                       No batches available at this location.
                     </div>
                   `;
-                }
-                const sortedBatches = batches.slice().sort((a, b) => {
-                  if (a.receivedDate !== b.receivedDate)
-                    return a.receivedDate < b.receivedDate ? -1 : 1;
-                  return a.batchId < b.batchId ? -1 : 1;
-                });
-                return `
+          }
+          const sortedBatches = batches.slice().sort((a, b) => {
+            if (a.receivedDate !== b.receivedDate)
+              return a.receivedDate < b.receivedDate ? -1 : 1;
+            return a.batchId < b.batchId ? -1 : 1;
+          });
+          return `
                   <label class="mt-12">Batch *</label>
                   <select onchange="onTransferBatchChange(this.value)">
                     ${sortedBatches.map((b) => `
@@ -8597,17 +8618,17 @@ RECEIVE STOCK MODAL
                     `).join("")}
                   </select>
                 `;
-              })()}
+        })()}
 
               <div style="margin-top:10px; padding:8px; border:1px dashed #999; border-radius:4px; font-size:12px;">
                 ${(() => {
-                  if (product.trackingType === "StockQuantity") {
-                    const selectedBatch = getBatchesAtLocation(productId, fromId).find((b) => b.batchId === state.transferBatchId);
-                    const batchAvail = selectedBatch ? selectedBatch.available : 0;
-                    return `Available in selected batch: <strong>${batchAvail}</strong>`;
-                  }
-                  return `Available to transfer: <strong>${available}</strong>`;
-                })()}
+          if (product.trackingType === "StockQuantity") {
+            const selectedBatch = getBatchesAtLocation(productId, fromId).find((b) => b.batchId === state.transferBatchId);
+            const batchAvail = selectedBatch ? selectedBatch.available : 0;
+            return `Available in selected batch: <strong>${batchAvail}</strong>`;
+          }
+          return `Available to transfer: <strong>${available}</strong>`;
+        })()}
                 ${isZeroStock ? `<div style="color:#991b1b; margin-top:4px;">⚠ No stock available to transfer from this location.</div>` : ""}
               </div>
 
@@ -8768,12 +8789,25 @@ RECEIVE STOCK MODAL
 ADJUST STOCK MODAL
 ============================================================ */
 
-    function renderAdjustStockModal() {
+     function renderAdjustStockModal() {
       const productId = state.inventoryProductId || PRODUCTS_INV[0].id;
       const product = getInvProduct(productId);
 
       // Default location when the modal opens.
       const locationId = state.adjustLocationId || "loc2"; // Main Warehouse
+
+      // If Stock Quantity and no batch is selected yet, seed to FIFO
+      if (product && product.trackingType === "StockQuantity" && !state.adjustBatchId) {
+        const batches = getBatchesAtLocation(product.id, locationId);
+        if (batches.length > 0) {
+          const sorted = batches.slice().sort((a, b) => {
+            if (a.receivedDate !== b.receivedDate)
+              return a.receivedDate < b.receivedDate ? -1 : 1;
+            return a.batchId < b.batchId ? -1 : 1;
+          });
+          state.adjustBatchId = sorted[0].batchId;
+        }
+      }
 
       const s = getAdjustableStock(productId, locationId);
       const available = s.available;
@@ -8837,14 +8871,55 @@ ADJUST STOCK MODAL
             <strong>${product.name}</strong>
           </div>
 
-          <label>Location *</label>
+                    <label>Location *</label>
           <select id="adjustLocation" onchange="onAdjustLocationChange(this.value)">
             ${LOCATIONS.map((l) => `<option value="${l.id}" ${l.id === locationId ? "selected" : ""}>${l.name}</option>`).join("")}
           </select>
 
+          ${(() => {
+            // For Stock Quantity, show a Batch selector
+            if (product.trackingType !== "StockQuantity") return "";
+            const batches = getBatchesAtLocation(productId, locationId);
+            if (batches.length === 0) {
+              return `
+                <label class="mt-12">Batch *</label>
+                <div style="padding:8px; border:1px dashed #991b1b; border-radius:4px; font-size:12px; color:#991b1b;">
+                  No batches at this location.
+                </div>
+              `;
+            }
+            // Sort FIFO
+            const sortedBatches = batches.slice().sort((a, b) => {
+              if (a.receivedDate !== b.receivedDate)
+                return a.receivedDate < b.receivedDate ? -1 : 1;
+              return a.batchId < b.batchId ? -1 : 1;
+            });
+            return `
+              <label class="mt-12">Batch *</label>
+              <select id="adjustBatch" onchange="onAdjustBatchChange(this.value)">
+                ${sortedBatches.map((b) => `
+                  <option value="${b.batchId}" ${state.adjustBatchId === b.batchId ? "selected" : ""}>
+                    ${b.batchNumber} · ${b.supplier} (${b.available} available)
+                  </option>
+                `).join("")}
+              </select>
+            `;
+          })()}
+
           <div style="margin-top:10px; padding:8px; border:1px dashed #999; border-radius:4px; font-size:12px;">
-            Current on hand: <strong>${s.onHand}</strong> ${unitLabel}(s)${reservationLine}
+            Current on hand: <strong>${(() => {
+              if (product.trackingType === "StockQuantity" && state.adjustBatchId) {
+                const row = STOCK.find(
+                  (r) => r.productId === productId && r.locationId === locationId && r.batchId === state.adjustBatchId
+                );
+                return row ? row.onHand : 0;
+              }
+              return s.onHand;
+            })()}</strong> ${unitLabel}(s)
+            ${reservationLine}
           </div>
+
+       
 
           <label class="mt-12">Reason *</label>
           <div class="combobox" style="position:relative;">
@@ -8903,10 +8978,28 @@ ADJUST STOCK MODAL
   `;
     }
 
-    function onAdjustLocationChange(locationId) {
+      function onAdjustLocationChange(locationId) {
       state.adjustLocationId = locationId;
-      // Re-render so the "Current on hand" line, the reason metadata, and
-      // the preview all reflect the newly selected location.
+      // If this is a Stock Quantity product, auto-select the FIFO batch at the new location
+      const product = getInvProduct(state.inventoryProductId);
+      if (product && product.trackingType === "StockQuantity") {
+        const batches = getBatchesAtLocation(product.id, locationId);
+        if (batches.length > 0) {
+          const sorted = batches.slice().sort((a, b) => {
+            if (a.receivedDate !== b.receivedDate)
+              return a.receivedDate < b.receivedDate ? -1 : 1;
+            return a.batchId < b.batchId ? -1 : 1;
+          });
+          state.adjustBatchId = sorted[0].batchId;
+        } else {
+          state.adjustBatchId = null;
+        }
+      }
+      render();
+    }
+
+    function onAdjustBatchChange(batchId) {
+      state.adjustBatchId = batchId;
       render();
     }
 
@@ -8921,15 +9014,39 @@ ADJUST STOCK MODAL
       return irregular[lower] || lower + "s";
     }
 
-    function updateAdjustPreview() {
+
+        function updateAdjustPreview() {
       const preview = document.getElementById("adjustPreview");
       if (!preview) return;
 
       const productId = state.inventoryProductId || PRODUCTS_INV[0].id;
       const product = getInvProduct(productId);
       const locationId = state.adjustLocationId || "loc2";
-      const s = getAdjustableStock(productId, locationId);
       const unitLabel = product.unitOfMeasure || "unit";
+      const isStockQty = product.trackingType === "StockQuantity";
+
+      // For Stock Quantity, use the selected batch's stock row.
+      // For Individual, use the aggregate (which is correct).
+      let s;
+      if (isStockQty && state.adjustBatchId) {
+        const row = STOCK.find(
+          (r) =>
+            r.productId === productId &&
+            r.locationId === locationId &&
+            r.batchId === state.adjustBatchId
+        );
+        if (!row) {
+          preview.innerHTML = `<div style="color:#991b1b; font-size:12px;">Batch not found at this location.</div>`;
+          return;
+        }
+        s = {
+          onHand: row.onHand,
+          reserved: row.reserved || 0,
+          available: Math.max(0, row.onHand - (row.reserved || 0)),
+        };
+      } else {
+        s = getAdjustableStock(productId, locationId);
+      }
 
       const reason = state.adjustReason;
       const qty = parseInt(state.adjustQty, 10) || 0;
@@ -8963,42 +9080,18 @@ ADJUST STOCK MODAL
         return;
       }
 
-      // Validation 2: reservation conflict
+      // Validation 2: reservation conflict (scoped to batch for Stock Quantity)
       const reserved = s.reserved || 0;
       if (newBalance < reserved) {
-        const reservations = getReservationsForProductLocation(
-          productId,
-          locationId,
-        );
-
-        const shown = reservations.slice(0, 3);
-        const more = reservations.length - shown.length;
-
         preview.innerHTML = `
           <div style="padding:10px; border:2px dashed #991b1b; border-radius:4px; background:#fee2e2; font-size:12px; color:#991b1b;">
             <div style="font-weight:bold; margin-bottom:6px;">
               ${reason === "stock_count" ? "⚠ Cannot record this count." : `⚠ Cannot remove ${qty}.`}
             </div>
-            <div style="margin-bottom:8px;">
-              ${reason === "stock_count"
-            ? `You counted ${qty}, but ${reserved} ${pluralizeUnit(unitLabel, reserved)} are reserved for other orders. Recording this count would leave those orders without stock:`
-            : `Only ${s.available} ${pluralizeUnit(unitLabel, s.available)} are free. ${reserved} are reserved for other orders:`
-          }
-            </div>
-            <div style="margin-left:12px; margin-bottom:8px; font-size:11px;">
-              ${shown
-            .map(
-              (r) =>
-                `${r.orderNumber} · ${getCustomer(r.customerId)?.name || "—"}`,
-            )
-            .join("<br>")}
-              ${more > 0 ? `<br>... and ${more} more` : ""}
-            </div>
             <div>
               ${reason === "stock_count"
-            ? "Cancel or reduce the affected orders, then record the count."
-            : "Cancel or reduce the affected orders, then adjust."
-          }
+            ? `You counted ${qty}, but ${reserved} ${pluralizeUnit(unitLabel, reserved)} are reserved from this batch. Recording this count would leave those orders without stock.`
+            : `Only ${s.available} ${pluralizeUnit(unitLabel, s.available)} are free. ${reserved} are reserved from this batch.`}
             </div>
           </div>
         `;
@@ -9006,24 +9099,25 @@ ADJUST STOCK MODAL
       }
 
       // All good — show the before/after preview.
-      // Special case: a stock count that matches the current on-hand
-      // has nothing to record. Show the (unchanged) balance and explain.
       const isNoOp = delta === 0;
+      const batchLabel = isStockQty && state.adjustBatchId
+        ? ` (${getBatch(state.adjustBatchId)?.batchNumber || "batch"})`
+        : "";
 
       preview.innerHTML = `
         <div style="padding:10px; border:1px dashed #999; border-radius:4px; font-size:13px;">
-          New balance:&nbsp;&nbsp;<strong>${s.onHand}</strong> → <strong>${newBalance}</strong>
+          New balance${batchLabel}:&nbsp;&nbsp;<strong>${s.onHand}</strong> → <strong>${newBalance}</strong>
           <span style="color:#888; margin-left:8px;">(${delta >= 0 ? "+" : ""}${delta})</span>
           ${isNoOp
           ? `<div style="font-size:11px; color:#666; margin-top:6px;">
                    No change to record — the count matches the current balance.
                  </div>`
-          : ""
-        }
+          : ""}
         </div>
       `;
     }
 
+  
     function toggleAdjustReason() {
       state.adjustReasonOpen = !state.adjustReasonOpen;
       render();
@@ -9036,16 +9130,12 @@ ADJUST STOCK MODAL
       render();
     }
 
-    // Find all orders currently holding reservations for this product at this
-    // location. Covers:
-    //   - the current order (if it's in a reservation-bearing state)
-    //   - in-transit orders (hard reservations)
-    //   - dispatch pool orders (soft reservations from paid orders)
-    //
-    // A reservation counts at a location only if the reserved units for this
-    // product are physically at that location (Individual) or the stock row
-    // at that location carries the reserved count (StockQuantity).
-    function getReservationsForProductLocation(productId, locationId) {
+
+        // Returns the list of orders holding reservations for a product.
+    // For Stock Quantity products, this is scoped to a specific batch if
+    // a batchId is provided. For Individual items, batchId is ignored
+    // because individual units are already tied to specific batches.
+    function getReservationsForProductLocation(productId, locationId, batchId) {
       const results = [];
 
       const holdsReservation = (o) =>
@@ -9067,8 +9157,12 @@ ADJUST STOCK MODAL
                   u.softReservedFor === orderNumber)),
           );
         } else {
+          // Stock Quantity: must match the specific batch if provided
           const row = STOCK.find(
-            (s) => s.productId === productId && s.locationId === locationId,
+            (s) =>
+              s.productId === productId &&
+              s.locationId === locationId &&
+              (!batchId || s.batchId === batchId)
           );
           return !!(row && row.reserved > 0);
         }
@@ -9097,7 +9191,9 @@ ADJUST STOCK MODAL
       });
     }
 
-    function confirmAdjust() {
+
+
+        function confirmAdjust() {
       const productId = state.inventoryProductId;
       const product = getInvProduct(productId);
       const locationId = state.adjustLocationId || "loc2";
@@ -9109,7 +9205,28 @@ ADJUST STOCK MODAL
       if (!reason) return alert("Choose a reason.");
       if (!qty || qty <= 0) return alert("Enter a valid quantity.");
 
-      const s = getAdjustableStock(productId, locationId);
+      const isStockQty = product.trackingType === "StockQuantity";
+
+      // Resolve the scope — either the selected batch or the full aggregate
+      let s;
+      let batchRow = null;
+      if (isStockQty) {
+        if (!state.adjustBatchId) return alert("Select a batch first.");
+        batchRow = STOCK.find(
+          (r) =>
+            r.productId === productId &&
+            r.locationId === locationId &&
+            r.batchId === state.adjustBatchId
+        );
+        if (!batchRow) return alert("Batch not found at this location.");
+        s = {
+          onHand: batchRow.onHand,
+          reserved: batchRow.reserved || 0,
+          available: Math.max(0, batchRow.onHand - (batchRow.reserved || 0)),
+        };
+      } else {
+        s = getAdjustableStock(productId, locationId);
+      }
 
       if (reason === "stock_count" && qty > s.onHand) {
         return alert(
@@ -9124,15 +9241,14 @@ ADJUST STOCK MODAL
         reduceQty = qty;
       }
 
-      // Guard: nothing to record (e.g. a stock count equal to on-hand).
-      // The Save button is disabled in this state, so this branch should be
-      // unreachable via the UI — kept as a safety net.
+      // Guard: nothing to record
       if (reduceQty === 0) {
         state.activeModal = null;
         state.adjustReason = "";
         state.adjustQty = "";
         state.adjustReasonOpen = false;
         state.adjustLocationId = null;
+        state.adjustBatchId = null;
         render();
         return;
       }
@@ -9141,7 +9257,7 @@ ADJUST STOCK MODAL
       const newBalance = s.onHand - reduceQty;
       if (newBalance < (s.reserved || 0)) {
         return alert(
-          "This adjustment would break reservations on other orders. Resolve those orders first.",
+          "This adjustment would break reservations on this batch. Resolve those orders first.",
         );
       }
 
@@ -9188,19 +9304,16 @@ ADJUST STOCK MODAL
           ref + (notes ? " · " + notes : ""),
         );
       } else {
-        const row = STOCK.find(
-          (st) => st.productId === productId && st.locationId === locationId,
-        );
-        if (!row) {
-          return alert("No stock at this location.");
-        }
-        row.onHand -= reduceQty;
+        // Stock Quantity: mutate the specific selected batch
+        batchRow.onHand -= reduceQty;
+        const batch = getBatch(state.adjustBatchId);
+        const batchLabel = batch ? `${batch.batchNumber} (${batch.supplier})` : "batch";
         logMovement(
           productId,
           locationId,
           movementType,
           reduceQty,
-          notes || null,
+          `${batchLabel}${notes ? " · " + notes : ""}`,
         );
       }
 
@@ -9210,9 +9323,11 @@ ADJUST STOCK MODAL
       state.adjustQty = "";
       state.adjustReasonOpen = false;
       state.adjustLocationId = null;
+      state.adjustBatchId = null;
       render();
     }
 
+    
     function reasonMetaLabel(reason) {
       return (
         {
@@ -9261,14 +9376,14 @@ ADJUST STOCK MODAL
       }
       render();
     }
-    
+
 
     function onTransferToChange(toId) {
       state.transferToId = toId;
       render();
     }
 
-        function onTransferBatchChange(batchId) {
+    function onTransferBatchChange(batchId) {
       state.transferBatchId = batchId;
       // Re-clamp the quantity input if it now exceeds the batch's availability
       const product = getInvProduct(state.inventoryProductId);
@@ -9304,7 +9419,7 @@ ADJUST STOCK MODAL
 
 
 
-        function commitTransferStock() {
+    function commitTransferStock() {
       const productId = state.inventoryProductId;
       const fromId = state.transferFromId;
       const toId = state.transferToId;
@@ -9341,7 +9456,7 @@ ADJUST STOCK MODAL
       closeTransferStockModal();
     }
 
-    
+
     /* ============================================================
 MOVEMENT LOG PAGE
 ============================================================ */
@@ -9607,29 +9722,31 @@ DISPATCH WIZARD HELPERS
             order.orderNumber,
           );
         } else {
-          const row = STOCK.find(
-            (s) =>
-              s.productId === item.productId && s.locationId === locationId,
-          );
-          if (row) {
+          let remaining = item.qty;
+          const rows = getFIFOStockRows(item.productId, locationId);
+
+          rows.forEach((row) => {
+            if (remaining <= 0) return;
             const available = Math.max(0, row.onHand - (row.reserved || 0));
-            const reserveQty = Math.min(available, item.qty);
+            const reserveQty = Math.min(available, remaining);
             row.reserved = (row.reserved || 0) + reserveQty;
+            remaining -= reserveQty;
+          });
 
-            if (reserveQty < item.qty) {
-              logTimeline(
-                `⚠ Only ${reserveQty} of ${item.qty} units could be reserved for ${product.name}.`,
-              );
-            }
-
-            logMovement(
-              item.productId,
-              locationId,
-              "reservation",
-              reserveQty,
-              order.orderNumber,
+          const reservedTotal = item.qty - remaining;
+          if (reservedTotal < item.qty) {
+            logTimeline(
+              `⚠ Only ${reservedTotal} of ${item.qty} units could be reserved for ${product.name}.`,
             );
           }
+
+          logMovement(
+            item.productId,
+            locationId,
+            "reservation",
+            reservedTotal,
+            order.orderNumber,
+          );
         }
       });
 
@@ -9678,15 +9795,18 @@ DISPATCH WIZARD HELPERS
             row.reserved -= toDeduct;
             row.onHand -= toDeduct;
             remaining -= toDeduct;
-          });
 
-          logMovement(
-            item.productId,
-            locationId,
-            "check_out",
-            item.qty,
-            order.orderNumber,
-          );
+            // Log per-batch depletion
+            const batch = row.batchId ? getBatch(row.batchId) : null;
+            const batchLabel = batch ? `${batch.batchNumber} (${batch.supplier})` : "unknown batch";
+            logMovement(
+              item.productId,
+              row.locationId,
+              "check_out",
+              toDeduct,
+              `${order.orderNumber} · ${batchLabel}`,
+            );
+          });
         }
       });
     }
@@ -9861,19 +9981,26 @@ DISPATCH WIZARD HELPERS
             units.length,
             order.orderNumber,
           );
-        } else {
-          const row = STOCK.find(
-            (s) =>
-              s.productId === item.productId && s.locationId === locationId,
-          );
-          if (row) row.onHand -= item.qty;
-          logMovement(
-            item.productId,
-            locationId,
-            "check_out",
-            item.qty,
-            order.orderNumber,
-          );
+            } else {
+          let remaining = item.qty;
+          const rows = getFIFOStockRows(item.productId, locationId);
+          rows.forEach((row) => {
+            if (remaining <= 0) return;
+            const deduct = Math.min(row.onHand, remaining);
+            row.onHand -= deduct;
+            remaining -= deduct;
+            
+            // Log per-batch depletion
+            const batch = row.batchId ? getBatch(row.batchId) : null;
+            const batchLabel = batch ? `${batch.batchNumber} (${batch.supplier})` : "unknown batch";
+            logMovement(
+              item.productId,
+              locationId,
+              "check_out",
+              deduct,
+              `${order.orderNumber} · ${batchLabel}`,
+            );
+          });
         }
       });
 
@@ -9901,29 +10028,22 @@ DISPATCH WIZARD HELPERS
         if (product.trackingType === "StockQuantity") {
           const defaultLoc =
             LOCATIONS.find((l) => l.isDefaultDispatch)?.id || LOCATIONS[0].id;
-          let row = STOCK.find(
-            (s) => s.productId === i.productId && s.locationId === defaultLoc,
-          );
-          if (!row) {
-            row = {
-              productId: i.productId,
-              locationId: defaultLoc,
-              onHand: 0,
-              reserved: 0,
-            };
-            STOCK.push(row);
-          }
-          // Guard: don't reserve more than on-hand
-          const availableToReserve = Math.max(
-            0,
-            row.onHand - (row.reserved || 0),
-          );
-          const reserveQty = Math.min(i.qty, availableToReserve);
-          row.reserved = (row.reserved || 0) + reserveQty;
-          // If reserveQty < i.qty, log a warning. In production, this would block payment.
-          if (reserveQty < i.qty) {
+
+          let remaining = i.qty;
+          const rows = getFIFOStockRows(i.productId, defaultLoc);
+
+          rows.forEach((row) => {
+            if (remaining <= 0) return;
+            const available = Math.max(0, row.onHand - (row.reserved || 0));
+            const reserveQty = Math.min(available, remaining);
+            row.reserved = (row.reserved || 0) + reserveQty;
+            remaining -= reserveQty;
+          });
+
+          const reservedTotal = i.qty - remaining;
+          if (reservedTotal < i.qty) {
             logTimeline(
-              `⚠ Only ${reserveQty} of ${i.qty} could be reserved for ${product.name}. Insufficient stock.`,
+              `⚠ Only ${reservedTotal} of ${i.qty} could be reserved for ${product.name}. Insufficient stock.`,
             );
           }
 
@@ -11604,25 +11724,28 @@ DELIVERY CONFIRMATION
             qty,
             order.orderNumber,
           );
-        } else {
-          // Stock quantity: decrement both onHand and reserved
+              } else {
+          // Stock quantity: decrement both onHand and reserved, FIFO
           let remaining = qty;
-          STOCK.filter(
-            (s) => s.productId === line.productId && s.reserved > 0,
-          ).forEach((row) => {
+          const rows = getFIFOStockRows(line.productId, null).filter((r) => r.reserved > 0);
+          rows.forEach((row) => {
             if (remaining <= 0) return;
             const toDeduct = Math.min(row.reserved, remaining);
             row.reserved -= toDeduct;
             row.onHand -= toDeduct;
             remaining -= toDeduct;
+
+            // Log per-batch depletion
+            const batch = row.batchId ? getBatch(row.batchId) : null;
+            const batchLabel = batch ? `${batch.batchNumber} (${batch.supplier})` : "unknown batch";
+            logMovement(
+              line.productId,
+              row.locationId,
+              "check_out",
+              toDeduct,
+              `${order.orderNumber} · ${batchLabel}`,
+            );
           });
-          logMovement(
-            line.productId,
-            null,
-            "check_out",
-            qty,
-            order.orderNumber,
-          );
         }
 
         // Increment fulfilment now that the customer has received goods.
