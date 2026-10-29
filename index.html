@@ -768,145 +768,94 @@
       },
     ];
 
-    // Individual item units — each with tag, status, condition, location, received date
-    const UNITS = [
-      // MacBook Pro (p1) at Main Warehouse (loc2)
+
+    
+
+        // Batches represent physical delivery events from suppliers.
+    // Every unit and every stock row belongs to a batch.
+    const BATCHES = [
       {
-        id: "u1",
+        id: "b1",
+        batchNumber: "BATCH-20261001-A",
         productId: "p1",
-        tag: "MBP-20261001-001",
-        status: "Available",
-        condition: "New",
-        locationId: "loc2",
+        supplier: "Apple Authorized Reseller",
         receivedDate: "2026-10-01",
+        initialQty: 7,
+        notes: "October flagship delivery",
       },
       {
-        id: "u2",
+        id: "b2",
+        batchNumber: "BATCH-20261001-B",
         productId: "p1",
-        tag: "MBP-20261001-002",
-        status: "Available",
-        condition: "New",
-        locationId: "loc2",
+        supplier: "Secondary Reseller",
         receivedDate: "2026-10-01",
+        initialQty: 2,
+        notes: "Small top-up",
       },
       {
-        id: "u3",
-        productId: "p1",
-        tag: "MBP-20261001-003",
-        status: "Available",
-        condition: "New",
-        locationId: "loc2",
-        receivedDate: "2026-10-01",
-      },
-      {
-        id: "u4",
-        productId: "p1",
-        tag: "MBP-20261001-004",
-        status: "Available",
-        condition: "New",
-        locationId: "loc2",
-        receivedDate: "2026-10-01",
-      },
-      {
-        id: "u5",
-        productId: "p1",
-        tag: "MBP-20261001-005",
-        status: "Available",
-        condition: "New",
-        locationId: "loc2",
-        receivedDate: "2026-10-01",
-      },
-      {
-        id: "u6",
-        productId: "p1",
-        tag: "MBP-20261001-006",
-        status: "Sold",
-        condition: "New",
-        locationId: "loc2",
-        receivedDate: "2026-10-01",
-      },
-      {
-        id: "u7",
-        productId: "p1",
-        tag: "MBP-20261001-007",
-        status: "Sold",
-        condition: "New",
-        locationId: "loc2",
-        receivedDate: "2026-10-01",
-      },
-      // MacBook Pro (p1) at VI Store (loc1)
-      {
-        id: "u8",
-        productId: "p1",
-        tag: "MBP-20261001-008",
-        status: "Available",
-        condition: "New",
-        locationId: "loc1",
-        receivedDate: "2026-10-01",
-      },
-      {
-        id: "u9",
-        productId: "p1",
-        tag: "MBP-20261001-009",
-        status: "Available",
-        condition: "New",
-        locationId: "loc1",
-        receivedDate: "2026-10-01",
-      },
-      // iPhone 15 Pro (p3) at Main Warehouse (loc2)
-      {
-        id: "u10",
+        id: "b3",
+        batchNumber: "BATCH-20261002-A",
         productId: "p3",
-        tag: "IPH-20261002-001",
-        status: "Available",
-        condition: "New",
-        locationId: "loc2",
+        supplier: "Apple Authorized Reseller",
         receivedDate: "2026-10-02",
+        initialQty: 5,
+        notes: "",
       },
       {
-        id: "u11",
-        productId: "p3",
-        tag: "IPH-20261002-002",
-        status: "Available",
-        condition: "New",
-        locationId: "loc2",
-        receivedDate: "2026-10-02",
+        id: "b4",
+        batchNumber: "TANKER-20261001-A",
+        productId: "p2",
+        supplier: "Dangote",
+        receivedDate: "2026-10-01",
+        initialQty: 1500,
+        notes: "Tanker delivery",
       },
       {
-        id: "u12",
-        productId: "p3",
-        tag: "IPH-20261002-003",
-        status: "Available",
-        condition: "New",
-        locationId: "loc2",
-        receivedDate: "2026-10-02",
-      },
-      {
-        id: "u13",
-        productId: "p3",
-        tag: "IPH-20261002-004",
-        status: "Available",
-        condition: "New",
-        locationId: "loc2",
-        receivedDate: "2026-10-02",
-      },
-      {
-        id: "u14",
-        productId: "p3",
-        tag: "IPH-20261002-005",
-        status: "Available",
-        condition: "New",
-        locationId: "loc2",
-        receivedDate: "2026-10-02",
+        id: "b5",
+        batchNumber: "BATCH-20261001-C",
+        productId: "p4",
+        supplier: "Local Furniture Co.",
+        receivedDate: "2026-10-01",
+        initialQty: 27,
+        notes: "",
       },
     ];
 
-    // Stock levels for stock-quantity products per location
+
+
+
+        // Individual item units — each with tag, batch, status, condition, location, received date
+    const UNITS = [
+      // MacBook Pro (p1) - Batch b1 at Main Warehouse
+      { id: "u1", productId: "p1", tag: "MBP-20261001-001", batchId: "b1", status: "Available", condition: "New", locationId: "loc2", receivedDate: "2026-10-01" },
+      { id: "u2", productId: "p1", tag: "MBP-20261001-002", batchId: "b1", status: "Available", condition: "New", locationId: "loc2", receivedDate: "2026-10-01" },
+      { id: "u3", productId: "p1", tag: "MBP-20261001-003", batchId: "b1", status: "Available", condition: "New", locationId: "loc2", receivedDate: "2026-10-01" },
+      { id: "u4", productId: "p1", tag: "MBP-20261001-004", batchId: "b1", status: "Available", condition: "New", locationId: "loc2", receivedDate: "2026-10-01" },
+      { id: "u5", productId: "p1", tag: "MBP-20261001-005", batchId: "b1", status: "Available", condition: "New", locationId: "loc2", receivedDate: "2026-10-01" },
+      { id: "u6", productId: "p1", tag: "MBP-20261001-006", batchId: "b1", status: "Sold", condition: "New", locationId: "loc2", receivedDate: "2026-10-01" },
+      { id: "u7", productId: "p1", tag: "MBP-20261001-007", batchId: "b1", status: "Sold", condition: "New", locationId: "loc2", receivedDate: "2026-10-01" },
+      // MacBook Pro (p1) - Batch b2 at VI Store
+      { id: "u8", productId: "p1", tag: "MBP-20261001-008", batchId: "b2", status: "Available", condition: "New", locationId: "loc1", receivedDate: "2026-10-01" },
+      { id: "u9", productId: "p1", tag: "MBP-20261001-009", batchId: "b2", status: "Available", condition: "New", locationId: "loc1", receivedDate: "2026-10-01" },
+      // iPhone 15 Pro (p3) - Batch b3 at Main Warehouse
+      { id: "u10", productId: "p3", tag: "IPH-20261002-001", batchId: "b3", status: "Available", condition: "New", locationId: "loc2", receivedDate: "2026-10-02" },
+      { id: "u11", productId: "p3", tag: "IPH-20261002-002", batchId: "b3", status: "Available", condition: "New", locationId: "loc2", receivedDate: "2026-10-02" },
+      { id: "u12", productId: "p3", tag: "IPH-20261002-003", batchId: "b3", status: "Available", condition: "New", locationId: "loc2", receivedDate: "2026-10-02" },
+      { id: "u13", productId: "p3", tag: "IPH-20261002-004", batchId: "b3", status: "Available", condition: "New", locationId: "loc2", receivedDate: "2026-10-02" },
+      { id: "u14", productId: "p3", tag: "IPH-20261002-005", batchId: "b3", status: "Available", condition: "New", locationId: "loc2", receivedDate: "2026-10-02" },
+    ];
+
+   
+   
+      // Stock levels for stock-quantity products per location, per batch.
+    // Each row is a "batch at a location".
     const STOCK = [
-      { productId: "p2", locationId: "loc2", onHand: 998, reserved: 0 },
-      { productId: "p2", locationId: "loc3", onHand: 500, reserved: 0 },
-      { productId: "p4", locationId: "loc2", onHand: 12, reserved: 0 },
-      { productId: "p4", locationId: "loc3", onHand: 15, reserved: 0 },
+      // Cartons of Oil (p2) - Batch b4 (Dangote)
+      { productId: "p2", locationId: "loc2", batchId: "b4", onHand: 998, reserved: 0 },
+      { productId: "p2", locationId: "loc3", batchId: "b4", onHand: 500, reserved: 0 },
+      // Office Chairs (p4) - Batch b5
+      { productId: "p4", locationId: "loc2", batchId: "b5", onHand: 12, reserved: 0 },
+      { productId: "p4", locationId: "loc3", batchId: "b5", onHand: 15, reserved: 0 },
     ];
 
     // Stock movement log
@@ -916,6 +865,7 @@
     // (we keep the old getProduct for order-related code, but this is for inventory)
     const getInvProduct = (id) => PRODUCTS_INV.find((p) => p.id === id);
     const getLocation = (id) => LOCATIONS.find((l) => l.id === id);
+    const getBatch = (id) => BATCHES.find((b) => b.id === id);
 
     // Compute stock for any product (Individual or StockQuantity)
     function getStockSummary(productId, locationId) {
