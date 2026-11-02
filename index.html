@@ -1492,6 +1492,7 @@
 
         // Inventory page state
         inventoryView: "list", // 'list' | 'product' | 'unit' | 'batch' | 'movements' | 'transfers-in-transit'
+        inventoryTransferTab: "awaiting-receipt",
         inventoryProductId: null,
         inventoryUnitId: null,
         inventoryBatchId: null,
@@ -7876,8 +7877,8 @@ INVENTORY LIST PAGE
       </div>
     <div>
         <button onclick="state.inventoryView='movements'; render();">Movement Log</button>
-        <button onclick="state.inventoryView='transfers-in-transit'; render();">
-          Transfers In Transit (${TRANSFERS.filter((t) => t.status === "In Transit").length})
+        <button onclick="state.inventoryView='transfers-in-transit'; state.inventoryTransferTab='awaiting-receipt'; render();">
+          Stock Transfers (${TRANSFERS.filter((t) => ["In Transit", "Partially Received"].includes(t.status)).length})
         </button>
         <button class="btn-primary" onclick="state.activeModal='new-product'; render();">+ New Product</button>
       </div>
@@ -10879,45 +10880,76 @@ MOVEMENT LOG PAGE
   `;
       }
 
+
       function renderTransfersInTransit(c) {
-        const active = TRANSFERS.filter(
-          (t) => t.status === "In Transit" || t.status === "Partially Received",
-        );
+  const awaitingReceipt = TRANSFERS
+    .filter((t) => t.status === "In Transit")
+    .slice()
+    .reverse();
 
-        // Newest first
-        const sorted = active.slice().reverse();
+  const discrepancies = TRANSFERS
+    .filter((t) => t.status === "Partially Received")
+    .slice()
+    .reverse();
 
-        c.innerHTML = `
+  const selectedTab = state.inventoryTransferTab || "awaiting-receipt";
+
+  const activeTransfers = selectedTab === "discrepancies"
+    ? discrepancies
+    : awaitingReceipt;
+
+  c.innerHTML = `
     <div style="margin-bottom:12px;">
-      <button onclick="state.inventoryView='list'; render();">← Back to Inventory</button>
+      <button onclick="state.inventoryView='list'; render();">
+        ← Back to Inventory
+      </button>
     </div>
 
     <div class="card">
-      <div class="card-title">Transfers Awaiting Action (${sorted.length})</div>
-      <div style="font-size:12px; color:#555; margin-bottom:12px;">
-        Transfers awaiting receipt or with outstanding discrepancies.
+      <div class="card-title">Stock Transfers</div>
+
+      <div style="font-size:12px; color:#555; margin-bottom:16px;">
+        Monitor transfers between locations and outstanding discrepancies.
       </div>
 
-      ${
-        sorted.length === 0
-          ? `<div class="empty-state">No transfers awaiting action.</div>`
+      <div style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;">
+        <button
+          class="${selectedTab === "awaiting-receipt" ? "btn-primary" : ""}"
+          onclick="state.inventoryTransferTab='awaiting-receipt'; render();"
+        >
+          Awaiting Receipt (${awaitingReceipt.length})
+        </button>
+
+        <button
+          class="${selectedTab === "discrepancies" ? "btn-primary" : ""}"
+          onclick="state.inventoryTransferTab='discrepancies'; render();"
+        >
+          Discrepancies (${discrepancies.length})
+        </button>
+      </div>
+
+      ${selectedTab === "awaiting-receipt" ? `
+        <div style="font-size:12px; color:#555; margin-bottom:12px;">
+          Transfers that have left their source location but are awaiting destination confirmation.
+        </div>
+
+        ${activeTransfers.length === 0
+          ? `<div class="empty-state">No transfers awaiting receipt.</div>`
           : `
-          <table>
-            <thead>
-              <tr>
-                <th style="padding-left:12px;">Transfer</th>
-                <th>Product</th>
-                <th>Batch</th>
-                <th>From → To</th>
-                <th>Qty</th>
-                <th>Status</th>
-                <th>Sent</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${sorted
-                .map((t) => {
+            <table>
+              <thead>
+                <tr>
+                  <th style="padding-left:12px;">Transfer</th>
+                  <th>Product</th>
+                  <th>Batch</th>
+                  <th>From → To</th>
+                  <th>Qty Sent</th>
+                  <th>Sent</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${activeTransfers.map((t) => {
                   const product = getInvProduct(t.productId);
                   const batch = t.batchId ? getBatch(t.batchId) : null;
                   const fromLoc = getLocation(t.fromLocationId);
@@ -10931,42 +10963,110 @@ MOVEMENT LOG PAGE
                     minute: "2-digit",
                   });
 
-                  const action =
-                    t.status === "In Transit"
-                      ? `<button class="btn-primary" onclick="openReceiveTransferModal('${t.id}')">Receive</button>`
-                      : `<span style="font-size:11px; color:#92400e;">Discrepancy pending</span>`;
+                  return `
+                    <tr>
+                      <td style="padding-left:12px; font-size:12px; font-weight:bold;">
+                        ${t.transferNumber}
+                      </td>
+                      <td style="font-size:12px;">${product?.name || "—"}</td>
+                      <td style="font-size:11px; color:#555;">
+                        ${batch ? batch.batchNumber : "—"}
+                      </td>
+                      <td style="font-size:12px;">
+                        ${fromLoc?.name || "—"} → ${toLoc?.name || "—"}
+                      </td>
+                      <td style="font-weight:bold;">${t.qty}</td>
+                      <td style="font-size:11px; color:#555;">${sentDate}</td>
+                      <td>
+                        <button
+                          class="btn-primary"
+                          onclick="openReceiveTransferModal('${t.id}')"
+                        >
+                          Receive
+                        </button>
+                      </td>
+                    </tr>
+                  `;
+                }).join("")}
+              </tbody>
+            </table>
+          `
+        }
+      ` : `
+        <div style="font-size:12px; color:#555; margin-bottom:12px;">
+          Transfers where the destination received less stock than was dispatched. The outstanding stock has not been written off.
+        </div>
+
+        ${activeTransfers.length === 0
+          ? `<div class="empty-state">No outstanding discrepancies.</div>`
+          : `
+            <table>
+              <thead>
+                <tr>
+                  <th style="padding-left:12px;">Transfer</th>
+                  <th>Product</th>
+                  <th>From → To</th>
+                  <th>Qty Sent</th>
+                  <th>Qty Received</th>
+                  <th>Outstanding</th>
+                  <th>Sent</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${activeTransfers.map((t) => {
+                  const product = getInvProduct(t.productId);
+                  const fromLoc = getLocation(t.fromLocationId);
+                  const toLoc = getLocation(t.toLocationId);
+
+                  const received = Number(t.qtyReceived || 0);
+                  const outstanding = Number(
+                    t.discrepancyQty ?? (t.qty - received)
+                  );
+
+                  const sentDate = new Date(t.sentAt).toLocaleString("en-GB", {
+                    day: "2-digit",
+                    month: "short",
+                    year: "numeric",
+                  });
 
                   return `
-                  <tr>
-                    <td style="padding-left:12px; font-size:12px; font-weight:bold;">
-                      ${t.transferNumber}
-                    </td>
-                    <td style="font-size:12px;">${product?.name || "—"}</td>
-                    <td style="font-size:11px; color:#555;">
-                      ${batch ? batch.batchNumber : "—"}
-                    </td>
-                    <td style="font-size:12px;">
-                      ${fromLoc?.name || "—"} → ${toLoc?.name || "—"}
-                    </td>
-                    <td style="font-weight:bold;">${t.qty}</td>
-                    <td style="font-size:11px;">${t.status}</td>
-                    <td style="font-size:11px; color:#555;">${sentDate}</td>
-                    <td style="white-space:nowrap;">${action}</td>
-                  </tr>
-                `;
-                })
-                .join("")}
-            </tbody>
-          </table>
-        `
-      }
+                    <tr>
+                      <td style="padding-left:12px; font-size:12px; font-weight:bold;">
+                        ${t.transferNumber}
+                      </td>
+                      <td style="font-size:12px;">${product?.name || "—"}</td>
+                      <td style="font-size:12px;">
+                        ${fromLoc?.name || "—"} → ${toLoc?.name || "—"}
+                      </td>
+                      <td>${t.qty}</td>
+                      <td>${received}</td>
+                      <td style="font-weight:bold; color:#b45309;">
+                        ${outstanding}
+                      </td>
+                      <td style="font-size:11px; color:#555;">${sentDate}</td>
+                      <td>
+                        <span class="badge badge-partial">
+                          Partially Received
+                        </span>
+                      </td>
+                    </tr>
+                  `;
+                }).join("")}
+              </tbody>
+            </table>
+          `
+        }
+      `}
     </div>
   `;
-      }
+}
 
+     
+      
       function openReceiveTransferModal(transferId) {
         const transfer = TRANSFERS.find((t) => t.id === transferId);
-        if (!transfer) return;
+        if (!transfer || transfer.status !== "In Transit") return;
 
         state.receivingTransferId = transferId;
         const product = getInvProduct(transfer.productId);
