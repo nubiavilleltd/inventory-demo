@@ -10519,6 +10519,51 @@ ADJUST STOCK MODAL
           ?.addEventListener("click", commitReceiveTransfer);
       }
 
+            /* ============================================================
+   TRANSFER DISCREPANCY HELPERS
+
+   A received transfer keeps its ORIGINAL gap in discrepancyQty
+   (never changed after receipt). Everything that later resolves
+   that gap is appended to transfer.resolutions as an event:
+     { id, type: "Recovery" | "Write-off", qty, locationId,
+       unitIds, note, at, by }
+   Outstanding is always calculated from these two, never stored.
+   ============================================================ */
+
+      // Original gap recorded when the transfer was received.
+      function getTransferDiscrepancyQty(transfer) {
+        return Number(transfer?.discrepancyQty || 0);
+      }
+
+      // Total quantity resolved so far (recoveries and write-offs).
+      function getTransferResolvedQty(transfer) {
+        return (transfer?.resolutions || []).reduce(
+          (sum, r) => sum + Number(r.qty || 0),
+          0,
+        );
+      }
+
+      // Outstanding = original gap minus everything resolved.
+      function getTransferOutstanding(transfer) {
+        return Math.max(
+          0,
+          getTransferDiscrepancyQty(transfer) -
+            getTransferResolvedQty(transfer),
+        );
+      }
+
+      // The ONE place that sets a transfer's status after it has been
+      // received. A transfer that has never been received keeps its
+      // "In Transit" status.
+      function syncTransferStatus(transfer) {
+        if (!transfer || !transfer.receivedAt) return;
+
+        transfer.status =
+          getTransferOutstanding(transfer) > 0
+            ? "Partially Received"
+            : "Received";
+      }
+
       function commitReceiveTransfer() {
         const transfer = TRANSFERS.find(
           (t) => t.id === state.receivingTransferId,
@@ -10602,12 +10647,14 @@ ADJUST STOCK MODAL
           // Preserve the discrepancy on the original transfer.
           transfer.discrepancyQty = shortage;
           transfer.discrepancyUnitIds = [];
-
-          transfer.status = shortage > 0 ? "Partially Received" : "Received";
+          transfer.resolutions = [];
 
           transfer.receivedAt = new Date().toISOString();
           transfer.receivedBy = "You";
           transfer.qtyReceived = qtyReceived;
+
+          // Status follows from the outstanding quantity.
+          syncTransferStatus(transfer);
         } else {
           // Individual items
           const selectedUnitIds = [
@@ -10694,12 +10741,14 @@ ADJUST STOCK MODAL
           // Preserve the outstanding units on the original transfer.
           transfer.discrepancyQty = missingUnitIds.length;
           transfer.discrepancyUnitIds = missingUnitIds;
-
-          transfer.status = shortage > 0 ? "Partially Received" : "Received";
+          transfer.resolutions = [];
 
           transfer.receivedAt = new Date().toISOString();
           transfer.receivedBy = "You";
           transfer.qtyReceived = unitsToReceive.length;
+
+          // Status follows from the outstanding quantity.
+          syncTransferStatus(transfer);
         }
 
         closeReceiveTransferModal();
@@ -11021,9 +11070,7 @@ MOVEMENT LOG PAGE
                   const toLoc = getLocation(t.toLocationId);
 
                   const received = Number(t.qtyReceived || 0);
-                  const outstanding = Number(
-                    t.discrepancyQty ?? (t.qty - received)
-                  );
+                  const outstanding = getTransferOutstanding(t);
 
                   const sentDate = new Date(t.sentAt).toLocaleString("en-GB", {
                     day: "2-digit",
