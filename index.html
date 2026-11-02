@@ -7995,16 +7995,17 @@ INVENTORY LIST PAGE
         const batch = unit.batchId ? getBatch(unit.batchId) : null;
         const loc = getLocation(unit.locationId);
 
-        const statusClass =
-          u.status === "Available"
+       const statusClass =
+          unit.status === "Available"
             ? "badge-paid"
-            : u.status === "Reserved"
+            : unit.status === "Reserved"
               ? "badge-partial"
-              : u.status === "Removed"
+              : unit.status === "Removed"
                 ? "badge-cancelled"
-                : u.status === "Unaccounted For"
+                : unit.status === "Unaccounted For"
                   ? "badge-partial"
                   : "badge-draft";
+          
         const conditionClass =
           unit.condition === "New"
             ? "badge-paid"
