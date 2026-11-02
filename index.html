@@ -10667,16 +10667,16 @@ ADJUST STOCK MODAL
             (id) => !receivedUnitIds.has(id),
           );
 
-          missingUnitIds.forEach((uid) => {
-            const u = UNITS.find((unit) => unit.id === uid);
+         missingUnitIds.forEach((uid) => {
+          const u = UNITS.find((unit) => unit.id === uid);
 
-            if (u) {
-              u.status = "Unaccounted for";
-              u.locationId = null;
-              u.inTransitTransferId = null;
-              u.discrepancyTransferId = transfer.id;
-            }
-          });
+          if (u) {
+            u.status = "Unaccounted For";
+            u.locationId = null;
+            u.inTransitTransferId = null;
+            u.discrepancyTransferId = transfer.id;
+          }
+        });
 
           // Log only units physically received.
           if (unitsToReceive.length > 0) {
