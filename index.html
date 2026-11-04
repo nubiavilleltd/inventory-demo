@@ -799,7 +799,7 @@
         tagPrefix: "IPH",
         minimumStock: 3,
       },
-      {
+       {
         id: "p4",
         name: "Office Chair",
         sku: "CHR-001",
@@ -807,9 +807,10 @@
         price: 85000,
         category: "Furniture",
         unitOfMeasure: "Unit",
-        trackingType: "StockQuantity",
-        tagPrefix: null,
+        trackingType: "Individual",
+        tagPrefix: "CHR",
         minimumStock: 5,
+        status: "Active",
       },
     ];
 
@@ -999,7 +1000,7 @@
         locationId: "loc2",
         receivedDate: "2026-10-02",
       },
-      {
+          {
         id: "u14",
         productId: "p3",
         tag: "IPH-20261002-005",
@@ -1009,11 +1010,42 @@
         locationId: "loc2",
         receivedDate: "2026-10-02",
       },
+      // Office Chair (p4) - Batch b5 at Main Warehouse (12) and Ikeja Store (15)
+      { id: "u15", productId: "p4", tag: "CHR-20261001-001", batchId: "b5", status: "Available", condition: "New", locationId: "loc2", receivedDate: "2026-10-01" },
+      { id: "u16", productId: "p4", tag: "CHR-20261001-002", batchId: "b5", status: "Available", condition: "New", locationId: "loc2", receivedDate: "2026-10-01" },
+      { id: "u17", productId: "p4", tag: "CHR-20261001-003", batchId: "b5", status: "Available", condition: "New", locationId: "loc2", receivedDate: "2026-10-01" },
+      { id: "u18", productId: "p4", tag: "CHR-20261001-004", batchId: "b5", status: "Available", condition: "New", locationId: "loc2", receivedDate: "2026-10-01" },
+      { id: "u19", productId: "p4", tag: "CHR-20261001-005", batchId: "b5", status: "Available", condition: "New", locationId: "loc2", receivedDate: "2026-10-01" },
+      { id: "u20", productId: "p4", tag: "CHR-20261001-006", batchId: "b5", status: "Available", condition: "New", locationId: "loc2", receivedDate: "2026-10-01" },
+      { id: "u21", productId: "p4", tag: "CHR-20261001-007", batchId: "b5", status: "Available", condition: "New", locationId: "loc2", receivedDate: "2026-10-01" },
+      { id: "u22", productId: "p4", tag: "CHR-20261001-008", batchId: "b5", status: "Available", condition: "New", locationId: "loc2", receivedDate: "2026-10-01" },
+      { id: "u23", productId: "p4", tag: "CHR-20261001-009", batchId: "b5", status: "Available", condition: "New", locationId: "loc2", receivedDate: "2026-10-01" },
+      { id: "u24", productId: "p4", tag: "CHR-20261001-010", batchId: "b5", status: "Available", condition: "New", locationId: "loc2", receivedDate: "2026-10-01" },
+      { id: "u25", productId: "p4", tag: "CHR-20261001-011", batchId: "b5", status: "Available", condition: "New", locationId: "loc2", receivedDate: "2026-10-01" },
+      { id: "u26", productId: "p4", tag: "CHR-20261001-012", batchId: "b5", status: "Available", condition: "New", locationId: "loc2", receivedDate: "2026-10-01" },
+      { id: "u27", productId: "p4", tag: "CHR-20261001-013", batchId: "b5", status: "Available", condition: "New", locationId: "loc3", receivedDate: "2026-10-01" },
+      { id: "u28", productId: "p4", tag: "CHR-20261001-014", batchId: "b5", status: "Available", condition: "New", locationId: "loc3", receivedDate: "2026-10-01" },
+      { id: "u29", productId: "p4", tag: "CHR-20261001-015", batchId: "b5", status: "Available", condition: "New", locationId: "loc3", receivedDate: "2026-10-01" },
+      { id: "u30", productId: "p4", tag: "CHR-20261001-016", batchId: "b5", status: "Available", condition: "New", locationId: "loc3", receivedDate: "2026-10-01" },
+      { id: "u31", productId: "p4", tag: "CHR-20261001-017", batchId: "b5", status: "Available", condition: "New", locationId: "loc3", receivedDate: "2026-10-01" },
+      { id: "u32", productId: "p4", tag: "CHR-20261001-018", batchId: "b5", status: "Available", condition: "New", locationId: "loc3", receivedDate: "2026-10-01" },
+      { id: "u33", productId: "p4", tag: "CHR-20261001-019", batchId: "b5", status: "Available", condition: "New", locationId: "loc3", receivedDate: "2026-10-01" },
+      { id: "u34", productId: "p4", tag: "CHR-20261001-020", batchId: "b5", status: "Available", condition: "New", locationId: "loc3", receivedDate: "2026-10-01" },
+      { id: "u35", productId: "p4", tag: "CHR-20261001-021", batchId: "b5", status: "Available", condition: "New", locationId: "loc3", receivedDate: "2026-10-01" },
+      { id: "u36", productId: "p4", tag: "CHR-20261001-022", batchId: "b5", status: "Available", condition: "New", locationId: "loc3", receivedDate: "2026-10-01" },
+      { id: "u37", productId: "p4", tag: "CHR-20261001-023", batchId: "b5", status: "Available", condition: "New", locationId: "loc3", receivedDate: "2026-10-01" },
+      { id: "u38", productId: "p4", tag: "CHR-20261001-024", batchId: "b5", status: "Available", condition: "New", locationId: "loc3", receivedDate: "2026-10-01" },
+      { id: "u39", productId: "p4", tag: "CHR-20261001-025", batchId: "b5", status: "Available", condition: "New", locationId: "loc3", receivedDate: "2026-10-01" },
+      { id: "u40", productId: "p4", tag: "CHR-20261001-026", batchId: "b5", status: "Available", condition: "New", locationId: "loc3", receivedDate: "2026-10-01" },
+      { id: "u41", productId: "p4", tag: "CHR-20261001-027", batchId: "b5", status: "Available", condition: "New", locationId: "loc3", receivedDate: "2026-10-01" },
+
     ];
 
     // Stock levels for stock-quantity products per location, per batch.
     // Each row is a "batch at a location".
-    const STOCK = [
+   
+
+          const STOCK = [
       // Cartons of Oil (p2) - Batch b4 (Dangote)
       {
         productId: "p2",
@@ -1027,21 +1059,6 @@
         locationId: "loc3",
         batchId: "b4",
         onHand: 500,
-        reserved: 0,
-      },
-      // Office Chairs (p4) - Batch b5
-      {
-        productId: "p4",
-        locationId: "loc2",
-        batchId: "b5",
-        onHand: 12,
-        reserved: 0,
-      },
-      {
-        productId: "p4",
-        locationId: "loc3",
-        batchId: "b5",
-        onHand: 15,
         reserved: 0,
       },
     ];
