@@ -1534,6 +1534,26 @@
       d.setDate(d.getDate() + days);
       return d.toISOString().split("T")[0];
     }
+
+    // Calculate delivery date range based on today and urgency
+    function getDeliveryDateRange(urgency) {
+      const days = urgency === "Express" ? DELIVERY_DAYS_EXPRESS : DELIVERY_DAYS_STANDARD;
+      const start = new Date();
+      const end = new Date();
+      end.setDate(end.getDate() + days);
+      
+      const formatStr = (d) => d.toLocaleDateString("en-GB", {
+        day: "2-digit", month: "short", year: "numeric"
+      });
+      
+      return {
+        start: formatStr(start),
+        end: formatStr(end),
+        days: days,
+        rawStart: start.toISOString().split("T")[0],
+        rawEnd: end.toISOString().split("T")[0]
+      };
+    }
     const formatDate = (iso) =>
       iso
         ? new Date(iso).toLocaleDateString("en-GB", {
@@ -2472,6 +2492,7 @@ DISPATCH DASHBOARD DEMO SEED
     }
 
     /* ============ ORDER CREATION PAGE ============ */
+       /* ============ ORDER CREATION PAGE ============ */
     function renderOrderCreation(c) {
       const o = state.order,
         cust = state.customer;
@@ -2554,15 +2575,12 @@ DISPATCH DASHBOARD DEMO SEED
             ${(() => {
             const urgency = o.deliveryUrgency || "Standard";
             const isExpress = urgency === "Express";
-            const days = isExpress
-              ? DELIVERY_DAYS_EXPRESS
-              : DELIVERY_DAYS_STANDARD;
-            const estDate = getEstimatedDeliveryDate(days);
             const fee = calculateShippingFee(
               o,
               o.deliveryAddressId || null,
               urgency,
             );
+            const range = getDeliveryDateRange(urgency);
 
             return `
                 <div style="margin-top:8px; padding:8px; border:2px dashed ${isExpress ? "#991b1b" : "#166534"}; border-radius:4px; background:${isExpress ? "#fee2e2" : "#f0fdf4"}; font-size:12px; color:${isExpress ? "#991b1b" : "#166534"};">
@@ -2570,7 +2588,7 @@ DISPATCH DASHBOARD DEMO SEED
                     ${isExpress ? "⚡ Express Delivery" : "🚚 Standard Delivery"}
                   </div>
                   <div style="display:flex; justify-content:space-between;">
-                    <span>Arrives by: <strong>${formatDate(estDate)}</strong> (${days} days)</span>
+                    <span>Estimated Delivery: <strong>${range.start} – ${range.end}</strong> (${range.days} days)</span>
                   </div>
                   <div style="display:flex; justify-content:space-between; margin-top:2px;">
                     <span>Delivery Fee:</span>
@@ -2758,8 +2776,10 @@ DISPATCH DASHBOARD DEMO SEED
   `;
       attachOrderCreationHandlers();
     }
-
+    
     /* ============ ORDER DETAILS PAGE ============ */
+
+        /* ============ ORDER DETAILS PAGE ============ */
     function renderOrderDetails(c) {
       const o = state.order,
         cust = state.customer;
@@ -2801,9 +2821,13 @@ DISPATCH DASHBOARD DEMO SEED
 
           <div class="col"><label>Fulfillment</label><strong>${o.fulfillment}</strong></div>
         <div class="col">
-          <label>${o.fulfillment === "Delivery" ? "Urgency" : "Scheduled"}</label>
+          <label>${o.fulfillment === "Delivery" ? "Delivery Window" : "Scheduled"}</label>
           <strong>${o.fulfillment === "Delivery"
-          ? o.deliveryUrgency || "Standard"
+          ? (() => {
+              const urgency = o.deliveryUrgency || "Standard";
+              const range = getDeliveryDateRange(urgency);
+              return `${range.start} – ${range.end}`;
+            })()
           : formatDate(o.scheduledDate)
         }</strong>
         </div>
@@ -3252,6 +3276,7 @@ DISPATCH DASHBOARD DEMO SEED
 
       attachOrderDetailsHandlers();
     }
+   
 
     /* ============ SUCCESS PAGE ============ */
     function renderSuccess(c) {
@@ -4087,7 +4112,7 @@ DISPATCH DASHBOARD DEMO SEED
       }
     }
 
-    function renderFulfilmentRoutingModal() {
+     function renderFulfilmentRoutingModal() {
       const o = state.order;
       const cust = state.customer;
       const outstanding = calcOutstandingLines(o);
@@ -4295,7 +4320,14 @@ DISPATCH DASHBOARD DEMO SEED
               </div>
 
               <div style="margin-top:12px; padding:8px; border:2px dashed #166534; border-radius:4px; background:#f0fdf4; font-size:13px; color:#166534;">
-                <div style="font-size:11px; color:#166534;">Delivery Fee</div>
+                <div style="font-size:11px; color:#166534;">Estimated Delivery</div>
+                <div style="font-size:14px; font-weight:bold;">
+                  ${(() => {
+                    const range = getDeliveryDateRange(state.routingUrgency);
+                    return `${range.start} – ${range.end}`;
+                  })()}
+                </div>
+                <div style="font-size:11px; color:#166534; margin-top:6px;">Delivery Fee</div>
                 <div style="font-size:18px; font-weight:bold;">${money(liveFee)}</div>
               </div>
 
@@ -4424,7 +4456,7 @@ DISPATCH DASHBOARD DEMO SEED
     </div>
   `;
     }
-
+    
     function renderFulfilmentHistory(o) {
       const history = o.fulfilmentHistory || [];
       if (history.length === 0) return "";
