@@ -1471,7 +1471,9 @@
       // Inventory page state
       inventoryView: "list", // 'list' | 'product' | 'unit' | 'batch' | 'movements' | 'transfers-in-transit'
       inventoryTransferTab: "awaiting-receipt",
-      inventoryProductId: null,
+discrepancyFilter: "all", // 'all' | 'outstanding' | 'resolved'
+selectedTransferDiscrepancyId: null,
+inventoryProductId: null,
       inventoryUnitId: null,
       inventoryBatchId: null,
       receivingTransferId: null, // NEW
@@ -4911,6 +4913,8 @@ DISPATCH DASHBOARD DEMO SEED
       } else if (state.activeModal === "discrepancy-receipt") {
         c.innerHTML = renderDiscrepancyReceiptModal();
         attachDiscrepancyReceiptHandlers();
+        } else if (state.activeModal === "transfer-discrepancy-details") {
+  c.innerHTML = renderTransferDiscrepancyDetailsModal();
       } else if (state.activeModal === "transfer-stock") {
         c.innerHTML = renderTransferStockModal();
         attachTransferStockHandlers();
@@ -10953,24 +10957,339 @@ MOVEMENT LOG PAGE
     }
 
 
-    function renderTransfersInTransit(c) {
-      const awaitingReceipt = TRANSFERS
-        .filter((t) => t.status === "In Transit")
-        .slice()
-        .reverse();
 
-      const discrepancies = TRANSFERS
-        .filter((t) => t.status === "Partially Received")
-        .slice()
-        .reverse();
 
-      const selectedTab = state.inventoryTransferTab || "awaiting-receipt";
+    function escapeTransferDetailText(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[char]);
+}
 
-      const activeTransfers = selectedTab === "discrepancies"
-        ? discrepancies
-        : awaitingReceipt;
+function formatTransferDetailDate(value) {
+  if (!value) return "—";
 
-      c.innerHTML = `
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return "—";
+
+  return date.toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function openTransferDiscrepancyDetails(transferId) {
+  const transfer = TRANSFERS.find((t) => t.id === transferId);
+
+  if (!transfer || getTransferDiscrepancyQty(transfer) <= 0) return;
+
+  state.selectedTransferDiscrepancyId = transferId;
+  state.activeModal = "transfer-discrepancy-details";
+  render();
+}
+
+function closeTransferDiscrepancyDetails() {
+  state.activeModal = null;
+  state.selectedTransferDiscrepancyId = null;
+  render();
+}
+
+function renderTransferDiscrepancyDetailsModal() {
+  const transfer = TRANSFERS.find(
+    (t) => t.id === state.selectedTransferDiscrepancyId,
+  );
+
+  if (!transfer || getTransferDiscrepancyQty(transfer) <= 0) {
+    return `
+      <div class="modal-overlay">
+        <div class="modal">
+          <div class="modal-body">
+            <div class="empty-state">
+              This discrepancy could not be found.
+            </div>
+            <button onclick="closeTransferDiscrepancyDetails()">
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  const product = getInvProduct(transfer.productId);
+  const batch = transfer.batchId ? getBatch(transfer.batchId) : null;
+  const fromLoc = getLocation(transfer.fromLocationId);
+  const toLoc = getLocation(transfer.toLocationId);
+
+  const originalGap = getTransferDiscrepancyQty(transfer);
+  const resolvedQty = getTransferResolvedQty(transfer);
+  const outstanding = getTransferOutstanding(transfer);
+  const resolutions = transfer.resolutions || [];
+
+  const isResolved = outstanding === 0;
+  const unit = product?.unitOfMeasure || "unit";
+
+  const resolutionHistory = resolutions.length
+    ? resolutions.map((resolution) => {
+        const location = resolution.locationId
+          ? getLocation(resolution.locationId)
+          : null;
+
+        const resolutionType = escapeTransferDetailText(
+          resolution.type || "Resolution",
+        );
+
+        const note = escapeTransferDetailText(resolution.note || "");
+        const unitIds = Array.isArray(resolution.unitIds)
+          ? resolution.unitIds
+          : [];
+
+        return `
+          <div style="
+            border:1px solid #e5e7eb;
+            border-radius:8px;
+            padding:12px;
+            margin-bottom:10px;
+          ">
+            <div style="
+              display:flex;
+              justify-content:space-between;
+              gap:12px;
+              margin-bottom:8px;
+            ">
+              <strong>${resolutionType}</strong>
+              <strong>${Number(resolution.qty || 0)} ${escapeTransferDetailText(unit)}</strong>
+            </div>
+
+            <div style="font-size:12px; color:#555; line-height:1.7;">
+              <div>
+                <strong>Recorded:</strong>
+                ${escapeTransferDetailText(formatTransferDetailDate(resolution.at))}
+              </div>
+
+              <div>
+                <strong>Recorded by:</strong>
+                ${escapeTransferDetailText(resolution.by || "—")}
+              </div>
+
+              <div>
+                <strong>Location:</strong>
+                ${escapeTransferDetailText(location?.name || "—")}
+              </div>
+
+              ${
+                unitIds.length
+                  ? `<div><strong>Units:</strong> ${unitIds.map(escapeTransferDetailText).join(", ")}</div>`
+                  : ""
+              }
+
+              ${
+                note
+                  ? `<div><strong>Note:</strong> ${note}</div>`
+                  : ""
+              }
+            </div>
+          </div>
+        `;
+      }).join("")
+    : `
+      <div style="font-size:12px; color:#777;">
+        No resolution activity has been recorded yet.
+      </div>
+    `;
+
+  return `
+    <div class="modal-overlay" onclick="if(event.target===this)closeTransferDiscrepancyDetails()">
+      <div class="modal">
+        <div class="modal-header">
+          Discrepancy Details
+          <button class="close-x" onclick="closeTransferDiscrepancyDetails()">×</button>
+        </div>
+
+        <div class="modal-body">
+
+          <div style="
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+            gap:12px;
+            flex-wrap:wrap;
+            margin-bottom:18px;
+          ">
+            <div>
+              <div style="font-size:11px; color:#777;">Transfer Reference</div>
+              <div style="font-size:16px; font-weight:bold;">
+                ${escapeTransferDetailText(transfer.transferNumber || transfer.id)}
+              </div>
+            </div>
+
+            <span class="badge ${isResolved ? "" : "badge-partial"}">
+              ${isResolved ? "Resolved" : "Outstanding"}
+            </span>
+          </div>
+
+          <div style="
+            display:grid;
+            grid-template-columns:repeat(2,minmax(0,1fr));
+            gap:10px;
+            margin-bottom:20px;
+          ">
+            <div class="card" style="padding:12px;">
+              <div style="font-size:11px; color:#777;">Original Gap</div>
+              <div style="font-size:21px; font-weight:bold;">
+                ${originalGap} ${escapeTransferDetailText(unit)}
+              </div>
+            </div>
+
+            <div class="card" style="padding:12px;">
+              <div style="font-size:11px; color:#777;">Outstanding</div>
+              <div style="font-size:21px; font-weight:bold; color:${outstanding > 0 ? "#b45309" : "#15803d"};">
+                ${outstanding} ${escapeTransferDetailText(unit)}
+              </div>
+            </div>
+
+            <div class="card" style="padding:12px;">
+              <div style="font-size:11px; color:#777;">Quantity Sent</div>
+              <div style="font-size:18px; font-weight:bold;">
+                ${Number(transfer.qty || 0)}
+              </div>
+            </div>
+
+            <div class="card" style="padding:12px;">
+              <div style="font-size:11px; color:#777;">Quantity Received</div>
+              <div style="font-size:18px; font-weight:bold;">
+                ${Number(transfer.qtyReceived || 0)}
+              </div>
+            </div>
+          </div>
+
+          <div style="margin-bottom:20px;">
+            <div style="font-weight:bold; margin-bottom:10px;">
+              Transfer Information
+            </div>
+
+            <div style="font-size:12px; line-height:1.9; color:#555;">
+              <div><strong>Product:</strong> ${escapeTransferDetailText(product?.name || "—")}</div>
+              <div><strong>Batch:</strong> ${escapeTransferDetailText(batch?.batchNumber || "—")}</div>
+              <div><strong>From:</strong> ${escapeTransferDetailText(fromLoc?.name || "—")}</div>
+              <div><strong>To:</strong> ${escapeTransferDetailText(toLoc?.name || "—")}</div>
+              <div><strong>Sent:</strong> ${escapeTransferDetailText(formatTransferDetailDate(transfer.sentAt))}</div>
+              <div><strong>Received:</strong> ${escapeTransferDetailText(formatTransferDetailDate(transfer.receivedAt))}</div>
+              <div><strong>Received by:</strong> ${escapeTransferDetailText(transfer.receivedBy || "—")}</div>
+            </div>
+          </div>
+
+          <div style="
+            border-top:1px solid #e5e7eb;
+            padding-top:16px;
+            margin-bottom:20px;
+          ">
+            <div style="font-weight:bold; margin-bottom:8px;">
+              Original Discrepancy Reason
+            </div>
+
+            <div style="
+              background:#f9fafb;
+              border-radius:8px;
+              padding:12px;
+              font-size:13px;
+              white-space:pre-wrap;
+            ">
+              ${escapeTransferDetailText(transfer.discrepancyReason || "No reason recorded.")}
+            </div>
+          </div>
+
+          <div style="
+            border-top:1px solid #e5e7eb;
+            padding-top:16px;
+            margin-bottom:20px;
+          ">
+            <div style="display:flex; justify-content:space-between; gap:10px; margin-bottom:12px;">
+              <strong>Resolution History</strong>
+              <span style="font-size:12px; color:#777;">
+                ${resolutions.length} record(s)
+              </span>
+            </div>
+
+            ${resolutionHistory}
+          </div>
+
+          <div style="
+            display:flex;
+            justify-content:flex-end;
+            gap:8px;
+            flex-wrap:wrap;
+            border-top:1px solid #e5e7eb;
+            padding-top:16px;
+          ">
+            ${
+              outstanding > 0
+                ? `
+                  <button
+                    class="btn-primary"
+                    disabled
+                    title="The resolution workflow will be connected in the next implementation step."
+                  >
+                    Resolve Discrepancy
+                  </button>
+                `
+                : ""
+            }
+
+            <button onclick="closeTransferDiscrepancyDetails()">
+              Close
+            </button>
+          </div>
+
+          ${
+            outstanding > 0
+              ? `<div style="font-size:11px; color:#777; margin-top:8px; text-align:right;">
+                  Resolution workflow will be enabled in the next step.
+                </div>`
+              : ""
+          }
+
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+
+
+function renderTransfersInTransit(c) {
+  const awaitingReceipt = TRANSFERS
+    .filter((t) => t.status === "In Transit")
+    .slice()
+    .reverse();
+
+  // A transfer remains in this list permanently once it has
+  // recorded an original discrepancy.
+  const discrepancies = TRANSFERS
+    .filter((t) => getTransferDiscrepancyQty(t) > 0)
+    .slice()
+    .reverse();
+
+  const selectedTab = state.inventoryTransferTab || "awaiting-receipt";
+  const selectedFilter = state.discrepancyFilter || "all";
+
+  const filteredDiscrepancies = discrepancies.filter((transfer) => {
+    const outstanding = getTransferOutstanding(transfer);
+
+    if (selectedFilter === "outstanding") return outstanding > 0;
+    if (selectedFilter === "resolved") return outstanding === 0;
+
+    return true;
+  });
+
+  c.innerHTML = `
     <div style="margin-bottom:12px;">
       <button onclick="state.inventoryView='list'; render();">
         ← Back to Inventory
@@ -10981,7 +11300,7 @@ MOVEMENT LOG PAGE
       <div class="card-title">Stock Transfers</div>
 
       <div style="font-size:12px; color:#555; margin-bottom:16px;">
-        Monitor transfers between locations and outstanding discrepancies.
+        Monitor transfers between locations and review recorded discrepancies.
       </div>
 
       <div style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;">
@@ -11000,138 +11319,195 @@ MOVEMENT LOG PAGE
         </button>
       </div>
 
-      ${selectedTab === "awaiting-receipt" ? `
-        <div style="font-size:12px; color:#555; margin-bottom:12px;">
-          Transfers that have left their source location but are awaiting destination confirmation.
-        </div>
+      ${
+        selectedTab === "awaiting-receipt"
+          ? `
+            <div style="font-size:12px; color:#555; margin-bottom:12px;">
+              Transfers that have left their source location but are awaiting destination confirmation.
+            </div>
 
-        ${activeTransfers.length === 0
-            ? `<div class="empty-state">No transfers awaiting receipt.</div>`
-            : `
-            <table>
-              <thead>
-                <tr>
-                  <th style="padding-left:12px;">Transfer</th>
-                  <th>Product</th>
-                  <th>Batch</th>
-                  <th>From → To</th>
-                  <th>Qty Sent</th>
-                  <th>Sent</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${activeTransfers.map((t) => {
-              const product = getInvProduct(t.productId);
-              const batch = t.batchId ? getBatch(t.batchId) : null;
-              const fromLoc = getLocation(t.fromLocationId);
-              const toLoc = getLocation(t.toLocationId);
+            ${
+              awaitingReceipt.length === 0
+                ? `<div class="empty-state">No transfers awaiting receipt.</div>`
+                : `
+                  <table>
+                    <thead>
+                      <tr>
+                        <th style="padding-left:12px;">Transfer</th>
+                        <th>Product</th>
+                        <th>Batch</th>
+                        <th>From → To</th>
+                        <th>Qty Sent</th>
+                        <th>Sent</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
 
-              const sentDate = new Date(t.sentAt).toLocaleString("en-GB", {
-                day: "2-digit",
-                month: "short",
-                year: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-              });
+                    <tbody>
+                      ${awaitingReceipt.map((t) => {
+                        const product = getInvProduct(t.productId);
+                        const batch = t.batchId ? getBatch(t.batchId) : null;
+                        const fromLoc = getLocation(t.fromLocationId);
+                        const toLoc = getLocation(t.toLocationId);
 
-              return `
-                    <tr>
-                      <td style="padding-left:12px; font-size:12px; font-weight:bold;">
-                        ${t.transferNumber}
-                      </td>
-                      <td style="font-size:12px;">${product?.name || "—"}</td>
-                      <td style="font-size:11px; color:#555;">
-                        ${batch ? batch.batchNumber : "—"}
-                      </td>
-                      <td style="font-size:12px;">
-                        ${fromLoc?.name || "—"} → ${toLoc?.name || "—"}
-                      </td>
-                      <td style="font-weight:bold;">${t.qty}</td>
-                      <td style="font-size:11px; color:#555;">${sentDate}</td>
-                      <td>
-                        <button
-                          class="btn-primary"
-                          onclick="openReceiveTransferModal('${t.id}')"
-                        >
-                          Receive
-                        </button>
-                      </td>
-                    </tr>
-                  `;
-            }).join("")}
-              </tbody>
-            </table>
+                        return `
+                          <tr>
+                            <td style="padding-left:12px; font-size:12px; font-weight:bold;">
+                              ${escapeTransferDetailText(t.transferNumber)}
+                            </td>
+
+                            <td style="font-size:12px;">
+                              ${escapeTransferDetailText(product?.name || "—")}
+                            </td>
+
+                            <td style="font-size:11px; color:#555;">
+                              ${escapeTransferDetailText(batch?.batchNumber || "—")}
+                            </td>
+
+                            <td style="font-size:12px;">
+                              ${escapeTransferDetailText(fromLoc?.name || "—")}
+                              →
+                              ${escapeTransferDetailText(toLoc?.name || "—")}
+                            </td>
+
+                            <td style="font-weight:bold;">
+                              ${Number(t.qty || 0)}
+                            </td>
+
+                            <td style="font-size:11px; color:#555;">
+                              ${escapeTransferDetailText(formatTransferDetailDate(t.sentAt))}
+                            </td>
+
+                            <td>
+                              <button
+                                class="btn-primary"
+                                onclick="openReceiveTransferModal('${escapeTransferDetailText(t.id)}')"
+                              >
+                                Receive
+                              </button>
+                            </td>
+                          </tr>
+                        `;
+                      }).join("")}
+                    </tbody>
+                  </table>
+                `
+            }
           `
-          }
-      ` : `
-        <div style="font-size:12px; color:#555; margin-bottom:12px;">
-          Transfers where the destination received less stock than was dispatched. The outstanding stock has not been written off.
-        </div>
-
-        ${activeTransfers.length === 0
-          ? `<div class="empty-state">No outstanding discrepancies.</div>`
           : `
-            <table>
-              <thead>
-                <tr>
-                  <th style="padding-left:12px;">Transfer</th>
-                  <th>Product</th>
-                  <th>From → To</th>
-                  <th>Qty Sent</th>
-                  <th>Qty Received</th>
-                  <th>Outstanding</th>
-                  <th>Sent</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${activeTransfers.map((t) => {
-            const product = getInvProduct(t.productId);
-            const fromLoc = getLocation(t.fromLocationId);
-            const toLoc = getLocation(t.toLocationId);
+            <div style="font-size:12px; color:#555; margin-bottom:12px;">
+              This is the permanent history of transfers that have had a discrepancy. Resolved records remain available here.
+            </div>
 
-            const received = Number(t.qtyReceived || 0);
-            const outstanding = getTransferOutstanding(t);
+            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px;">
+              <button
+                class="${selectedFilter === "all" ? "btn-primary" : ""}"
+                onclick="state.discrepancyFilter='all'; render();"
+              >
+                All (${discrepancies.length})
+              </button>
 
-            const sentDate = new Date(t.sentAt).toLocaleString("en-GB", {
-              day: "2-digit",
-              month: "short",
-              year: "numeric",
-            });
+              <button
+                class="${selectedFilter === "outstanding" ? "btn-primary" : ""}"
+                onclick="state.discrepancyFilter='outstanding'; render();"
+              >
+                Outstanding (${discrepancies.filter((t) => getTransferOutstanding(t) > 0).length})
+              </button>
 
-            return `
-                    <tr>
-                      <td style="padding-left:12px; font-size:12px; font-weight:bold;">
-                        ${t.transferNumber}
-                      </td>
-                      <td style="font-size:12px;">${product?.name || "—"}</td>
-                      <td style="font-size:12px;">
-                        ${fromLoc?.name || "—"} → ${toLoc?.name || "—"}
-                      </td>
-                      <td>${t.qty}</td>
-                      <td>${received}</td>
-                      <td style="font-weight:bold; color:#b45309;">
-                        ${outstanding}
-                      </td>
-                      <td style="font-size:11px; color:#555;">${sentDate}</td>
-                      <td>
-                        <span class="badge badge-partial">
-                          Partially Received
-                        </span>
-                      </td>
-                    </tr>
-                  `;
-          }).join("")}
-              </tbody>
-            </table>
+              <button
+                class="${selectedFilter === "resolved" ? "btn-primary" : ""}"
+                onclick="state.discrepancyFilter='resolved'; render();"
+              >
+                Resolved (${discrepancies.filter((t) => getTransferOutstanding(t) === 0).length})
+              </button>
+            </div>
+
+            ${
+              filteredDiscrepancies.length === 0
+                ? `<div class="empty-state">No discrepancies match this filter.</div>`
+                : `
+                  <table>
+                    <thead>
+                      <tr>
+                        <th style="padding-left:12px;">Transfer</th>
+                        <th>Product</th>
+                        <th>From → To</th>
+                        <th>Qty Sent</th>
+                        <th>Qty Received</th>
+                        <th>Original Gap</th>
+                        <th>Outstanding</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      ${filteredDiscrepancies.map((t) => {
+                        const product = getInvProduct(t.productId);
+                        const fromLoc = getLocation(t.fromLocationId);
+                        const toLoc = getLocation(t.toLocationId);
+
+                        const outstanding = getTransferOutstanding(t);
+                        const originalGap = getTransferDiscrepancyQty(t);
+                        const isResolved = outstanding === 0;
+
+                        return `
+                          <tr>
+                            <td style="padding-left:12px; font-size:12px; font-weight:bold;">
+                              ${escapeTransferDetailText(t.transferNumber)}
+                            </td>
+
+                            <td style="font-size:12px;">
+                              ${escapeTransferDetailText(product?.name || "—")}
+                            </td>
+
+                            <td style="font-size:12px;">
+                              ${escapeTransferDetailText(fromLoc?.name || "—")}
+                              →
+                              ${escapeTransferDetailText(toLoc?.name || "—")}
+                            </td>
+
+                            <td>${Number(t.qty || 0)}</td>
+
+                            <td>${Number(t.qtyReceived || 0)}</td>
+
+                            <td>${originalGap}</td>
+
+                            <td style="
+                              font-weight:bold;
+                              color:${outstanding > 0 ? "#b45309" : "#15803d"};
+                            ">
+                              ${outstanding}
+                            </td>
+
+                            <td>
+                              <span class="badge ${isResolved ? "" : "badge-partial"}">
+                                ${isResolved ? "Resolved" : "Outstanding"}
+                              </span>
+                            </td>
+
+                            <td>
+                              <button
+                                onclick="openTransferDiscrepancyDetails('${escapeTransferDetailText(t.id)}')"
+                              >
+                                View Details
+                              </button>
+                            </td>
+                          </tr>
+                        `;
+                      }).join("")}
+                    </tbody>
+                  </table>
+                `
+            }
           `
-        }
-      `}
+      }
     </div>
   `;
-    }
+}
 
+
+    
 
 
     function openReceiveTransferModal(transferId) {
