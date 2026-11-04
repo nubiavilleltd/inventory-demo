@@ -11087,6 +11087,10 @@ MOVEMENT LOG PAGE
           );
 
           const note = escapeTransferDetailText(resolution.note || "");
+
+const noteLabel = resolution.type === "Write-off"
+  ? "Write-off Reason"
+  : "Recovery Note";
           const unitIds = Array.isArray(resolution.unitIds)
             ? resolution.unitIds
             : [];
@@ -11132,10 +11136,10 @@ MOVEMENT LOG PAGE
               : ""
             }
 
-              ${note
-              ? `<div><strong>Note:</strong> ${note}</div>`
-              : ""
-            }
+         ${note
+  ? `<div><strong>${noteLabel}:</strong> ${note}</div>`
+  : ""
+}
             </div>
           </div>
         `;
@@ -11762,6 +11766,111 @@ MOVEMENT LOG PAGE
 
 
 
+    function confirmTransferWriteOff() {
+  const transfer = TRANSFERS.find(
+    (t) => t.id === state.writeOffTransferId
+  );
+
+  if (!transfer) {
+    alert("Transfer could not be found.");
+    return;
+  }
+
+  const product = getInvProduct(transfer.productId);
+
+  if (!product) {
+    alert("Product could not be found.");
+    return;
+  }
+
+  const outstanding = getTransferOutstanding(transfer);
+
+  if (outstanding <= 0) {
+    alert("This discrepancy has already been resolved.");
+    closeTransferWriteOffModal();
+    return;
+  }
+
+  const reason = String(state.writeOffReason || "").trim();
+
+  if (!reason) {
+    alert("Please provide a reason for writing off this discrepancy.");
+    return;
+  }
+
+  let qty = 0;
+  let unitIds = [];
+
+  if (product.trackingType === "StockQuantity") {
+    qty = Number(state.writeOffQty);
+
+    if (!Number.isInteger(qty) || qty <= 0) {
+      alert("Enter a valid whole-number quantity.");
+      return;
+    }
+
+    if (qty > outstanding) {
+      alert(`You can only write off up to ${outstanding} units.`);
+      return;
+    }
+  } else if (product.trackingType === "Individual") {
+    const eligibleUnits = getEligibleWriteOffUnits(transfer);
+    const selectedIds = [...new Set(state.writeOffSelectedUnits || [])];
+
+    const selectedUnits = eligibleUnits.filter((unit) =>
+      selectedIds.includes(unit.id)
+    );
+
+    if (selectedUnits.length === 0) {
+      alert("Please select at least one unit to write off.");
+      return;
+    }
+
+    if (selectedUnits.length !== selectedIds.length) {
+      alert("Some selected units are no longer eligible for write-off. Please review your selection.");
+      return;
+    }
+
+    qty = selectedUnits.length;
+
+    if (qty > outstanding) {
+      alert(`You can only write off up to ${outstanding} units.`);
+      return;
+    }
+
+    unitIds = selectedUnits.map((unit) => unit.id);
+
+    // Mark the selected units as written off.
+    selectedUnits.forEach((unit) => {
+      unit.status = "Written Off";
+    });
+  } else {
+    alert("Unsupported product tracking type.");
+    return;
+  }
+
+  // Record the write-off against the transfer discrepancy.
+  if (!Array.isArray(transfer.resolutions)) {
+    transfer.resolutions = [];
+  }
+
+  transfer.resolutions.push({
+    id: `RES-${Date.now()}`,
+    type: "Write-off",
+    qty,
+    locationId: null,
+    unitIds,
+    note: reason,
+    at: new Date().toISOString(),
+    by: "You"
+  });
+
+  // Recalculate the transfer status.
+  syncTransferStatus(transfer);
+
+  // Close the modal and refresh the details page.
+  closeTransferWriteOffModal();
+}
 
 
 
