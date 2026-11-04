@@ -1478,6 +1478,7 @@
       inventoryBatchId: null,
       receivingTransferId: null, // NEW
       // Discrepancy recovery modal state
+      recoveryUnitSearch: "",
       recoveryTransferId: null,
       recoveryLocationId: null,
       recoveryQty: "",
@@ -2138,6 +2139,8 @@ DISPATCH DASHBOARD DEMO SEED
           renderMovementsList(c);
         } else if (state.inventoryView === "transfers-in-transit") {
           renderTransfersInTransit(c);
+        } else if (state.inventoryView === "discrepancy-details") {
+          renderTransferDiscrepancyDetailsPage(c);
         } else {
           renderInventoryList(c);
         }
@@ -4920,8 +4923,6 @@ DISPATCH DASHBOARD DEMO SEED
         attachDiscrepancyReceiptHandlers();
       } else if (state.activeModal === "transfer-recovery") {
         c.innerHTML = renderTransferRecoveryModal();
-      } else if (state.activeModal === "transfer-discrepancy-details") {
-        c.innerHTML = renderTransferDiscrepancyDetailsModal();
       } else if (state.activeModal === "transfer-stock") {
         c.innerHTML = renderTransferStockModal();
         attachTransferStockHandlers();
@@ -4968,7 +4969,12 @@ DISPATCH DASHBOARD DEMO SEED
       state.bulkFeeWaiveReason = "";
       render();
     }
+
+
     /* ============ PAYMENT MODAL ============ */
+
+
+
     function renderPaymentModal() {
       const o = state.order,
         t = calcTotals(o);
@@ -5860,6 +5866,9 @@ DISPATCH DASHBOARD DEMO SEED
     </div>
   `;
     }
+
+
+
 
     function openCollectionChangeUnits(productId) {
       state.collectionChangingUnitsFor = productId;
@@ -7348,6 +7357,8 @@ DISPATCH WIZARD (3-STEP)
     </div>
   `;
     }
+
+
     /* ---------- Step 3: Review & Confirm ---------- */
     function renderDispatchStep3() {
       const o = state.order;
@@ -10992,42 +11003,52 @@ MOVEMENT LOG PAGE
       });
     }
 
+
+
     function openTransferDiscrepancyDetails(transferId) {
       const transfer = TRANSFERS.find((t) => t.id === transferId);
 
       if (!transfer || getTransferDiscrepancyQty(transfer) <= 0) return;
 
       state.selectedTransferDiscrepancyId = transferId;
-      state.activeModal = "transfer-discrepancy-details";
+      state.activeTab = "inventory";
+      state.inventoryView = "discrepancy-details";
+      state.inventoryTransferTab = "discrepancies";
+      state.activeModal = null;
+
       render();
     }
 
     function closeTransferDiscrepancyDetails() {
-      state.activeModal = null;
       state.selectedTransferDiscrepancyId = null;
+      state.inventoryView = "transfers-in-transit";
+      state.inventoryTransferTab = "discrepancies";
+      state.activeModal = null;
+
       render();
     }
 
-    function renderTransferDiscrepancyDetailsModal() {
+
+    function renderTransferDiscrepancyDetailsPage(c) {
       const transfer = TRANSFERS.find(
         (t) => t.id === state.selectedTransferDiscrepancyId,
       );
 
       if (!transfer || getTransferDiscrepancyQty(transfer) <= 0) {
-        return `
-      <div class="modal-overlay">
-        <div class="modal">
-          <div class="modal-body">
-            <div class="empty-state">
-              This discrepancy could not be found.
-            </div>
-            <button onclick="closeTransferDiscrepancyDetails()">
-              Close
-            </button>
-          </div>
+        c.innerHTML = `
+      <div style="margin-bottom:12px;">
+        <button onclick="closeTransferDiscrepancyDetails()">
+          ← Back to Discrepancies
+        </button>
+      </div>
+
+      <div class="card">
+        <div class="empty-state">
+          This discrepancy could not be found.
         </div>
       </div>
     `;
+        return;
       }
 
       const product = getInvProduct(transfer.productId);
@@ -11072,7 +11093,10 @@ MOVEMENT LOG PAGE
               margin-bottom:8px;
             ">
               <strong>${resolutionType}</strong>
-              <strong>${Number(resolution.qty || 0)} ${escapeTransferDetailText(unit)}</strong>
+              <strong>
+                ${Number(resolution.qty || 0)}
+                ${escapeTransferDetailText(unit)}
+              </strong>
             </div>
 
             <div style="font-size:12px; color:#555; line-height:1.7;">
@@ -11110,160 +11134,192 @@ MOVEMENT LOG PAGE
       </div>
     `;
 
-      return `
-    <div class="modal-overlay" onclick="if(event.target===this)closeTransferDiscrepancyDetails()">
-      <div class="modal">
-        <div class="modal-header">
-          Discrepancy Details
-          <button class="close-x" onclick="closeTransferDiscrepancyDetails()">×</button>
+      c.innerHTML = `
+    <div style="margin-bottom:12px;">
+      <button onclick="closeTransferDiscrepancyDetails()">
+        ← Back to Discrepancies
+      </button>
+    </div>
+
+    <div class="card">
+      <div class="card-title">
+        Discrepancy Details
+      </div>
+
+      <div style="
+        display:flex;
+        justify-content:space-between;
+        align-items:center;
+        gap:12px;
+        flex-wrap:wrap;
+        margin-bottom:18px;
+      ">
+        <div>
+          <div style="font-size:11px; color:#777;">
+            Transfer Reference
+          </div>
+
+          <div style="font-size:16px; font-weight:bold;">
+            ${escapeTransferDetailText(transfer.transferNumber || transfer.id)}
+          </div>
         </div>
 
-        <div class="modal-body">
+        <span class="badge ${isResolved ? "" : "badge-partial"}">
+          ${isResolved ? "Resolved" : "Outstanding"}
+        </span>
+      </div>
 
+      <div style="
+        display:grid;
+        grid-template-columns:repeat(2,minmax(0,1fr));
+        gap:10px;
+        margin-bottom:20px;
+      ">
+        <div class="card" style="padding:12px;">
+          <div style="font-size:11px; color:#777;">
+            Original Gap
+          </div>
+          <div style="font-size:21px; font-weight:bold;">
+            ${originalGap} ${escapeTransferDetailText(unit)}
+          </div>
+        </div>
+
+        <div class="card" style="padding:12px;">
+          <div style="font-size:11px; color:#777;">
+            Outstanding
+          </div>
           <div style="
-            display:flex;
-            justify-content:space-between;
-            align-items:center;
-            gap:12px;
-            flex-wrap:wrap;
-            margin-bottom:18px;
+            font-size:21px;
+            font-weight:bold;
+            color:${outstanding > 0 ? "#b45309" : "#15803d"};
           ">
-            <div>
-              <div style="font-size:11px; color:#777;">Transfer Reference</div>
-              <div style="font-size:16px; font-weight:bold;">
-                ${escapeTransferDetailText(transfer.transferNumber || transfer.id)}
-              </div>
-            </div>
-
-            <span class="badge ${isResolved ? "" : "badge-partial"}">
-              ${isResolved ? "Resolved" : "Outstanding"}
-            </span>
+            ${outstanding} ${escapeTransferDetailText(unit)}
           </div>
+        </div>
 
-          <div style="
-            display:grid;
-            grid-template-columns:repeat(2,minmax(0,1fr));
-            gap:10px;
-            margin-bottom:20px;
-          ">
-            <div class="card" style="padding:12px;">
-              <div style="font-size:11px; color:#777;">Original Gap</div>
-              <div style="font-size:21px; font-weight:bold;">
-                ${originalGap} ${escapeTransferDetailText(unit)}
-              </div>
-            </div>
-
-            <div class="card" style="padding:12px;">
-              <div style="font-size:11px; color:#777;">Outstanding</div>
-              <div style="font-size:21px; font-weight:bold; color:${outstanding > 0 ? "#b45309" : "#15803d"};">
-                ${outstanding} ${escapeTransferDetailText(unit)}
-              </div>
-            </div>
-
-            <div class="card" style="padding:12px;">
-              <div style="font-size:11px; color:#777;">Quantity Sent</div>
-              <div style="font-size:18px; font-weight:bold;">
-                ${Number(transfer.qty || 0)}
-              </div>
-            </div>
-
-            <div class="card" style="padding:12px;">
-              <div style="font-size:11px; color:#777;">Quantity Received</div>
-              <div style="font-size:18px; font-weight:bold;">
-                ${Number(transfer.qtyReceived || 0)}
-              </div>
-            </div>
+        <div class="card" style="padding:12px;">
+          <div style="font-size:11px; color:#777;">
+            Quantity Sent
           </div>
-
-          <div style="margin-bottom:20px;">
-            <div style="font-weight:bold; margin-bottom:10px;">
-              Transfer Information
-            </div>
-
-            <div style="font-size:12px; line-height:1.9; color:#555;">
-              <div><strong>Product:</strong> ${escapeTransferDetailText(product?.name || "—")}</div>
-              <div><strong>Batch:</strong> ${escapeTransferDetailText(batch?.batchNumber || "—")}</div>
-              <div><strong>From:</strong> ${escapeTransferDetailText(fromLoc?.name || "—")}</div>
-              <div><strong>To:</strong> ${escapeTransferDetailText(toLoc?.name || "—")}</div>
-              <div><strong>Sent:</strong> ${escapeTransferDetailText(formatTransferDetailDate(transfer.sentAt))}</div>
-              <div><strong>Received:</strong> ${escapeTransferDetailText(formatTransferDetailDate(transfer.receivedAt))}</div>
-              <div><strong>Received by:</strong> ${escapeTransferDetailText(transfer.receivedBy || "—")}</div>
-            </div>
+          <div style="font-size:18px; font-weight:bold;">
+            ${Number(transfer.qty || 0)}
           </div>
+        </div>
 
-          <div style="
-            border-top:1px solid #e5e7eb;
-            padding-top:16px;
-            margin-bottom:20px;
-          ">
-            <div style="font-weight:bold; margin-bottom:8px;">
-              Original Discrepancy Reason
-            </div>
-
-            <div style="
-              background:#f9fafb;
-              border-radius:8px;
-              padding:12px;
-              font-size:13px;
-              white-space:pre-wrap;
-            ">
-              ${escapeTransferDetailText(transfer.discrepancyReason || "No reason recorded.")}
-            </div>
+        <div class="card" style="padding:12px;">
+          <div style="font-size:11px; color:#777;">
+            Quantity Received
           </div>
-
-          <div style="
-            border-top:1px solid #e5e7eb;
-            padding-top:16px;
-            margin-bottom:20px;
-          ">
-            <div style="display:flex; justify-content:space-between; gap:10px; margin-bottom:12px;">
-              <strong>Resolution History</strong>
-              <span style="font-size:12px; color:#777;">
-                ${resolutions.length} record(s)
-              </span>
-            </div>
-
-            ${resolutionHistory}
+          <div style="font-size:18px; font-weight:bold;">
+            ${Number(transfer.qtyReceived || 0)}
           </div>
+        </div>
+      </div>
 
-             <div style="
-            display:flex;
-            justify-content:flex-end;
-            gap:8px;
-            flex-wrap:wrap;
-            border-top:1px solid #e5e7eb;
-            padding-top:16px;
-          ">
-            ${outstanding > 0
+      <div style="margin-bottom:20px;">
+        <div style="font-weight:bold; margin-bottom:10px;">
+          Transfer Information
+        </div>
+
+        <div style="font-size:12px; line-height:1.9; color:#555;">
+          <div>
+            <strong>Product:</strong>
+            ${escapeTransferDetailText(product?.name || "—")}
+          </div>
+          <div>
+            <strong>Batch:</strong>
+            ${escapeTransferDetailText(batch?.batchNumber || "—")}
+          </div>
+          <div>
+            <strong>From:</strong>
+            ${escapeTransferDetailText(fromLoc?.name || "—")}
+          </div>
+          <div>
+            <strong>To:</strong>
+            ${escapeTransferDetailText(toLoc?.name || "—")}
+          </div>
+          <div>
+            <strong>Sent:</strong>
+            ${escapeTransferDetailText(formatTransferDetailDate(transfer.sentAt))}
+          </div>
+          <div>
+            <strong>Received:</strong>
+            ${escapeTransferDetailText(formatTransferDetailDate(transfer.receivedAt))}
+          </div>
+          <div>
+            <strong>Received by:</strong>
+            ${escapeTransferDetailText(transfer.receivedBy || "—")}
+          </div>
+        </div>
+      </div>
+
+      <div style="
+        border-top:1px solid #e5e7eb;
+        padding-top:16px;
+        margin-bottom:20px;
+      ">
+        <div style="font-weight:bold; margin-bottom:8px;">
+          Original Discrepancy Reason
+        </div>
+
+        <div style="
+          background:#f9fafb;
+          border-radius:8px;
+          padding:12px;
+          font-size:13px;
+          white-space:pre-wrap;
+        ">
+          ${escapeTransferDetailText(transfer.discrepancyReason || "No reason recorded.")}
+        </div>
+      </div>
+
+      <div style="
+        border-top:1px solid #e5e7eb;
+        padding-top:16px;
+        margin-bottom:20px;
+      ">
+        <div style="
+          display:flex;
+          justify-content:space-between;
+          gap:10px;
+          margin-bottom:12px;
+        ">
+          <strong>Resolution History</strong>
+          <span style="font-size:12px; color:#777;">
+            ${resolutions.length} record(s)
+          </span>
+        </div>
+
+        ${resolutionHistory}
+      </div>
+
+      <div style="
+        display:flex;
+        justify-content:flex-end;
+        gap:8px;
+        flex-wrap:wrap;
+        border-top:1px solid #e5e7eb;
+        padding-top:16px;
+      ">
+        ${outstanding > 0
           ? `
-                <button
-                  class="btn-primary"
-                  onclick="openTransferRecoveryModal('${transfer.id}')"
-                >
-                  Resolve Discrepancy
-                </button>
-              `
+              <button
+                class="btn-primary"
+                onclick="openTransferRecoveryModal('${transfer.id}')"
+              >
+                Resolve Discrepancy
+              </button>
+            `
           : ""
         }
 
-            <button onclick="closeTransferDiscrepancyDetails()">
-              Close
-            </button>
-          </div>
-
-          ${outstanding > 0
-          ? `<div style="font-size:11px; color:#777; margin-top:8px; text-align:right;">
-                  Resolution workflow will be enabled in the next step.
-                </div>`
-          : ""
-        }
-
-        </div>
+        <button onclick="closeTransferDiscrepancyDetails()">
+          Back to Discrepancies
+        </button>
       </div>
     </div>
   `;
     }
-
 
 
     function renderTransfersInTransit(c) {
@@ -11506,99 +11562,342 @@ MOVEMENT LOG PAGE
     }
 
 
-        /* ============================================================
-         DISCREPANCY RECOVERY MODAL
-         Supports StockQuantity and Individual products.
-         This stage handles form state and rendering only.
-         ============================================================ */
 
-      function openTransferRecoveryModal(transferId) {
-        const transfer = TRANSFERS.find(
-          (t) => t.id === transferId,
-        );
 
-        if (!transfer) {
-          return alert("Transfer not found.");
-        }
 
-        const product = getInvProduct(transfer.productId);
+    function confirmTransferRecovery() {
+      const transfer = TRANSFERS.find(
+        item => item.id === state.recoveryTransferId
+      );
+
+      if (!transfer) {
+        alert("The transfer could not be found.");
+        return;
+      }
+
+      const product = getInvProduct(transfer.productId);
+
+      if (!product || !["StockQuantity", "Individual"].includes(product.trackingType)) {
+        alert("The product tracking type is not supported for recovery.");
+        return;
+      }
+
+      const outstanding = getTransferOutstanding(transfer);
+
+      if (outstanding <= 0) {
+        alert("This discrepancy has already been resolved.");
+        return;
+      }
+
+      const locationId = state.recoveryLocationId;
+      const location = LOCATIONS.find(item => item.id === locationId);
+
+      if (!location) {
+        alert("Please select the location where the recovered stock is physically present.");
+        return;
+      }
+
+      const note = String(state.recoveryNote || "").trim();
+      const reference = transfer.reference || transfer.id;
+      const recoveredAt = new Date().toISOString();
+
+      let recoveredQty = 0;
+      let recoveredUnitIds = [];
+
+      // Validate the recovery before changing inventory.
+      if (product.trackingType === "StockQuantity") {
+        recoveredQty = Number(state.recoveryQty);
 
         if (
-          !product ||
-          !["StockQuantity", "Individual"].includes(product.trackingType)
+          !Number.isInteger(recoveredQty) ||
+          recoveredQty <= 0 ||
+          recoveredQty > outstanding
         ) {
-          return alert("This product tracking type is not supported.");
+          alert(`Enter a whole quantity between 1 and ${outstanding}.`);
+          return;
         }
-
-        const outstanding = getTransferOutstanding(transfer);
-
-        if (outstanding <= 0) {
-          return alert("This discrepancy has already been resolved.");
-        }
-
-        state.recoveryTransferId = transferId;
-
-        // The user must explicitly identify where the stock is found.
-        state.recoveryLocationId = null;
-
-        state.recoveryQty =
-          product.trackingType === "StockQuantity"
-            ? String(outstanding)
-            : "";
-
-        state.recoverySelectedUnits = [];
-        state.recoveryNote = "";
-
-        state.activeModal = "transfer-recovery";
-
-        render();
       }
 
+      if (product.trackingType === "Individual") {
+        recoveredUnitIds = [...new Set(state.recoverySelectedUnits || [])];
 
-      function closeTransferRecoveryModal() {
-        state.recoveryTransferId = null;
-        state.recoveryLocationId = null;
-        state.recoveryQty = "";
-        state.recoverySelectedUnits = [];
-        state.recoveryNote = "";
+        if (recoveredUnitIds.length === 0) {
+          alert("Please select at least one recovered unit.");
+          return;
+        }
 
-        // Return to the discrepancy details.
-        state.activeModal = "transfer-discrepancy-details";
+        if (recoveredUnitIds.length > outstanding) {
+          alert("The selected units exceed the outstanding discrepancy.");
+          return;
+        }
 
-        render();
+        const eligibleUnits = UNITS.filter(unitRecord =>
+          unitRecord.productId === transfer.productId &&
+          unitRecord.batchId === transfer.batchId &&
+          unitRecord.status === "Unaccounted For" &&
+          unitRecord.locationId === null &&
+          unitRecord.discrepancyTransferId === transfer.id &&
+          Array.isArray(transfer.unitIds) &&
+          transfer.unitIds.includes(unitRecord.id)
+        );
+
+        const eligibleUnitIds = new Set(
+          eligibleUnits.map(unitRecord => unitRecord.id)
+        );
+
+        const allSelectedUnitsEligible = recoveredUnitIds.every(
+          unitId => eligibleUnitIds.has(unitId)
+        );
+
+        if (!allSelectedUnitsEligible) {
+          alert("One or more selected units are no longer eligible for recovery. Please refresh and try again.");
+          return;
+        }
+
+        recoveredQty = recoveredUnitIds.length;
       }
 
+      // Final check immediately before applying the recovery.
+      if (recoveredQty > getTransferOutstanding(transfer)) {
+        alert("The recovery quantity exceeds the current outstanding discrepancy.");
+        return;
+      }
 
-      function setRecoveryUnitSelected(unitId, checked) {
-        const selected = new Set(state.recoverySelectedUnits || []);
+      // Apply the inventory changes.
+      if (product.trackingType === "StockQuantity") {
+        let stockRow = STOCK.find(row =>
+          row.productId === transfer.productId &&
+          row.locationId === locationId &&
+          row.batchId === transfer.batchId
+        );
 
-        if (checked) {
-          selected.add(unitId);
+        if (stockRow) {
+          stockRow.onHand = Number(stockRow.onHand || 0) + recoveredQty;
         } else {
-          selected.delete(unitId);
+          stockRow = {
+            productId: transfer.productId,
+            locationId,
+            batchId: transfer.batchId,
+            onHand: recoveredQty,
+            reserved: 0
+          };
+
+          STOCK.push(stockRow);
         }
 
-        state.recoverySelectedUnits = [...selected];
-
-        // Update the displayed count without rebuilding the modal.
-        const countElement = document.getElementById(
-          "recoverySelectedCount",
+        logMovement(
+          transfer.productId,
+          locationId,
+          "Recovery",
+          recoveredQty,
+          reference,
+          null,
+          transfer.batchId,
+          "You"
         );
-
-        if (countElement) {
-          countElement.textContent =
-            state.recoverySelectedUnits.length;
-        }
       }
 
+      if (product.trackingType === "Individual") {
+        recoveredUnitIds.forEach(unitId => {
+          const unitRecord = UNITS.find(item => item.id === unitId);
 
-      function renderTransferRecoveryModal() {
-        const transfer = TRANSFERS.find(
-          (t) => t.id === state.recoveryTransferId,
-        );
+          unitRecord.status = "Available";
+          unitRecord.locationId = locationId;
+          unitRecord.discrepancyTransferId = null;
 
-        if (!transfer) {
-          return `
+          logMovement(
+            transfer.productId,
+            locationId,
+            "Recovery",
+            1,
+            reference,
+            unitRecord.id,
+            transfer.batchId,
+            "You"
+          );
+        });
+      }
+
+      // Record the recovery against the original transfer.
+      if (!Array.isArray(transfer.resolutions)) {
+        transfer.resolutions = [];
+      }
+
+      transfer.resolutions.push({
+        id: `RES-${Date.now()}`,
+        type: "Recovery",
+        qty: recoveredQty,
+        locationId,
+        unitIds: recoveredUnitIds,
+        note,
+        at: recoveredAt,
+        by: "You"
+      });
+
+      // Recalculate the discrepancy and transfer status.
+      syncTransferStatus(transfer);
+
+      // Return to the original discrepancy details view.
+      closeTransferRecoveryModal();
+    }
+
+
+
+
+
+
+
+    /* ============================================================
+     DISCREPANCY RECOVERY MODAL
+     Supports StockQuantity and Individual products.
+     This stage handles form state and rendering only.
+     ============================================================ */
+
+    function openTransferRecoveryModal(transferId) {
+      const transfer = TRANSFERS.find(
+        (t) => t.id === transferId,
+      );
+
+      if (!transfer) {
+        return alert("Transfer not found.");
+      }
+
+      const product = getInvProduct(transfer.productId);
+
+      if (
+        !product ||
+        !["StockQuantity", "Individual"].includes(product.trackingType)
+      ) {
+        return alert("This product tracking type is not supported.");
+      }
+
+      const outstanding = getTransferOutstanding(transfer);
+
+      if (outstanding <= 0) {
+        return alert("This discrepancy has already been resolved.");
+      }
+
+      state.recoveryTransferId = transferId;
+
+      // The user must explicitly identify where the stock is found.
+      state.recoveryLocationId = null;
+
+      state.recoveryQty =
+        product.trackingType === "StockQuantity"
+          ? String(outstanding)
+          : "";
+
+      state.recoverySelectedUnits = [];
+      state.recoveryNote = "";
+      state.recoveryUnitSearch = "";
+
+      state.activeModal = "transfer-recovery";
+
+      render();
+    }
+
+
+    function closeTransferRecoveryModal() {
+      state.recoveryTransferId = null;
+      state.recoveryLocationId = null;
+      state.recoveryQty = "";
+      state.recoverySelectedUnits = [];
+      state.recoveryNote = "";
+      state.recoveryUnitSearch = "";
+
+      // Close the recovery modal and reveal the discrepancy details page.
+      state.activeModal = null;
+
+      render();
+    }
+
+
+    function setRecoveryUnitSelected(unitId, checked) {
+      const selected = new Set(state.recoverySelectedUnits || []);
+
+      if (checked) {
+        selected.add(unitId);
+      } else {
+        selected.delete(unitId);
+      }
+
+      state.recoverySelectedUnits = [...selected];
+
+      // Update the displayed count without rebuilding the modal.
+      const countElement = document.getElementById(
+        "recoverySelectedCount",
+      );
+
+      if (countElement) {
+        countElement.textContent =
+          state.recoverySelectedUnits.length;
+      }
+    }
+
+
+    function getEligibleRecoveryUnits(transfer) {
+      if (!transfer || !Array.isArray(transfer.unitIds)) return [];
+
+      return UNITS.filter(unitRecord =>
+        transfer.unitIds.includes(unitRecord.id) &&
+        unitRecord.productId === transfer.productId &&
+        unitRecord.batchId === transfer.batchId &&
+        unitRecord.status === "Unaccounted For" &&
+        unitRecord.locationId === null &&
+        unitRecord.discrepancyTransferId === transfer.id
+      ).sort((a, b) => {
+        if (a.receivedDate !== b.receivedDate) {
+          return a.receivedDate < b.receivedDate ? -1 : 1;
+        }
+
+        return a.tag < b.tag ? -1 : 1;
+      });
+    }
+
+
+    function toggleRecoveryUnit(unitId, maxQty) {
+      const transfer = TRANSFERS.find(
+        item => item.id === state.recoveryTransferId
+      );
+
+      if (!transfer) return;
+
+      const eligibleIds = new Set(
+        getEligibleRecoveryUnits(transfer).map(unitRecord => unitRecord.id)
+      );
+
+      if (!eligibleIds.has(unitId)) {
+        alert("This unit is no longer eligible for recovery.");
+        render();
+        return;
+      }
+
+      let selected = [...(state.recoverySelectedUnits || [])];
+
+      if (selected.includes(unitId)) {
+        selected = selected.filter(id => id !== unitId);
+      } else {
+        if (selected.length >= maxQty) {
+          alert(`You can select up to ${maxQty} units. Deselect one first.`);
+          return;
+        }
+
+        selected.push(unitId);
+      }
+
+      state.recoverySelectedUnits = selected;
+      render();
+    }
+
+
+
+    function renderTransferRecoveryModal() {
+      const transfer = TRANSFERS.find(
+        (t) => t.id === state.recoveryTransferId,
+      );
+
+      if (!transfer) {
+        return `
             <div class="modal-overlay">
               <div class="modal">
                 <div class="modal-body">
@@ -11612,15 +11911,15 @@ MOVEMENT LOG PAGE
               </div>
             </div>
           `;
-        }
+      }
 
-        const product = getInvProduct(transfer.productId);
+      const product = getInvProduct(transfer.productId);
 
-        if (
-          !product ||
-          !["StockQuantity", "Individual"].includes(product.trackingType)
-        ) {
-          return `
+      if (
+        !product ||
+        !["StockQuantity", "Individual"].includes(product.trackingType)
+      ) {
+        return `
             <div class="modal-overlay">
               <div class="modal">
                 <div class="modal-body">
@@ -11634,158 +11933,180 @@ MOVEMENT LOG PAGE
               </div>
             </div>
           `;
+      }
+
+      const outstanding = getTransferOutstanding(transfer);
+      const isIndividual = product.trackingType === "Individual";
+      const unit = product.unitOfMeasure || "unit";
+
+      const batch = transfer.batchId
+        ? getBatch(transfer.batchId)
+        : null;
+
+      // Only units that belong to this exact discrepancy are eligible.
+
+      const eligibleUnits = isIndividual
+        ? getEligibleRecoveryUnits(transfer)
+        : [];
+
+      const selectedUnitIds = state.recoverySelectedUnits || [];
+
+      const recoverySearch = String(
+        state.recoveryUnitSearch || ""
+      ).toLowerCase();
+
+      const filteredRecoveryUnits = eligibleUnits.filter(unitRecord =>
+        !recoverySearch ||
+        String(unitRecord.tag || "").toLowerCase().includes(recoverySearch)
+      );
+
+      const unitSelectionContent = isIndividual
+        ? `
+      <div style="margin-top:16px;">
+
+        <label>
+          Select recovered units *
+        </label>
+
+        <div style="
+          font-size:12px;
+          color:#666;
+          margin-top:5px;
+          margin-bottom:10px;
+        ">
+          Select the tagged items physically found and verified
+          at the recovery location.
+        </div>
+
+        <p style="
+          font-size:12px;
+          color:#666;
+          margin-top:4px;
+        ">
+          ${eligibleUnits.length} unit${eligibleUnits.length === 1 ? "" : "s"} available.
+        </p>
+
+        <input
+          type="text"
+          placeholder="🔍 Search by tag..."
+          value="${escapeTransferDetailText(state.recoveryUnitSearch || "")}"
+          style="margin-top:8px;"
+          oninput="
+            state.recoveryUnitSearch = this.value;
+            render();
+          "
+        >
+
+        <div style="
+          max-height:320px;
+          overflow-y:auto;
+          border:2px solid #1a1a1a;
+          border-radius:4px;
+          padding:8px;
+          margin-top:8px;
+        ">
+
+          ${filteredRecoveryUnits.length === 0
+          ? `
+                  <div class="empty-state">
+                    ${eligibleUnits.length === 0
+            ? "No units are eligible for recovery."
+            : "No units match your search."
+          }
+                  </div>
+                `
+          : filteredRecoveryUnits.map(unitRecord => {
+            const checked = selectedUnitIds.includes(unitRecord.id);
+
+            return `
+                    <label style="
+                      display:flex;
+                      gap:8px;
+                      align-items:center;
+                      padding:6px 4px;
+                      border-bottom:1px dashed #ddd;
+                      font-size:12px;
+                      cursor:pointer;
+                    ">
+
+                      <input
+                        type="checkbox"
+                        ${checked ? "checked" : ""}
+                        style="width:auto;"
+                        onchange="
+                          toggleRecoveryUnit(
+                            '${unitRecord.id}',
+                            ${outstanding}
+                          )
+                        "
+                      >
+
+                      <span style="flex:1;">
+                        ${escapeTransferDetailText(unitRecord.tag)}
+                      </span>
+
+                      <span style="font-size:11px;color:#888;">
+                        ${escapeTransferDetailText(unitRecord.condition || "New")}
+                      </span>
+
+                      <span style="font-size:11px;color:#888;">
+                        ${formatDate(unitRecord.receivedDate)}
+                      </span>
+
+                    </label>
+                  `;
+          }).join("")
         }
 
-        const outstanding = getTransferOutstanding(transfer);
-        const isIndividual = product.trackingType === "Individual";
-        const unit = product.unitOfMeasure || "unit";
+        </div>
 
-        const batch = transfer.batchId
-          ? getBatch(transfer.batchId)
-          : null;
+        <div style="margin-top:8px;font-size:12px;">
+          ${selectedUnitIds.length} selected (up to ${outstanding})
+        </div>
 
-        // Only units that belong to this exact discrepancy are eligible.
-        const eligibleUnits = isIndividual
-          ? UNITS.filter(
-              (unitRecord) =>
-                unitRecord.productId === transfer.productId &&
-                unitRecord.batchId === transfer.batchId &&
-                unitRecord.status === "Unaccounted For" &&
-                unitRecord.locationId === null &&
-                unitRecord.discrepancyTransferId === transfer.id &&
-                Array.isArray(transfer.unitIds) &&
-                transfer.unitIds.includes(unitRecord.id),
-            )
-          : [];
+      </div>
+    `
+        : `
+      <div style="margin-top:16px;">
 
-        const selectedUnitIds = new Set(
-          state.recoverySelectedUnits || [],
-        );
+        <label for="recoveryQty">
+          Recovery quantity *
+        </label>
 
-        const unitSelectionContent = isIndividual
-          ? `
-              <div style="margin-top:16px;">
+        <div style="
+          font-size:12px;
+          color:#666;
+          margin-top:5px;
+          margin-bottom:8px;
+        ">
+          Enter the quantity physically recovered.
+          It cannot exceed the outstanding discrepancy.
+        </div>
 
-                <label>
-                  Select recovered units *
-                </label>
+        <input
+          id="recoveryQty"
+          type="number"
+          min="1"
+          max="${outstanding}"
+          step="1"
+          value="${escapeTransferDetailText(state.recoveryQty)}"
+          oninput="state.recoveryQty = this.value"
+        />
 
-                <div style="
-                  font-size:12px;
-                  color:#666;
-                  margin-top:5px;
-                  margin-bottom:10px;
-                ">
-                  Select the tagged items physically found and verified
-                  at the recovery location.
-                </div>
+        <div style="
+          font-size:12px;
+          color:#666;
+          margin-top:6px;
+        ">
+          Maximum recoverable quantity:
+          ${outstanding} ${escapeTransferDetailText(unit)}.
+        </div>
 
-                <div style="
-                  border:1px solid #ddd;
-                  border-radius:6px;
-                  padding:10px;
-                  max-height:220px;
-                  overflow-y:auto;
-                ">
+      </div>
+    `;
 
-                  ${
-                    eligibleUnits.length
-                      ? eligibleUnits.map((unitRecord) => `
-                          <label style="
-                            display:flex;
-                            align-items:center;
-                            gap:10px;
-                            padding:9px 4px;
-                            border-bottom:1px solid #eee;
-                            cursor:pointer;
-                          ">
-                            <input
-                              type="checkbox"
-                              value="${escapeTransferDetailText(unitRecord.id)}"
-                              ${selectedUnitIds.has(unitRecord.id) ? "checked" : ""}
-                              onchange="
-                                setRecoveryUnitSelected(
-                                  '${unitRecord.id}',
-                                  this.checked
-                                )
-                              "
-                            />
 
-                            <span>
-                              <strong>
-                                ${escapeTransferDetailText(unitRecord.tag)}
-                              </strong>
-                            </span>
-                          </label>
-                        `).join("")
-                      : `
-                          <div style="
-                            font-size:12px;
-                            color:#777;
-                            padding:10px 4px;
-                          ">
-                            No outstanding tagged units were found
-                            for this discrepancy.
-                          </div>
-                        `
-                  }
-
-                </div>
-
-                <div style="
-                  font-size:12px;
-                  color:#555;
-                  margin-top:8px;
-                ">
-                  Selected units:
-                  <strong id="recoverySelectedCount">
-                    ${state.recoverySelectedUnits.length}
-                  </strong>
-                  of ${eligibleUnits.length}
-                </div>
-
-              </div>
-            `
-          : `
-              <div style="margin-top:16px;">
-
-                <label for="recoveryQty">
-                  Recovery quantity *
-                </label>
-
-                <div style="
-                  font-size:12px;
-                  color:#666;
-                  margin-top:5px;
-                  margin-bottom:8px;
-                ">
-                  Enter the quantity physically recovered.
-                  It cannot exceed the outstanding discrepancy.
-                </div>
-
-                <input
-                  id="recoveryQty"
-                  type="number"
-                  min="1"
-                  max="${outstanding}"
-                  step="1"
-                  value="${escapeTransferDetailText(state.recoveryQty)}"
-                  oninput="state.recoveryQty = this.value"
-                />
-
-                <div style="
-                  font-size:12px;
-                  color:#666;
-                  margin-top:6px;
-                ">
-                  Maximum recoverable quantity:
-                  ${outstanding} ${escapeTransferDetailText(unit)}.
-                </div>
-
-              </div>
-            `;
-
-        return `
+      return `
           <div class="modal-overlay"
             onclick="
               if(event.target === this) {
@@ -11823,8 +12144,8 @@ MOVEMENT LOG PAGE
                   <div style="margin-top:8px;">
                     Transfer:
                     ${escapeTransferDetailText(
-                      transfer.transferNumber || transfer.id
-                    )}
+        transfer.transferNumber || transfer.id
+      )}
                   </div>
 
                   <div style="margin-top:6px;">
@@ -11838,8 +12159,8 @@ MOVEMENT LOG PAGE
                     Original batch:
                     <strong>
                       ${escapeTransferDetailText(
-                        batch?.batchNumber || transfer.batchId || "—"
-                      )}
+        batch?.batchNumber || transfer.batchId || "—"
+      )}
                     </strong>
                   </div>
 
@@ -11924,265 +12245,153 @@ MOVEMENT LOG PAGE
                   Cancel
                 </button>
 
-                <button
-                  class="btn btn-primary"
-                  disabled
-                  title="Recovery processing will be enabled in the next implementation step."
-                >
-                  Confirm Recovery
-                </button>
+              <button
+  class="btn btn-primary"
+  onclick="confirmTransferRecovery()"
+  ${outstanding <= 0 ? "disabled" : ""}
+>
+  Confirm Recovery
+</button>
 
               </div>
 
-              <div style="
-                font-size:11px;
-                color:#777;
-                padding:0 16px 12px;
-                text-align:right;
-              ">
-                Recovery submission will be enabled in the next step.
-              </div>
+          
 
             </div>
           </div>
         `;
+    }
+
+
+
+    function closeTransferRecoveryModal() {
+      state.recoveryTransferId = null;
+      state.recoveryLocationId = null;
+      state.recoveryQty = "";
+      state.activeModal = "transfer-discrepancy-details";
+
+      render();
+    }
+
+
+
+
+    function commitStockQuantityRecovery() {
+      const transfer = TRANSFERS.find(
+        (t) => t.id === state.recoveryTransferId,
+      );
+
+      if (!transfer) {
+        return alert("Transfer not found.");
       }
 
+      const product = getInvProduct(transfer.productId);
 
+      if (!product || product.trackingType !== "StockQuantity") {
+        return alert("This recovery workflow supports StockQuantity products only.");
+      }
 
-function closeTransferRecoveryModal() {
-  state.recoveryTransferId = null;
-  state.recoveryLocationId = null;
-  state.recoveryQty = "";
-  state.activeModal = "transfer-discrepancy-details";
+      const outstanding = getTransferOutstanding(transfer);
+      const rawQty = String(state.recoveryQty ?? "").trim();
+      const qty = Number(rawQty);
+      const locationId = state.recoveryLocationId;
 
-  render();
-}
+      if (outstanding <= 0) {
+        return alert("This discrepancy has already been resolved.");
+      }
 
+      if (
+        rawQty === "" ||
+        !Number.isInteger(qty) ||
+        qty <= 0
+      ) {
+        return alert("Enter a valid whole recovery quantity greater than zero.");
+      }
 
-function renderTransferRecoveryModal() {
-  const transfer = TRANSFERS.find(
-    (t) => t.id === state.recoveryTransferId,
-  );
+      if (qty > outstanding) {
+        return alert(
+          `You cannot recover more than the outstanding quantity of ${outstanding}.`,
+        );
+      }
 
-  if (!transfer) {
-    return `<div class="empty-state">Transfer not found.</div>`;
-  }
+      const location = LOCATIONS.find(
+        (l) => l.id === locationId,
+      );
 
-  const product = getInvProduct(transfer.productId);
-  const outstanding = getTransferOutstanding(transfer);
-  const unit = product?.unitOfMeasure || "unit";
+      if (!location) {
+        return alert("Select a valid recovery location.");
+      }
 
-  if (!product || product.trackingType !== "StockQuantity") {
-    return `<div class="empty-state">This recovery form supports StockQuantity products only.</div>`;
-  }
+      if (!transfer.batchId) {
+        return alert("The original transfer batch could not be identified.");
+      }
 
-  return `
-    <div class="modal-overlay"
-      onclick="if(event.target===this)closeTransferRecoveryModal()">
+      // Find the existing stock row for this product, location and batch.
+      const stockRow = STOCK.find(
+        (s) =>
+          s.productId === transfer.productId &&
+          s.locationId === locationId &&
+          s.batchId === transfer.batchId,
+      );
 
-      <div class="modal">
+      // Prepare the recovery event before changing stock.
+      const now = new Date().toISOString();
 
-        <div class="modal-header">
-          Recover Discrepancy
-          <button class="close-x"
-            onclick="closeTransferRecoveryModal()">×</button>
-        </div>
+      const resolution = {
+        id: "res-" + Date.now() + "-" + Math.floor(Math.random() * 999),
+        type: "Recovery",
+        qty,
+        locationId,
+        unitIds: [],
+        note: "",
+        at: now,
+        by: "You",
+      };
 
-        <div class="modal-body">
+      // Add the recovered stock.
+      if (stockRow) {
+        stockRow.onHand += qty;
+      } else {
+        STOCK.push({
+          productId: transfer.productId,
+          locationId,
+          batchId: transfer.batchId,
+          onHand: qty,
+          reserved: 0,
+        });
+      }
 
-          <div style="padding:12px; border:1px solid #ddd; border-radius:6px; margin-bottom:16px; font-size:13px;">
+      // Record the stock movement.
+      const batch = getBatch(transfer.batchId);
+      const batchLabel = batch
+        ? `${batch.batchNumber} (${batch.supplier})`
+        : transfer.batchId;
 
-            <strong>${escapeTransferDetailText(product.name)}</strong>
+      logMovement(
+        transfer.productId,
+        locationId,
+        "discrepancy_recovery",
+        qty,
+        `${transfer.transferNumber || transfer.id} · Recovery · ${batchLabel}`,
+        null,
+        transfer.batchId,
+      );
 
-            <div style="margin-top:8px;">
-              Transfer: ${escapeTransferDetailText(transfer.transferNumber || transfer.id)}
-            </div>
+      // Append the recovery event to the original transfer.
+      transfer.resolutions = transfer.resolutions || [];
+      transfer.resolutions.push(resolution);
 
-            <div style="margin-top:6px;">
-              Outstanding quantity:
-              <strong>${outstanding} ${escapeTransferDetailText(unit)}</strong>
-            </div>
+      // Recalculate the transfer status.
+      syncTransferStatus(transfer);
 
-            <div style="margin-top:6px;">
-              Original batch:
-              <strong>${escapeTransferDetailText(
-                getBatch(transfer.batchId)?.batchNumber || transfer.batchId || "—"
-              )}</strong>
-            </div>
+      // Return to the discrepancy details view.
+      state.recoveryTransferId = null;
+      state.recoveryLocationId = null;
+      state.recoveryQty = "";
+      state.activeModal = "transfer-discrepancy-details";
 
-          </div>
-
-          <label for="recoveryLocation">Recovery location *</label>
-
-          <select
-            id="recoveryLocation"
-            onchange="state.recoveryLocationId = this.value"
-          >
-            ${LOCATIONS.map((location) => `
-              <option
-                value="${location.id}"
-                ${location.id === state.recoveryLocationId ? "selected" : ""}
-              >
-                ${escapeTransferDetailText(location.name)}
-              </option>
-            `).join("")}
-          </select>
-
-          <label for="recoveryQty" class="mt-12">
-            Quantity recovered *
-          </label>
-
-          <input
-            id="recoveryQty"
-            type="number"
-            min="1"
-            max="${outstanding}"
-            step="1"
-            value="${state.recoveryQty}"
-            oninput="state.recoveryQty = this.value"
-          />
-
-          <div style="font-size:12px; color:#666; margin-top:6px;">
-            Maximum recoverable quantity: ${outstanding} ${escapeTransferDetailText(unit)}.
-          </div>
-
-        </div>
-
-        <div class="modal-footer">
-          <button class="btn btn-secondary"
-            onclick="closeTransferRecoveryModal()">
-            Cancel
-          </button>
-
-          <button class="btn btn-primary"
-            onclick="commitStockQuantityRecovery()">
-            Confirm Recovery
-          </button>
-        </div>
-
-      </div>
-    </div>
-  `;
-}
-
-
-function commitStockQuantityRecovery() {
-  const transfer = TRANSFERS.find(
-    (t) => t.id === state.recoveryTransferId,
-  );
-
-  if (!transfer) {
-    return alert("Transfer not found.");
-  }
-
-  const product = getInvProduct(transfer.productId);
-
-  if (!product || product.trackingType !== "StockQuantity") {
-    return alert("This recovery workflow supports StockQuantity products only.");
-  }
-
-  const outstanding = getTransferOutstanding(transfer);
-  const rawQty = String(state.recoveryQty ?? "").trim();
-  const qty = Number(rawQty);
-  const locationId = state.recoveryLocationId;
-
-  if (outstanding <= 0) {
-    return alert("This discrepancy has already been resolved.");
-  }
-
-  if (
-    rawQty === "" ||
-    !Number.isInteger(qty) ||
-    qty <= 0
-  ) {
-    return alert("Enter a valid whole recovery quantity greater than zero.");
-  }
-
-  if (qty > outstanding) {
-    return alert(
-      `You cannot recover more than the outstanding quantity of ${outstanding}.`,
-    );
-  }
-
-  const location = LOCATIONS.find(
-    (l) => l.id === locationId,
-  );
-
-  if (!location) {
-    return alert("Select a valid recovery location.");
-  }
-
-  if (!transfer.batchId) {
-    return alert("The original transfer batch could not be identified.");
-  }
-
-  // Find the existing stock row for this product, location and batch.
-  const stockRow = STOCK.find(
-    (s) =>
-      s.productId === transfer.productId &&
-      s.locationId === locationId &&
-      s.batchId === transfer.batchId,
-  );
-
-  // Prepare the recovery event before changing stock.
-  const now = new Date().toISOString();
-
-  const resolution = {
-    id: "res-" + Date.now() + "-" + Math.floor(Math.random() * 999),
-    type: "Recovery",
-    qty,
-    locationId,
-    unitIds: [],
-    note: "",
-    at: now,
-    by: "You",
-  };
-
-  // Add the recovered stock.
-  if (stockRow) {
-    stockRow.onHand += qty;
-  } else {
-    STOCK.push({
-      productId: transfer.productId,
-      locationId,
-      batchId: transfer.batchId,
-      onHand: qty,
-      reserved: 0,
-    });
-  }
-
-  // Record the stock movement.
-  const batch = getBatch(transfer.batchId);
-  const batchLabel = batch
-    ? `${batch.batchNumber} (${batch.supplier})`
-    : transfer.batchId;
-
-  logMovement(
-    transfer.productId,
-    locationId,
-    "discrepancy_recovery",
-    qty,
-    `${transfer.transferNumber || transfer.id} · Recovery · ${batchLabel}`,
-    null,
-    transfer.batchId,
-  );
-
-  // Append the recovery event to the original transfer.
-  transfer.resolutions = transfer.resolutions || [];
-  transfer.resolutions.push(resolution);
-
-  // Recalculate the transfer status.
-  syncTransferStatus(transfer);
-
-  // Return to the discrepancy details view.
-  state.recoveryTransferId = null;
-  state.recoveryLocationId = null;
-  state.recoveryQty = "";
-  state.activeModal = "transfer-discrepancy-details";
-
-  render();
-}
+      render();
+    }
 
 
 
