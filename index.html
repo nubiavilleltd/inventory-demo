@@ -6137,7 +6137,7 @@ DISPATCH DASHBOARD DEMO SEED
               <span>
                 <strong>Customer is not taking anything at the moment (defer all items)</strong>
                 <br>
-                <span style="color:#666;">The operator will log a handover of 0 items.</span>
+                <span style="color:#666;">The operator will log a pickup of 0 items.</span>
               </span>
             </label>
 
@@ -6841,7 +6841,7 @@ DISPATCH DASHBOARD DEMO SEED
           } else {
             // Some lines remain outstanding.
             // Park the order in "ready" so it stays actionable — the
-            // operator can reopen it for a subsequent handover.
+            // operator can reopen it for a subsequent pickup.
             o.state = "ready";
 
             // If they deferred everything, give them a standard 3-day window to come back.
@@ -6852,7 +6852,7 @@ DISPATCH DASHBOARD DEMO SEED
             }
 
             logTimeline(
-              `Partial handover complete. ${calcOutstandingLines(o).length} line(s) still outstanding.`,
+              `Partial pickup complete. ${calcOutstandingLines(o).length} line(s) still outstanding.`,
             );
           }
 
@@ -6898,7 +6898,7 @@ DISPATCH DASHBOARD DEMO SEED
             isWalkin: false,
           };
 
-          // Reset the flag so subsequent handovers don't show it
+          // Reset the flag so subsequent pickups don't show it
           state.paymentRecordedThisSession = false;
 
           state.currentPage = "success";
@@ -7722,7 +7722,7 @@ DISPATCH WIZARD HANDLERS
       // 3. Clear soft reservation record on the order (it's now hard-reserved)
       o.softReservation = null;
 
-      // 3b. Record the fulfilment event (physical handover to driver/courier)
+      // 3b. Record the fulfilment event (physical pickup to driver/courier)
       {
         const items = [];
         calcOutstandingLines(o).forEach((line) => {
@@ -14633,7 +14633,7 @@ TRIP PAGE (Batch Dispatch)
           notes: trip.dispatchNotes,
         };
 
-        // Record the fulfilment event (physical handover to driver/courier)
+        // Record the fulfilment event (physical pickup to driver/courier)
         {
           const items = [];
           calcOutstandingLines(order).forEach((line) => {
