@@ -1478,6 +1478,8 @@
       inventoryBatchId: null,
       receivingTransferId: null, // NEW
       // Discrepancy recovery modal state
+
+      recoverySelectedUnits: [],
       recoveryUnitSearch: "",
       recoveryTransferId: null,
       recoveryLocationId: null,
@@ -1486,6 +1488,14 @@
       receiveSelectedUnits: [], // NEW (Individual Items only)
       recoveryNote: "",
       receiveDiscrepancyReason: "",
+
+           // Discrepancy write-off modal state
+      writeOffTransferId: null,
+      writeOffQty: "",
+      writeOffSelectedUnits: [],
+      writeOffUnitSearch: "",
+      writeOffReason: "",
+
       inventoryFilter: { search: "", tracking: "", category: "", status: "" },
       // Dispatch Wizard state (single-order modal)
       dispatchWizard: {
@@ -4923,6 +4933,8 @@ DISPATCH DASHBOARD DEMO SEED
         attachDiscrepancyReceiptHandlers();
       } else if (state.activeModal === "transfer-recovery") {
         c.innerHTML = renderTransferRecoveryModal();
+              } else if (state.activeModal === "transfer-write-off") {
+        c.innerHTML = renderTransferWriteOffModal();
       } else if (state.activeModal === "transfer-stock") {
         c.innerHTML = renderTransferStockModal();
         attachTransferStockHandlers();
@@ -11301,17 +11313,24 @@ MOVEMENT LOG PAGE
         border-top:1px solid #e5e7eb;
         padding-top:16px;
       ">
-        ${outstanding > 0
-          ? `
-              <button
-                class="btn-primary"
-                onclick="openTransferRecoveryModal('${transfer.id}')"
-              >
-                Resolve Discrepancy
-              </button>
-            `
-          : ""
-        }
+    ${outstanding > 0
+  ? `
+      <button
+        class="btn-primary"
+        onclick="openTransferRecoveryModal('${transfer.id}')"
+      >
+        Recover Stock
+      </button>
+
+      <button
+        class="btn-secondary"
+        onclick="openTransferWriteOffModal('${transfer.id}')"
+      >
+        Write Off
+      </button>
+    `
+  : ""
+}
 
         <button onclick="closeTransferDiscrepancyDetails()">
           Back to Discrepancies
@@ -11888,6 +11907,474 @@ MOVEMENT LOG PAGE
       state.recoverySelectedUnits = selected;
       render();
     }
+
+
+
+    function openTransferWriteOffModal(transferId) {
+  const transfer = TRANSFERS.find(
+    item => item.id === transferId
+  );
+
+  if (!transfer) {
+    return alert("Transfer not found.");
+  }
+
+  const product = getInvProduct(transfer.productId);
+
+  if (
+    !product ||
+    !["StockQuantity", "Individual"].includes(product.trackingType)
+  ) {
+    return alert("This product tracking type is not supported.");
+  }
+
+  const outstanding = getTransferOutstanding(transfer);
+
+  if (outstanding <= 0) {
+    return alert("This discrepancy has already been resolved.");
+  }
+
+  state.writeOffTransferId = transferId;
+
+  state.writeOffQty =
+    product.trackingType === "StockQuantity"
+      ? String(outstanding)
+      : "";
+
+  state.writeOffSelectedUnits = [];
+  state.writeOffUnitSearch = "";
+  state.writeOffReason = "";
+
+  state.activeModal = "transfer-write-off";
+
+  render();
+}
+
+
+
+function closeTransferWriteOffModal() {
+  state.writeOffTransferId = null;
+  state.writeOffQty = "";
+  state.writeOffSelectedUnits = [];
+  state.writeOffUnitSearch = "";
+  state.writeOffReason = "";
+
+  // Close the modal and reveal the discrepancy details page.
+  state.activeModal = null;
+
+  render();
+}
+
+
+function getEligibleWriteOffUnits(transfer) {
+  if (!transfer || !Array.isArray(transfer.unitIds)) {
+    return [];
+  }
+
+  return UNITS.filter(unitRecord =>
+    transfer.unitIds.includes(unitRecord.id) &&
+    unitRecord.productId === transfer.productId &&
+    unitRecord.batchId === transfer.batchId &&
+    unitRecord.status === "Unaccounted For" &&
+    unitRecord.locationId === null &&
+    unitRecord.discrepancyTransferId === transfer.id
+  ).sort((a, b) => {
+    if (a.receivedDate !== b.receivedDate) {
+      return a.receivedDate < b.receivedDate ? -1 : 1;
+    }
+
+    return a.tag < b.tag ? -1 : 1;
+  });
+}
+
+
+function toggleWriteOffUnit(unitId, maxQty) {
+  const transfer = TRANSFERS.find(
+    item => item.id === state.writeOffTransferId
+  );
+
+  if (!transfer) return;
+
+  const eligibleIds = new Set(
+    getEligibleWriteOffUnits(transfer).map(
+      unitRecord => unitRecord.id
+    )
+  );
+
+  if (!eligibleIds.has(unitId)) {
+    alert("This unit is no longer eligible for write-off.");
+    render();
+    return;
+  }
+
+  let selected = [...(state.writeOffSelectedUnits || [])];
+
+  if (selected.includes(unitId)) {
+    selected = selected.filter(id => id !== unitId);
+  } else {
+    if (selected.length >= maxQty) {
+      alert(`You can select up to ${maxQty} units.`);
+      return;
+    }
+
+    selected.push(unitId);
+  }
+
+  state.writeOffSelectedUnits = selected;
+
+  render();
+}
+
+
+
+function renderTransferWriteOffModal() {
+  const transfer = TRANSFERS.find(
+    item => item.id === state.writeOffTransferId
+  );
+
+  if (!transfer) {
+    return `
+      <div class="modal-overlay">
+        <div class="modal">
+          <div class="modal-body">
+            <div class="empty-state">
+              Transfer not found.
+            </div>
+
+            <button onclick="closeTransferWriteOffModal()">
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  const product = getInvProduct(transfer.productId);
+
+  if (
+    !product ||
+    !["StockQuantity", "Individual"].includes(product.trackingType)
+  ) {
+    return `
+      <div class="modal-overlay">
+        <div class="modal">
+          <div class="modal-body">
+            <div class="empty-state">
+              This product tracking type is not supported.
+            </div>
+
+            <button onclick="closeTransferWriteOffModal()">
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  const outstanding = getTransferOutstanding(transfer);
+  const isIndividual = product.trackingType === "Individual";
+  const unit = product.unitOfMeasure || "unit";
+
+  const batch = transfer.batchId
+    ? getBatch(transfer.batchId)
+    : null;
+
+  const eligibleUnits = isIndividual
+    ? getEligibleWriteOffUnits(transfer)
+    : [];
+
+  const selectedUnitIds = state.writeOffSelectedUnits || [];
+
+  const search = String(
+    state.writeOffUnitSearch || ""
+  ).toLowerCase();
+
+  const filteredUnits = eligibleUnits.filter(unitRecord =>
+    !search ||
+    String(unitRecord.tag || "").toLowerCase().includes(search)
+  );
+
+  const unitSelectionContent = isIndividual
+    ? `
+      <div style="margin-top:16px;">
+
+        <label>
+          Select units to write off *
+        </label>
+
+        <div style="
+          font-size:12px;
+          color:#666;
+          margin-top:5px;
+          margin-bottom:10px;
+        ">
+          Select the exact units that have been confirmed
+          as unrecoverable.
+        </div>
+
+        <p style="font-size:12px;color:#666;">
+          ${eligibleUnits.length}
+          eligible unit${eligibleUnits.length === 1 ? "" : "s"}.
+        </p>
+
+        <input
+          type="text"
+          placeholder="Search by tag..."
+          value="${escapeTransferDetailText(state.writeOffUnitSearch)}"
+          style="margin-top:8px;"
+          oninput="
+            state.writeOffUnitSearch = this.value;
+            render();
+          "
+        >
+
+        <div style="
+          max-height:320px;
+          overflow-y:auto;
+          border:2px solid #1a1a1a;
+          border-radius:4px;
+          padding:8px;
+          margin-top:8px;
+        ">
+
+          ${filteredUnits.length === 0
+            ? `
+              <div class="empty-state">
+                ${eligibleUnits.length === 0
+                  ? "No units are eligible for write-off."
+                  : "No units match your search."
+                }
+              </div>
+            `
+            : filteredUnits.map(unitRecord => {
+                const checked = selectedUnitIds.includes(
+                  unitRecord.id
+                );
+
+                return `
+                  <label style="
+                    display:flex;
+                    gap:8px;
+                    align-items:center;
+                    padding:6px 4px;
+                    border-bottom:1px dashed #ddd;
+                    font-size:12px;
+                    cursor:pointer;
+                  ">
+
+                    <input
+                      type="checkbox"
+                      ${checked ? "checked" : ""}
+                      style="width:auto;"
+                      onchange="
+                        toggleWriteOffUnit(
+                          '${escapeTransferDetailText(unitRecord.id)}',
+                          ${outstanding}
+                        )
+                      "
+                    >
+
+                    <span style="flex:1;">
+                      ${escapeTransferDetailText(unitRecord.tag)}
+                    </span>
+
+                    <span style="font-size:11px;color:#888;">
+                      ${escapeTransferDetailText(
+                        unitRecord.condition || "New"
+                      )}
+                    </span>
+
+                    <span style="font-size:11px;color:#888;">
+                      ${formatDate(unitRecord.receivedDate)}
+                    </span>
+
+                  </label>
+                `;
+              }).join("")
+          }
+
+        </div>
+
+        <div style="margin-top:8px;font-size:12px;">
+          ${selectedUnitIds.length} selected
+          (up to ${outstanding})
+        </div>
+
+      </div>
+    `
+    : `
+      <div style="margin-top:16px;">
+
+        <label for="writeOffQty">
+          Write-off quantity *
+        </label>
+
+        <div style="
+          font-size:12px;
+          color:#666;
+          margin-top:5px;
+          margin-bottom:8px;
+        ">
+          Enter the quantity being permanently written off.
+        </div>
+
+        <input
+          id="writeOffQty"
+          type="number"
+          min="1"
+          max="${outstanding}"
+          step="1"
+          value="${escapeTransferDetailText(state.writeOffQty)}"
+          oninput="state.writeOffQty = this.value"
+        />
+
+        <div style="
+          font-size:12px;
+          color:#666;
+          margin-top:6px;
+        ">
+          Maximum write-off quantity:
+          ${outstanding} ${escapeTransferDetailText(unit)}.
+        </div>
+
+      </div>
+    `;
+
+  return `
+    <div class="modal-overlay"
+      onclick="
+        if(event.target === this) {
+          closeTransferWriteOffModal();
+        }
+      ">
+
+      <div class="modal">
+
+        <div class="modal-header">
+          Write Off Discrepancy
+
+          <button
+            class="close-x"
+            onclick="closeTransferWriteOffModal()"
+          >
+            ×
+          </button>
+        </div>
+
+        <div class="modal-body">
+
+          <div style="
+            padding:12px;
+            border:1px solid #ddd;
+            border-radius:6px;
+            margin-bottom:16px;
+            font-size:13px;
+          ">
+
+            <strong>
+              ${escapeTransferDetailText(product.name)}
+            </strong>
+
+            <div style="margin-top:8px;">
+              Transfer:
+              ${escapeTransferDetailText(
+                transfer.transferNumber || transfer.id
+              )}
+            </div>
+
+            <div style="margin-top:6px;">
+              Outstanding discrepancy:
+              <strong>
+                ${outstanding} ${escapeTransferDetailText(unit)}
+              </strong>
+            </div>
+
+            <div style="margin-top:6px;">
+              Original batch:
+              <strong>
+                ${escapeTransferDetailText(
+                  batch?.batchNumber || transfer.batchId || "—"
+                )}
+              </strong>
+            </div>
+
+            <div style="margin-top:6px;">
+              Tracking type:
+              <strong>
+                ${isIndividual ? "Individual" : "StockQuantity"}
+              </strong>
+            </div>
+
+          </div>
+
+          ${unitSelectionContent}
+
+          <div style="margin-top:16px;">
+
+            <label for="writeOffReason">
+              Write-off reason *
+            </label>
+
+            <div style="
+              font-size:12px;
+              color:#666;
+              margin-top:5px;
+              margin-bottom:8px;
+            ">
+              Explain why this discrepancy is being
+              permanently written off.
+            </div>
+
+            <textarea
+              id="writeOffReason"
+              rows="3"
+              placeholder="Enter the reason for this write-off..."
+              oninput="state.writeOffReason = this.value"
+            >${escapeTransferDetailText(state.writeOffReason)}</textarea>
+
+          </div>
+
+          <div style="
+            margin-top:14px;
+            padding:10px;
+            background:#fff7ed;
+            border:1px solid #fed7aa;
+            border-radius:6px;
+            font-size:12px;
+            color:#9a3412;
+          ">
+            A write-off permanently closes the selected
+            discrepancy quantity. It does not add or deduct
+            inventory stock.
+          </div>
+
+        </div>
+
+        <div class="modal-footer">
+
+          <button
+            class="btn btn-secondary"
+            onclick="closeTransferWriteOffModal()"
+          >
+            Cancel
+          </button>
+
+          <button
+            class="btn btn-primary"
+            onclick="confirmTransferWriteOff()"
+            ${outstanding <= 0 ? "disabled" : ""}
+          >
+            Confirm Write-off
+          </button>
+
+        </div>
+
+      </div>
+    </div>
+  `;
+}
 
 
 
