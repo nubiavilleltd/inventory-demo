@@ -1471,14 +1471,19 @@
       // Inventory page state
       inventoryView: "list", // 'list' | 'product' | 'unit' | 'batch' | 'movements' | 'transfers-in-transit'
       inventoryTransferTab: "awaiting-receipt",
-discrepancyFilter: "all", // 'all' | 'outstanding' | 'resolved'
-selectedTransferDiscrepancyId: null,
-inventoryProductId: null,
+      discrepancyFilter: "all", // 'all' | 'outstanding' | 'resolved'
+      selectedTransferDiscrepancyId: null,
+      inventoryProductId: null,
       inventoryUnitId: null,
       inventoryBatchId: null,
       receivingTransferId: null, // NEW
+      // Discrepancy recovery modal state
+      recoveryTransferId: null,
+      recoveryLocationId: null,
+      recoveryQty: "",
       receiveQty: "", // NEW (Stock Quantity only)
       receiveSelectedUnits: [], // NEW (Individual Items only)
+      recoveryNote: "",
       receiveDiscrepancyReason: "",
       inventoryFilter: { search: "", tracking: "", category: "", status: "" },
       // Dispatch Wizard state (single-order modal)
@@ -4913,8 +4918,10 @@ DISPATCH DASHBOARD DEMO SEED
       } else if (state.activeModal === "discrepancy-receipt") {
         c.innerHTML = renderDiscrepancyReceiptModal();
         attachDiscrepancyReceiptHandlers();
-        } else if (state.activeModal === "transfer-discrepancy-details") {
-  c.innerHTML = renderTransferDiscrepancyDetailsModal();
+      } else if (state.activeModal === "transfer-recovery") {
+        c.innerHTML = renderTransferRecoveryModal();
+      } else if (state.activeModal === "transfer-discrepancy-details") {
+        c.innerHTML = renderTransferDiscrepancyDetailsModal();
       } else if (state.activeModal === "transfer-stock") {
         c.innerHTML = renderTransferStockModal();
         attachTransferStockHandlers();
@@ -9544,28 +9551,28 @@ RECEIVE STOCK MODAL
       `;
     }
 
-    
+
     function renderDiscrepancyReceiptModal() {
-  const transfer = TRANSFERS.find(
-    (t) => t.id === state.receivingTransferId,
-  );
+      const transfer = TRANSFERS.find(
+        (t) => t.id === state.receivingTransferId,
+      );
 
-  if (!transfer) return "";
+      if (!transfer) return "";
 
-  const product = getInvProduct(transfer.productId);
-  if (!product) return "";
+      const product = getInvProduct(transfer.productId);
+      if (!product) return "";
 
-  const isStockQty = product.trackingType === "StockQuantity";
+      const isStockQty = product.trackingType === "StockQuantity";
 
-  const qtyReceived = isStockQty
-    ? Number(String(state.receiveQty ?? "").trim())
-    : (state.receiveSelectedUnits || []).filter((id) =>
-        transfer.unitIds.includes(id),
-      ).length;
+      const qtyReceived = isStockQty
+        ? Number(String(state.receiveQty ?? "").trim())
+        : (state.receiveSelectedUnits || []).filter((id) =>
+          transfer.unitIds.includes(id),
+        ).length;
 
-  const shortage = transfer.qty - qtyReceived;
+      const shortage = transfer.qty - qtyReceived;
 
-  return `
+      return `
     <div class="modal-overlay"
       onclick="if(event.target===this)returnToReceiveTransferModal()">
 
@@ -9645,8 +9652,8 @@ RECEIVE STOCK MODAL
       </div>
     </div>
   `;
-}
-    
+    }
+
     function onReceiveUnitToggle(unitId) {
       let selected = state.receiveSelectedUnits || [];
       if (selected.includes(unitId)) {
@@ -10510,41 +10517,41 @@ ADJUST STOCK MODAL
         .getElementById("confirmAdjustBtn")
         ?.addEventListener("click", confirmAdjust);
     }
-function attachReceiveTransferHandlers() {
-  document
-    .getElementById("confirmReceiveTransferBtn")
-    ?.addEventListener("click", () => commitReceiveTransfer());
-}
+    function attachReceiveTransferHandlers() {
+      document
+        .getElementById("confirmReceiveTransferBtn")
+        ?.addEventListener("click", () => commitReceiveTransfer());
+    }
 
     function attachDiscrepancyReceiptHandlers() {
-  document
-    .getElementById("recordDiscrepancyReceiptBtn")
-    ?.addEventListener("click", () => {
-      const reason = document
-        .getElementById("receiveDiscrepancyReason")
-        ?.value.trim();
+      document
+        .getElementById("recordDiscrepancyReceiptBtn")
+        ?.addEventListener("click", () => {
+          const reason = document
+            .getElementById("receiveDiscrepancyReason")
+            ?.value.trim();
 
-      if (!reason) {
-        const error = document.getElementById(
-          "receiveDiscrepancyReasonError",
-        );
+          if (!reason) {
+            const error = document.getElementById(
+              "receiveDiscrepancyReasonError",
+            );
 
-        if (error) error.style.display = "block";
+            if (error) error.style.display = "block";
 
-        return;
-      }
+            return;
+          }
 
-      state.receiveDiscrepancyReason = reason;
+          state.receiveDiscrepancyReason = reason;
 
-      commitReceiveTransfer(true);
-    });
-}
+          commitReceiveTransfer(true);
+        });
+    }
 
-function returnToReceiveTransferModal() {
-  state.receiveDiscrepancyReason = "";
-  state.activeModal = "receive-transfer";
-  render();
-}
+    function returnToReceiveTransferModal() {
+      state.receiveDiscrepancyReason = "";
+      state.activeModal = "receive-transfer";
+      render();
+    }
 
     /* ============================================================
 TRANSFER DISCREPANCY HELPERS
@@ -10593,194 +10600,194 @@ Outstanding is always calculated from these two, never stored.
 
 
     function commitReceiveTransfer(recordDiscrepancy = false) {
-  const transfer = TRANSFERS.find(
-    (t) => t.id === state.receivingTransferId,
-  );
-
-  if (!transfer) return;
-
-  const product = getInvProduct(transfer.productId);
-  if (!product) return;
-
-  const isStockQty = product.trackingType === "StockQuantity";
-
-  let qtyReceived = 0;
-  let selectedUnitIds = [];
-  let unitsToReceive = [];
-  let missingUnitIds = [];
-  let shortage = 0;
-
-  if (isStockQty) {
-    const rawQty = String(state.receiveQty ?? "").trim();
-    qtyReceived = Number(rawQty);
-
-    if (
-      rawQty === "" ||
-      !Number.isInteger(qtyReceived) ||
-      qtyReceived < 0
-    ) {
-      return alert(
-        "Enter a valid whole quantity, including zero if nothing arrived.",
-      );
-    }
-
-    if (qtyReceived > transfer.qty) {
-      return alert(
-        `Cannot receive more than the sent quantity (${transfer.qty}).`,
-      );
-    }
-
-    shortage = transfer.qty - qtyReceived;
-  } else {
-    // Individual items
-    selectedUnitIds = [
-      ...new Set(
-        (state.receiveSelectedUnits || []).filter((id) =>
-          transfer.unitIds.includes(id),
-        ),
-      ),
-    ];
-
-    unitsToReceive = selectedUnitIds
-      .map((uid) => UNITS.find((u) => u.id === uid))
-      .filter(Boolean);
-
-    if (unitsToReceive.length !== selectedUnitIds.length) {
-      return alert(
-        "Some selected units could not be found. Please review the selection.",
-      );
-    }
-
-    const invalidUnit = unitsToReceive.find(
-      (u) =>
-        u.status !== "In Transit" ||
-        u.inTransitTransferId !== transfer.id,
-    );
-
-    if (invalidUnit) {
-      return alert(
-        "Some selected units are no longer associated with this transfer.",
-      );
-    }
-
-    qtyReceived = unitsToReceive.length;
-    shortage = transfer.qty - qtyReceived;
-
-    const receivedUnitIds = new Set(selectedUnitIds);
-
-    missingUnitIds = transfer.unitIds.filter(
-      (id) => !receivedUnitIds.has(id),
-    );
-  }
-
-  // A partial receipt requires a reason before any stock is changed.
-  if (shortage > 0 && !recordDiscrepancy) {
-    state.receiveDiscrepancyReason = "";
-    state.activeModal = "discrepancy-receipt";
-    render();
-    return;
-  }
-
-  if (shortage > 0 && !state.receiveDiscrepancyReason?.trim()) {
-    return alert("A reason is required to record this discrepancy.");
-  }
-
-  if (isStockQty) {
-    // Add only physically received stock to the destination.
-    if (qtyReceived > 0) {
-      let toRow = STOCK.find(
-        (s) =>
-          s.productId === transfer.productId &&
-          s.locationId === transfer.toLocationId &&
-          s.batchId === transfer.batchId,
+      const transfer = TRANSFERS.find(
+        (t) => t.id === state.receivingTransferId,
       );
 
-      if (toRow) {
-        toRow.onHand += qtyReceived;
+      if (!transfer) return;
+
+      const product = getInvProduct(transfer.productId);
+      if (!product) return;
+
+      const isStockQty = product.trackingType === "StockQuantity";
+
+      let qtyReceived = 0;
+      let selectedUnitIds = [];
+      let unitsToReceive = [];
+      let missingUnitIds = [];
+      let shortage = 0;
+
+      if (isStockQty) {
+        const rawQty = String(state.receiveQty ?? "").trim();
+        qtyReceived = Number(rawQty);
+
+        if (
+          rawQty === "" ||
+          !Number.isInteger(qtyReceived) ||
+          qtyReceived < 0
+        ) {
+          return alert(
+            "Enter a valid whole quantity, including zero if nothing arrived.",
+          );
+        }
+
+        if (qtyReceived > transfer.qty) {
+          return alert(
+            `Cannot receive more than the sent quantity (${transfer.qty}).`,
+          );
+        }
+
+        shortage = transfer.qty - qtyReceived;
       } else {
-        STOCK.push({
-          productId: transfer.productId,
-          locationId: transfer.toLocationId,
-          batchId: transfer.batchId,
-          onHand: qtyReceived,
-          reserved: 0,
+        // Individual items
+        selectedUnitIds = [
+          ...new Set(
+            (state.receiveSelectedUnits || []).filter((id) =>
+              transfer.unitIds.includes(id),
+            ),
+          ),
+        ];
+
+        unitsToReceive = selectedUnitIds
+          .map((uid) => UNITS.find((u) => u.id === uid))
+          .filter(Boolean);
+
+        if (unitsToReceive.length !== selectedUnitIds.length) {
+          return alert(
+            "Some selected units could not be found. Please review the selection.",
+          );
+        }
+
+        const invalidUnit = unitsToReceive.find(
+          (u) =>
+            u.status !== "In Transit" ||
+            u.inTransitTransferId !== transfer.id,
+        );
+
+        if (invalidUnit) {
+          return alert(
+            "Some selected units are no longer associated with this transfer.",
+          );
+        }
+
+        qtyReceived = unitsToReceive.length;
+        shortage = transfer.qty - qtyReceived;
+
+        const receivedUnitIds = new Set(selectedUnitIds);
+
+        missingUnitIds = transfer.unitIds.filter(
+          (id) => !receivedUnitIds.has(id),
+        );
+      }
+
+      // A partial receipt requires a reason before any stock is changed.
+      if (shortage > 0 && !recordDiscrepancy) {
+        state.receiveDiscrepancyReason = "";
+        state.activeModal = "discrepancy-receipt";
+        render();
+        return;
+      }
+
+      if (shortage > 0 && !state.receiveDiscrepancyReason?.trim()) {
+        return alert("A reason is required to record this discrepancy.");
+      }
+
+      if (isStockQty) {
+        // Add only physically received stock to the destination.
+        if (qtyReceived > 0) {
+          let toRow = STOCK.find(
+            (s) =>
+              s.productId === transfer.productId &&
+              s.locationId === transfer.toLocationId &&
+              s.batchId === transfer.batchId,
+          );
+
+          if (toRow) {
+            toRow.onHand += qtyReceived;
+          } else {
+            STOCK.push({
+              productId: transfer.productId,
+              locationId: transfer.toLocationId,
+              batchId: transfer.batchId,
+              onHand: qtyReceived,
+              reserved: 0,
+            });
+          }
+
+          const batch = getBatch(transfer.batchId);
+          const batchLabel = batch
+            ? `${batch.batchNumber} (${batch.supplier})`
+            : "batch";
+
+          logMovement(
+            transfer.productId,
+            transfer.toLocationId,
+            "transfer_in",
+            qtyReceived,
+            `${transfer.transferNumber} · ${batchLabel}`,
+            null,
+            transfer.batchId,
+          );
+        }
+
+        transfer.discrepancyQty = shortage;
+        transfer.discrepancyUnitIds = [];
+        transfer.resolutions = [];
+      } else {
+        // Receive selected individual units at the destination.
+        unitsToReceive.forEach((u) => {
+          u.status = "Available";
+          u.locationId = transfer.toLocationId;
+          u.inTransitTransferId = null;
+          u.discrepancyTransferId = null;
         });
+
+        // Keep unreceived units traceable against the original transfer.
+        missingUnitIds.forEach((uid) => {
+          const u = UNITS.find((unit) => unit.id === uid);
+
+          if (u) {
+            u.status = "Unaccounted For";
+            u.locationId = null;
+            u.inTransitTransferId = null;
+            u.discrepancyTransferId = transfer.id;
+          }
+        });
+
+        // Log only units physically received.
+        if (unitsToReceive.length > 0) {
+          logMovement(
+            transfer.productId,
+            transfer.toLocationId,
+            "transfer_in",
+            unitsToReceive.length,
+            transfer.transferNumber,
+            null,
+            transfer.batchId,
+          );
+        }
+
+        transfer.discrepancyQty = missingUnitIds.length;
+        transfer.discrepancyUnitIds = missingUnitIds;
+        transfer.resolutions = [];
       }
 
-      const batch = getBatch(transfer.batchId);
-      const batchLabel = batch
-        ? `${batch.batchNumber} (${batch.supplier})`
-        : "batch";
+      // Record the original receipt and discrepancy context.
+      transfer.receivedAt = new Date().toISOString();
+      transfer.receivedBy = "You";
+      transfer.qtyReceived = qtyReceived;
+      transfer.discrepancyReason =
+        shortage > 0 ? state.receiveDiscrepancyReason.trim() : "";
 
-      logMovement(
-        transfer.productId,
-        transfer.toLocationId,
-        "transfer_in",
-        qtyReceived,
-        `${transfer.transferNumber} · ${batchLabel}`,
-        null,
-        transfer.batchId,
-      );
+      // Status follows from the outstanding quantity.
+      syncTransferStatus(transfer);
+
+      closeReceiveTransferModal();
     }
 
-    transfer.discrepancyQty = shortage;
-    transfer.discrepancyUnitIds = [];
-    transfer.resolutions = [];
-  } else {
-    // Receive selected individual units at the destination.
-    unitsToReceive.forEach((u) => {
-      u.status = "Available";
-      u.locationId = transfer.toLocationId;
-      u.inTransitTransferId = null;
-      u.discrepancyTransferId = null;
-    });
 
-    // Keep unreceived units traceable against the original transfer.
-    missingUnitIds.forEach((uid) => {
-      const u = UNITS.find((unit) => unit.id === uid);
 
-      if (u) {
-        u.status = "Unaccounted For";
-        u.locationId = null;
-        u.inTransitTransferId = null;
-        u.discrepancyTransferId = transfer.id;
-      }
-    });
 
-    // Log only units physically received.
-    if (unitsToReceive.length > 0) {
-      logMovement(
-        transfer.productId,
-        transfer.toLocationId,
-        "transfer_in",
-        unitsToReceive.length,
-        transfer.transferNumber,
-        null,
-        transfer.batchId,
-      );
-    }
-
-    transfer.discrepancyQty = missingUnitIds.length;
-    transfer.discrepancyUnitIds = missingUnitIds;
-    transfer.resolutions = [];
-  }
-
-  // Record the original receipt and discrepancy context.
-  transfer.receivedAt = new Date().toISOString();
-  transfer.receivedBy = "You";
-  transfer.qtyReceived = qtyReceived;
-  transfer.discrepancyReason =
-    shortage > 0 ? state.receiveDiscrepancyReason.trim() : "";
-
-  // Status follows from the outstanding quantity.
-  syncTransferStatus(transfer);
-
-  closeReceiveTransferModal();
-}
-
-   
-    
-    
     function attachTransferStockHandlers() {
       document
         .getElementById("confirmTransferBtn")
@@ -10960,54 +10967,54 @@ MOVEMENT LOG PAGE
 
 
     function escapeTransferDetailText(value) {
-  return String(value ?? "").replace(/[&<>"']/g, (char) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;",
-  })[char]);
-}
+      return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      })[char]);
+    }
 
-function formatTransferDetailDate(value) {
-  if (!value) return "—";
+    function formatTransferDetailDate(value) {
+      if (!value) return "—";
 
-  const date = new Date(value);
+      const date = new Date(value);
 
-  if (Number.isNaN(date.getTime())) return "—";
+      if (Number.isNaN(date.getTime())) return "—";
 
-  return date.toLocaleString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
+      return date.toLocaleString("en-GB", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    }
 
-function openTransferDiscrepancyDetails(transferId) {
-  const transfer = TRANSFERS.find((t) => t.id === transferId);
+    function openTransferDiscrepancyDetails(transferId) {
+      const transfer = TRANSFERS.find((t) => t.id === transferId);
 
-  if (!transfer || getTransferDiscrepancyQty(transfer) <= 0) return;
+      if (!transfer || getTransferDiscrepancyQty(transfer) <= 0) return;
 
-  state.selectedTransferDiscrepancyId = transferId;
-  state.activeModal = "transfer-discrepancy-details";
-  render();
-}
+      state.selectedTransferDiscrepancyId = transferId;
+      state.activeModal = "transfer-discrepancy-details";
+      render();
+    }
 
-function closeTransferDiscrepancyDetails() {
-  state.activeModal = null;
-  state.selectedTransferDiscrepancyId = null;
-  render();
-}
+    function closeTransferDiscrepancyDetails() {
+      state.activeModal = null;
+      state.selectedTransferDiscrepancyId = null;
+      render();
+    }
 
-function renderTransferDiscrepancyDetailsModal() {
-  const transfer = TRANSFERS.find(
-    (t) => t.id === state.selectedTransferDiscrepancyId,
-  );
+    function renderTransferDiscrepancyDetailsModal() {
+      const transfer = TRANSFERS.find(
+        (t) => t.id === state.selectedTransferDiscrepancyId,
+      );
 
-  if (!transfer || getTransferDiscrepancyQty(transfer) <= 0) {
-    return `
+      if (!transfer || getTransferDiscrepancyQty(transfer) <= 0) {
+        return `
       <div class="modal-overlay">
         <div class="modal">
           <div class="modal-body">
@@ -11021,37 +11028,37 @@ function renderTransferDiscrepancyDetailsModal() {
         </div>
       </div>
     `;
-  }
+      }
 
-  const product = getInvProduct(transfer.productId);
-  const batch = transfer.batchId ? getBatch(transfer.batchId) : null;
-  const fromLoc = getLocation(transfer.fromLocationId);
-  const toLoc = getLocation(transfer.toLocationId);
+      const product = getInvProduct(transfer.productId);
+      const batch = transfer.batchId ? getBatch(transfer.batchId) : null;
+      const fromLoc = getLocation(transfer.fromLocationId);
+      const toLoc = getLocation(transfer.toLocationId);
 
-  const originalGap = getTransferDiscrepancyQty(transfer);
-  const resolvedQty = getTransferResolvedQty(transfer);
-  const outstanding = getTransferOutstanding(transfer);
-  const resolutions = transfer.resolutions || [];
+      const originalGap = getTransferDiscrepancyQty(transfer);
+      const resolvedQty = getTransferResolvedQty(transfer);
+      const outstanding = getTransferOutstanding(transfer);
+      const resolutions = transfer.resolutions || [];
 
-  const isResolved = outstanding === 0;
-  const unit = product?.unitOfMeasure || "unit";
+      const isResolved = outstanding === 0;
+      const unit = product?.unitOfMeasure || "unit";
 
-  const resolutionHistory = resolutions.length
-    ? resolutions.map((resolution) => {
-        const location = resolution.locationId
-          ? getLocation(resolution.locationId)
-          : null;
+      const resolutionHistory = resolutions.length
+        ? resolutions.map((resolution) => {
+          const location = resolution.locationId
+            ? getLocation(resolution.locationId)
+            : null;
 
-        const resolutionType = escapeTransferDetailText(
-          resolution.type || "Resolution",
-        );
+          const resolutionType = escapeTransferDetailText(
+            resolution.type || "Resolution",
+          );
 
-        const note = escapeTransferDetailText(resolution.note || "");
-        const unitIds = Array.isArray(resolution.unitIds)
-          ? resolution.unitIds
-          : [];
+          const note = escapeTransferDetailText(resolution.note || "");
+          const unitIds = Array.isArray(resolution.unitIds)
+            ? resolution.unitIds
+            : [];
 
-        return `
+          return `
           <div style="
             border:1px solid #e5e7eb;
             border-radius:8px;
@@ -11084,28 +11091,26 @@ function renderTransferDiscrepancyDetailsModal() {
                 ${escapeTransferDetailText(location?.name || "—")}
               </div>
 
-              ${
-                unitIds.length
-                  ? `<div><strong>Units:</strong> ${unitIds.map(escapeTransferDetailText).join(", ")}</div>`
-                  : ""
-              }
+              ${unitIds.length
+              ? `<div><strong>Units:</strong> ${unitIds.map(escapeTransferDetailText).join(", ")}</div>`
+              : ""
+            }
 
-              ${
-                note
-                  ? `<div><strong>Note:</strong> ${note}</div>`
-                  : ""
-              }
+              ${note
+              ? `<div><strong>Note:</strong> ${note}</div>`
+              : ""
+            }
             </div>
           </div>
         `;
-      }).join("")
-    : `
+        }).join("")
+        : `
       <div style="font-size:12px; color:#777;">
         No resolution activity has been recorded yet.
       </div>
     `;
 
-  return `
+      return `
     <div class="modal-overlay" onclick="if(event.target===this)closeTransferDiscrepancyDetails()">
       <div class="modal">
         <div class="modal-header">
@@ -11221,7 +11226,7 @@ function renderTransferDiscrepancyDetailsModal() {
             ${resolutionHistory}
           </div>
 
-          <div style="
+             <div style="
             display:flex;
             justify-content:flex-end;
             gap:8px;
@@ -11229,67 +11234,64 @@ function renderTransferDiscrepancyDetailsModal() {
             border-top:1px solid #e5e7eb;
             padding-top:16px;
           ">
-            ${
-              outstanding > 0
-                ? `
-                  <button
-                    class="btn-primary"
-                    disabled
-                    title="The resolution workflow will be connected in the next implementation step."
-                  >
-                    Resolve Discrepancy
-                  </button>
-                `
-                : ""
-            }
+            ${outstanding > 0
+          ? `
+                <button
+                  class="btn-primary"
+                  onclick="openTransferRecoveryModal('${transfer.id}')"
+                >
+                  Resolve Discrepancy
+                </button>
+              `
+          : ""
+        }
 
             <button onclick="closeTransferDiscrepancyDetails()">
               Close
             </button>
           </div>
 
-          ${
-            outstanding > 0
-              ? `<div style="font-size:11px; color:#777; margin-top:8px; text-align:right;">
+          ${outstanding > 0
+          ? `<div style="font-size:11px; color:#777; margin-top:8px; text-align:right;">
                   Resolution workflow will be enabled in the next step.
                 </div>`
-              : ""
-          }
+          : ""
+        }
 
         </div>
       </div>
     </div>
   `;
-}
+    }
 
 
 
-function renderTransfersInTransit(c) {
-  const awaitingReceipt = TRANSFERS
-    .filter((t) => t.status === "In Transit")
-    .slice()
-    .reverse();
+    function renderTransfersInTransit(c) {
+      const awaitingReceipt = TRANSFERS
+        .filter((t) => t.status === "In Transit")
+        .slice()
+        .reverse();
 
-  // A transfer remains in this list permanently once it has
-  // recorded an original discrepancy.
-  const discrepancies = TRANSFERS
-    .filter((t) => getTransferDiscrepancyQty(t) > 0)
-    .slice()
-    .reverse();
+      // A transfer remains in this list permanently once it has
+      // recorded an original discrepancy.
+      const discrepancies = TRANSFERS
+        .filter((t) => getTransferDiscrepancyQty(t) > 0)
+        .slice()
+        .reverse();
 
-  const selectedTab = state.inventoryTransferTab || "awaiting-receipt";
-  const selectedFilter = state.discrepancyFilter || "all";
+      const selectedTab = state.inventoryTransferTab || "awaiting-receipt";
+      const selectedFilter = state.discrepancyFilter || "all";
 
-  const filteredDiscrepancies = discrepancies.filter((transfer) => {
-    const outstanding = getTransferOutstanding(transfer);
+      const filteredDiscrepancies = discrepancies.filter((transfer) => {
+        const outstanding = getTransferOutstanding(transfer);
 
-    if (selectedFilter === "outstanding") return outstanding > 0;
-    if (selectedFilter === "resolved") return outstanding === 0;
+        if (selectedFilter === "outstanding") return outstanding > 0;
+        if (selectedFilter === "resolved") return outstanding === 0;
 
-    return true;
-  });
+        return true;
+      });
 
-  c.innerHTML = `
+      c.innerHTML = `
     <div style="margin-bottom:12px;">
       <button onclick="state.inventoryView='list'; render();">
         ← Back to Inventory
@@ -11319,17 +11321,15 @@ function renderTransfersInTransit(c) {
         </button>
       </div>
 
-      ${
-        selectedTab === "awaiting-receipt"
+      ${selectedTab === "awaiting-receipt"
           ? `
             <div style="font-size:12px; color:#555; margin-bottom:12px;">
               Transfers that have left their source location but are awaiting destination confirmation.
             </div>
 
-            ${
-              awaitingReceipt.length === 0
-                ? `<div class="empty-state">No transfers awaiting receipt.</div>`
-                : `
+            ${awaitingReceipt.length === 0
+            ? `<div class="empty-state">No transfers awaiting receipt.</div>`
+            : `
                   <table>
                     <thead>
                       <tr>
@@ -11345,12 +11345,12 @@ function renderTransfersInTransit(c) {
 
                     <tbody>
                       ${awaitingReceipt.map((t) => {
-                        const product = getInvProduct(t.productId);
-                        const batch = t.batchId ? getBatch(t.batchId) : null;
-                        const fromLoc = getLocation(t.fromLocationId);
-                        const toLoc = getLocation(t.toLocationId);
+              const product = getInvProduct(t.productId);
+              const batch = t.batchId ? getBatch(t.batchId) : null;
+              const fromLoc = getLocation(t.fromLocationId);
+              const toLoc = getLocation(t.toLocationId);
 
-                        return `
+              return `
                           <tr>
                             <td style="padding-left:12px; font-size:12px; font-weight:bold;">
                               ${escapeTransferDetailText(t.transferNumber)}
@@ -11388,11 +11388,11 @@ function renderTransfersInTransit(c) {
                             </td>
                           </tr>
                         `;
-                      }).join("")}
+            }).join("")}
                     </tbody>
                   </table>
                 `
-            }
+          }
           `
           : `
             <div style="font-size:12px; color:#555; margin-bottom:12px;">
@@ -11422,10 +11422,9 @@ function renderTransfersInTransit(c) {
               </button>
             </div>
 
-            ${
-              filteredDiscrepancies.length === 0
-                ? `<div class="empty-state">No discrepancies match this filter.</div>`
-                : `
+            ${filteredDiscrepancies.length === 0
+            ? `<div class="empty-state">No discrepancies match this filter.</div>`
+            : `
                   <table>
                     <thead>
                       <tr>
@@ -11443,15 +11442,15 @@ function renderTransfersInTransit(c) {
 
                     <tbody>
                       ${filteredDiscrepancies.map((t) => {
-                        const product = getInvProduct(t.productId);
-                        const fromLoc = getLocation(t.fromLocationId);
-                        const toLoc = getLocation(t.toLocationId);
+              const product = getInvProduct(t.productId);
+              const fromLoc = getLocation(t.fromLocationId);
+              const toLoc = getLocation(t.toLocationId);
 
-                        const outstanding = getTransferOutstanding(t);
-                        const originalGap = getTransferDiscrepancyQty(t);
-                        const isResolved = outstanding === 0;
+              const outstanding = getTransferOutstanding(t);
+              const originalGap = getTransferDiscrepancyQty(t);
+              const isResolved = outstanding === 0;
 
-                        return `
+              return `
                           <tr>
                             <td style="padding-left:12px; font-size:12px; font-weight:bold;">
                               ${escapeTransferDetailText(t.transferNumber)}
@@ -11495,19 +11494,697 @@ function renderTransfersInTransit(c) {
                             </td>
                           </tr>
                         `;
-                      }).join("")}
+            }).join("")}
                     </tbody>
                   </table>
                 `
-            }
+          }
           `
+        }
+    </div>
+  `;
+    }
+
+
+        /* ============================================================
+         DISCREPANCY RECOVERY MODAL
+         Supports StockQuantity and Individual products.
+         This stage handles form state and rendering only.
+         ============================================================ */
+
+      function openTransferRecoveryModal(transferId) {
+        const transfer = TRANSFERS.find(
+          (t) => t.id === transferId,
+        );
+
+        if (!transfer) {
+          return alert("Transfer not found.");
+        }
+
+        const product = getInvProduct(transfer.productId);
+
+        if (
+          !product ||
+          !["StockQuantity", "Individual"].includes(product.trackingType)
+        ) {
+          return alert("This product tracking type is not supported.");
+        }
+
+        const outstanding = getTransferOutstanding(transfer);
+
+        if (outstanding <= 0) {
+          return alert("This discrepancy has already been resolved.");
+        }
+
+        state.recoveryTransferId = transferId;
+
+        // The user must explicitly identify where the stock is found.
+        state.recoveryLocationId = null;
+
+        state.recoveryQty =
+          product.trackingType === "StockQuantity"
+            ? String(outstanding)
+            : "";
+
+        state.recoverySelectedUnits = [];
+        state.recoveryNote = "";
+
+        state.activeModal = "transfer-recovery";
+
+        render();
       }
+
+
+      function closeTransferRecoveryModal() {
+        state.recoveryTransferId = null;
+        state.recoveryLocationId = null;
+        state.recoveryQty = "";
+        state.recoverySelectedUnits = [];
+        state.recoveryNote = "";
+
+        // Return to the discrepancy details.
+        state.activeModal = "transfer-discrepancy-details";
+
+        render();
+      }
+
+
+      function setRecoveryUnitSelected(unitId, checked) {
+        const selected = new Set(state.recoverySelectedUnits || []);
+
+        if (checked) {
+          selected.add(unitId);
+        } else {
+          selected.delete(unitId);
+        }
+
+        state.recoverySelectedUnits = [...selected];
+
+        // Update the displayed count without rebuilding the modal.
+        const countElement = document.getElementById(
+          "recoverySelectedCount",
+        );
+
+        if (countElement) {
+          countElement.textContent =
+            state.recoverySelectedUnits.length;
+        }
+      }
+
+
+      function renderTransferRecoveryModal() {
+        const transfer = TRANSFERS.find(
+          (t) => t.id === state.recoveryTransferId,
+        );
+
+        if (!transfer) {
+          return `
+            <div class="modal-overlay">
+              <div class="modal">
+                <div class="modal-body">
+                  <div class="empty-state">
+                    Transfer not found.
+                  </div>
+                  <button onclick="closeTransferRecoveryModal()">
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          `;
+        }
+
+        const product = getInvProduct(transfer.productId);
+
+        if (
+          !product ||
+          !["StockQuantity", "Individual"].includes(product.trackingType)
+        ) {
+          return `
+            <div class="modal-overlay">
+              <div class="modal">
+                <div class="modal-body">
+                  <div class="empty-state">
+                    This product tracking type is not supported.
+                  </div>
+                  <button onclick="closeTransferRecoveryModal()">
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          `;
+        }
+
+        const outstanding = getTransferOutstanding(transfer);
+        const isIndividual = product.trackingType === "Individual";
+        const unit = product.unitOfMeasure || "unit";
+
+        const batch = transfer.batchId
+          ? getBatch(transfer.batchId)
+          : null;
+
+        // Only units that belong to this exact discrepancy are eligible.
+        const eligibleUnits = isIndividual
+          ? UNITS.filter(
+              (unitRecord) =>
+                unitRecord.productId === transfer.productId &&
+                unitRecord.batchId === transfer.batchId &&
+                unitRecord.status === "Unaccounted For" &&
+                unitRecord.locationId === null &&
+                unitRecord.discrepancyTransferId === transfer.id &&
+                Array.isArray(transfer.unitIds) &&
+                transfer.unitIds.includes(unitRecord.id),
+            )
+          : [];
+
+        const selectedUnitIds = new Set(
+          state.recoverySelectedUnits || [],
+        );
+
+        const unitSelectionContent = isIndividual
+          ? `
+              <div style="margin-top:16px;">
+
+                <label>
+                  Select recovered units *
+                </label>
+
+                <div style="
+                  font-size:12px;
+                  color:#666;
+                  margin-top:5px;
+                  margin-bottom:10px;
+                ">
+                  Select the tagged items physically found and verified
+                  at the recovery location.
+                </div>
+
+                <div style="
+                  border:1px solid #ddd;
+                  border-radius:6px;
+                  padding:10px;
+                  max-height:220px;
+                  overflow-y:auto;
+                ">
+
+                  ${
+                    eligibleUnits.length
+                      ? eligibleUnits.map((unitRecord) => `
+                          <label style="
+                            display:flex;
+                            align-items:center;
+                            gap:10px;
+                            padding:9px 4px;
+                            border-bottom:1px solid #eee;
+                            cursor:pointer;
+                          ">
+                            <input
+                              type="checkbox"
+                              value="${escapeTransferDetailText(unitRecord.id)}"
+                              ${selectedUnitIds.has(unitRecord.id) ? "checked" : ""}
+                              onchange="
+                                setRecoveryUnitSelected(
+                                  '${unitRecord.id}',
+                                  this.checked
+                                )
+                              "
+                            />
+
+                            <span>
+                              <strong>
+                                ${escapeTransferDetailText(unitRecord.tag)}
+                              </strong>
+                            </span>
+                          </label>
+                        `).join("")
+                      : `
+                          <div style="
+                            font-size:12px;
+                            color:#777;
+                            padding:10px 4px;
+                          ">
+                            No outstanding tagged units were found
+                            for this discrepancy.
+                          </div>
+                        `
+                  }
+
+                </div>
+
+                <div style="
+                  font-size:12px;
+                  color:#555;
+                  margin-top:8px;
+                ">
+                  Selected units:
+                  <strong id="recoverySelectedCount">
+                    ${state.recoverySelectedUnits.length}
+                  </strong>
+                  of ${eligibleUnits.length}
+                </div>
+
+              </div>
+            `
+          : `
+              <div style="margin-top:16px;">
+
+                <label for="recoveryQty">
+                  Recovery quantity *
+                </label>
+
+                <div style="
+                  font-size:12px;
+                  color:#666;
+                  margin-top:5px;
+                  margin-bottom:8px;
+                ">
+                  Enter the quantity physically recovered.
+                  It cannot exceed the outstanding discrepancy.
+                </div>
+
+                <input
+                  id="recoveryQty"
+                  type="number"
+                  min="1"
+                  max="${outstanding}"
+                  step="1"
+                  value="${escapeTransferDetailText(state.recoveryQty)}"
+                  oninput="state.recoveryQty = this.value"
+                />
+
+                <div style="
+                  font-size:12px;
+                  color:#666;
+                  margin-top:6px;
+                ">
+                  Maximum recoverable quantity:
+                  ${outstanding} ${escapeTransferDetailText(unit)}.
+                </div>
+
+              </div>
+            `;
+
+        return `
+          <div class="modal-overlay"
+            onclick="
+              if(event.target === this) {
+                closeTransferRecoveryModal();
+              }
+            ">
+
+            <div class="modal">
+
+              <div class="modal-header">
+                Recover Discrepancy
+
+                <button
+                  class="close-x"
+                  onclick="closeTransferRecoveryModal()"
+                >
+                  ×
+                </button>
+              </div>
+
+              <div class="modal-body">
+
+                <div style="
+                  padding:12px;
+                  border:1px solid #ddd;
+                  border-radius:6px;
+                  margin-bottom:16px;
+                  font-size:13px;
+                ">
+
+                  <strong>
+                    ${escapeTransferDetailText(product.name)}
+                  </strong>
+
+                  <div style="margin-top:8px;">
+                    Transfer:
+                    ${escapeTransferDetailText(
+                      transfer.transferNumber || transfer.id
+                    )}
+                  </div>
+
+                  <div style="margin-top:6px;">
+                    Outstanding discrepancy:
+                    <strong>
+                      ${outstanding} ${escapeTransferDetailText(unit)}
+                    </strong>
+                  </div>
+
+                  <div style="margin-top:6px;">
+                    Original batch:
+                    <strong>
+                      ${escapeTransferDetailText(
+                        batch?.batchNumber || transfer.batchId || "—"
+                      )}
+                    </strong>
+                  </div>
+
+                  <div style="margin-top:6px;">
+                    Tracking type:
+                    <strong>
+                      ${isIndividual ? "Individual" : "StockQuantity"}
+                    </strong>
+                  </div>
+
+                </div>
+
+                <div>
+                  <label for="recoveryLocation">
+                    Recovery location *
+                  </label>
+
+                  <div style="
+                    font-size:12px;
+                    color:#666;
+                    margin-top:5px;
+                    margin-bottom:8px;
+                  ">
+                    Select the location where the recovered stock is
+                    physically present. The recovered items will be
+                    added to this location's inventory.
+                  </div>
+
+                  <select
+                    id="recoveryLocation"
+                    onchange="state.recoveryLocationId = this.value || null"
+                  >
+                    <option value="">Select recovery location</option>
+
+                    ${LOCATIONS.map((location) => `
+                      <option
+                        value="${location.id}"
+                        ${location.id === state.recoveryLocationId ? "selected" : ""}
+                      >
+                        ${escapeTransferDetailText(location.name)}
+                      </option>
+                    `).join("")}
+
+                  </select>
+                </div>
+
+                ${unitSelectionContent}
+
+                <div style="margin-top:16px;">
+
+                  <label for="recoveryNote">
+                    Recovery note (Optional)
+                  </label>
+
+                  <div style="
+                    font-size:12px;
+                    color:#666;
+                    margin-top:5px;
+                    margin-bottom:8px;
+                  ">
+                    Provide any additional information about how
+                    the stock was found or recovered.
+                  </div>
+
+                  <textarea
+                    id="recoveryNote"
+                    rows="3"
+                    placeholder="Add additional recovery information..."
+                    oninput="state.recoveryNote = this.value"
+                  >${escapeTransferDetailText(state.recoveryNote)}</textarea>
+
+                </div>
+
+              </div>
+
+              <div class="modal-footer">
+
+                <button
+                  class="btn btn-secondary"
+                  onclick="closeTransferRecoveryModal()"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  class="btn btn-primary"
+                  disabled
+                  title="Recovery processing will be enabled in the next implementation step."
+                >
+                  Confirm Recovery
+                </button>
+
+              </div>
+
+              <div style="
+                font-size:11px;
+                color:#777;
+                padding:0 16px 12px;
+                text-align:right;
+              ">
+                Recovery submission will be enabled in the next step.
+              </div>
+
+            </div>
+          </div>
+        `;
+      }
+
+
+
+function closeTransferRecoveryModal() {
+  state.recoveryTransferId = null;
+  state.recoveryLocationId = null;
+  state.recoveryQty = "";
+  state.activeModal = "transfer-discrepancy-details";
+
+  render();
+}
+
+
+function renderTransferRecoveryModal() {
+  const transfer = TRANSFERS.find(
+    (t) => t.id === state.recoveryTransferId,
+  );
+
+  if (!transfer) {
+    return `<div class="empty-state">Transfer not found.</div>`;
+  }
+
+  const product = getInvProduct(transfer.productId);
+  const outstanding = getTransferOutstanding(transfer);
+  const unit = product?.unitOfMeasure || "unit";
+
+  if (!product || product.trackingType !== "StockQuantity") {
+    return `<div class="empty-state">This recovery form supports StockQuantity products only.</div>`;
+  }
+
+  return `
+    <div class="modal-overlay"
+      onclick="if(event.target===this)closeTransferRecoveryModal()">
+
+      <div class="modal">
+
+        <div class="modal-header">
+          Recover Discrepancy
+          <button class="close-x"
+            onclick="closeTransferRecoveryModal()">×</button>
+        </div>
+
+        <div class="modal-body">
+
+          <div style="padding:12px; border:1px solid #ddd; border-radius:6px; margin-bottom:16px; font-size:13px;">
+
+            <strong>${escapeTransferDetailText(product.name)}</strong>
+
+            <div style="margin-top:8px;">
+              Transfer: ${escapeTransferDetailText(transfer.transferNumber || transfer.id)}
+            </div>
+
+            <div style="margin-top:6px;">
+              Outstanding quantity:
+              <strong>${outstanding} ${escapeTransferDetailText(unit)}</strong>
+            </div>
+
+            <div style="margin-top:6px;">
+              Original batch:
+              <strong>${escapeTransferDetailText(
+                getBatch(transfer.batchId)?.batchNumber || transfer.batchId || "—"
+              )}</strong>
+            </div>
+
+          </div>
+
+          <label for="recoveryLocation">Recovery location *</label>
+
+          <select
+            id="recoveryLocation"
+            onchange="state.recoveryLocationId = this.value"
+          >
+            ${LOCATIONS.map((location) => `
+              <option
+                value="${location.id}"
+                ${location.id === state.recoveryLocationId ? "selected" : ""}
+              >
+                ${escapeTransferDetailText(location.name)}
+              </option>
+            `).join("")}
+          </select>
+
+          <label for="recoveryQty" class="mt-12">
+            Quantity recovered *
+          </label>
+
+          <input
+            id="recoveryQty"
+            type="number"
+            min="1"
+            max="${outstanding}"
+            step="1"
+            value="${state.recoveryQty}"
+            oninput="state.recoveryQty = this.value"
+          />
+
+          <div style="font-size:12px; color:#666; margin-top:6px;">
+            Maximum recoverable quantity: ${outstanding} ${escapeTransferDetailText(unit)}.
+          </div>
+
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn btn-secondary"
+            onclick="closeTransferRecoveryModal()">
+            Cancel
+          </button>
+
+          <button class="btn btn-primary"
+            onclick="commitStockQuantityRecovery()">
+            Confirm Recovery
+          </button>
+        </div>
+
+      </div>
     </div>
   `;
 }
 
 
-    
+function commitStockQuantityRecovery() {
+  const transfer = TRANSFERS.find(
+    (t) => t.id === state.recoveryTransferId,
+  );
+
+  if (!transfer) {
+    return alert("Transfer not found.");
+  }
+
+  const product = getInvProduct(transfer.productId);
+
+  if (!product || product.trackingType !== "StockQuantity") {
+    return alert("This recovery workflow supports StockQuantity products only.");
+  }
+
+  const outstanding = getTransferOutstanding(transfer);
+  const rawQty = String(state.recoveryQty ?? "").trim();
+  const qty = Number(rawQty);
+  const locationId = state.recoveryLocationId;
+
+  if (outstanding <= 0) {
+    return alert("This discrepancy has already been resolved.");
+  }
+
+  if (
+    rawQty === "" ||
+    !Number.isInteger(qty) ||
+    qty <= 0
+  ) {
+    return alert("Enter a valid whole recovery quantity greater than zero.");
+  }
+
+  if (qty > outstanding) {
+    return alert(
+      `You cannot recover more than the outstanding quantity of ${outstanding}.`,
+    );
+  }
+
+  const location = LOCATIONS.find(
+    (l) => l.id === locationId,
+  );
+
+  if (!location) {
+    return alert("Select a valid recovery location.");
+  }
+
+  if (!transfer.batchId) {
+    return alert("The original transfer batch could not be identified.");
+  }
+
+  // Find the existing stock row for this product, location and batch.
+  const stockRow = STOCK.find(
+    (s) =>
+      s.productId === transfer.productId &&
+      s.locationId === locationId &&
+      s.batchId === transfer.batchId,
+  );
+
+  // Prepare the recovery event before changing stock.
+  const now = new Date().toISOString();
+
+  const resolution = {
+    id: "res-" + Date.now() + "-" + Math.floor(Math.random() * 999),
+    type: "Recovery",
+    qty,
+    locationId,
+    unitIds: [],
+    note: "",
+    at: now,
+    by: "You",
+  };
+
+  // Add the recovered stock.
+  if (stockRow) {
+    stockRow.onHand += qty;
+  } else {
+    STOCK.push({
+      productId: transfer.productId,
+      locationId,
+      batchId: transfer.batchId,
+      onHand: qty,
+      reserved: 0,
+    });
+  }
+
+  // Record the stock movement.
+  const batch = getBatch(transfer.batchId);
+  const batchLabel = batch
+    ? `${batch.batchNumber} (${batch.supplier})`
+    : transfer.batchId;
+
+  logMovement(
+    transfer.productId,
+    locationId,
+    "discrepancy_recovery",
+    qty,
+    `${transfer.transferNumber || transfer.id} · Recovery · ${batchLabel}`,
+    null,
+    transfer.batchId,
+  );
+
+  // Append the recovery event to the original transfer.
+  transfer.resolutions = transfer.resolutions || [];
+  transfer.resolutions.push(resolution);
+
+  // Recalculate the transfer status.
+  syncTransferStatus(transfer);
+
+  // Return to the discrepancy details view.
+  state.recoveryTransferId = null;
+  state.recoveryLocationId = null;
+  state.recoveryQty = "";
+  state.activeModal = "transfer-discrepancy-details";
+
+  render();
+}
+
+
 
 
     function openReceiveTransferModal(transferId) {
@@ -11526,14 +12203,14 @@ function renderTransfersInTransit(c) {
       render();
     }
 
- function closeReceiveTransferModal() {
-  state.receivingTransferId = null;
-  state.receiveQty = "";
-  state.receiveSelectedUnits = [];
-  state.receiveDiscrepancyReason = "";
-  state.activeModal = null;
-  render();
-}
+    function closeReceiveTransferModal() {
+      state.receivingTransferId = null;
+      state.receiveQty = "";
+      state.receiveSelectedUnits = [];
+      state.receiveDiscrepancyReason = "";
+      state.activeModal = null;
+      render();
+    }
 
     /* ============================================================
 EDIT UNIT CONDITION MODAL
