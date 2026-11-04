@@ -1571,6 +1571,13 @@
         rawEnd: end.toISOString().split("T")[0]
       };
     }
+
+        // Extract a unique, sorted list of suppliers from existing batches
+    function getUniqueSuppliers() {
+      const suppliers = BATCHES.map((b) => b.supplier).filter(Boolean);
+      return [...new Set(suppliers)].sort();
+    }
+
     const formatDate = (iso) =>
       iso
         ? new Date(iso).toLocaleDateString("en-GB", {
@@ -8898,7 +8905,13 @@ RECEIVE STOCK MODAL
           </div>
 
           <label class="mt-12">Supplier *</label>
-          <input type="text" id="receiveSupplier" placeholder="e.g. Apple Authorized Reseller">
+                    <label class="mt-12">Supplier *</label>
+          ${renderCombobox(
+            "receiveSupplier",
+            getUniqueSuppliers(),
+            "",
+            "Select or type a new supplier..."
+          )}
 
           <div id="receivePreview" class="mt-12"></div>
 
@@ -9089,201 +9102,158 @@ RECEIVE STOCK MODAL
     //   options     — array of strings (suggestions)
     //   value       — current value (string)
     //   placeholder — placeholder text for the input
-    function renderCombobox(id, options, value, placeholder) {
-      const isOpen = state.openCombobox === id;
-      const typed = value || "";
-      const query = typed.toLowerCase();
-      // Filter: show options that contain the typed text (or all if nothing typed)
-      const filtered = options.filter(
-        (o) => !query || o.toLowerCase().includes(query),
-      );
-      // Has the operator typed something that doesn't exactly match an option?
-      const exactMatch = options.some((o) => o.toLowerCase() === query);
-      const showCreate = typed.length > 0 && !exactMatch;
+        
 
-      return `
-        <div class="combobox" data-combobox="${id}">
-          <div class="combobox-input" onclick="openCombobox('${id}')">
-            <input type="text"
-              id="${id}"
-              value="${value || ""}"
-              placeholder="${placeholder}"
-              autocomplete="off"
-              onfocus="openCombobox('${id}')"
-              oninput="onComboboxInput('${id}')"
-              onkeydown="onComboboxKeydown(event, '${id}')"
-              onblur="onComboboxBlur(event, '${id}')">
-            <div class="combobox-caret" onclick="toggleCombobox('${id}', event)">▼</div>
-          </div>
-          ${isOpen
-          ? `
-            <div class="combobox-panel">
-              ${filtered.length === 0 && !showCreate
-            ? `<div class="combobox-empty">No matches. Type a value to use it.</div>`
-            : ""
-          }
-              ${filtered
-            .map(
-              (o, idx) => `
-                <div class="combobox-item ${state.comboboxActive === idx ? "active" : ""}"
-                  onmousedown="selectComboboxValue('${id}', ${JSON.stringify(o).replace(/"/g, "&quot;")})">
-                  ${o}
-                </div>
-              `,
-            )
-            .join("")}
-              ${showCreate
-            ? `
-                <div class="combobox-item create-new"
-                  onmousedown="selectComboboxValue('${id}', ${JSON.stringify(typed).replace(/"/g, "&quot;")})">
-                  Use "${typed}"
-                </div>
-              `
-            : ""
-          }
-            </div>
-          `
-          : ""
-        }
-        </div>
-      `;
+ function renderCombobox(id, options, value, placeholder) {
+  return `
+    <div class="combobox" data-combobox="${id}">
+      <div class="combobox-input">
+        <input type="text"
+          id="${id}"
+          value="${escapeTransferDetailText(value || "")}"
+          placeholder="${escapeTransferDetailText(placeholder || "")}"
+          autocomplete="off"
+          onfocus="showComboboxPanel('${id}')"
+          onclick="showComboboxPanel('${id}')"
+          oninput="refreshComboboxPanel('${id}')"
+          onkeydown="onComboboxKeydown(event, '${id}')"
+          onblur="hideComboboxPanel('${id}')">
+        <div class="combobox-caret"
+          onmousedown="event.preventDefault(); toggleComboboxPanel('${id}')">▼</div>
+      </div>
+      <div class="combobox-panel hidden" id="${id}-panel"></div>
+    </div>
+  `;
+}
+
+// Map combobox ids to their option lists.
+function optionsForCombobox(id) {
+  if (id === "npCategory") return PRODUCT_CATEGORIES;
+  if (id === "npUnit") return PRODUCT_UNITS;
+  if (id === "receiveSupplier") return getUniqueSuppliers();
+  return [];
+}
+
+// Works out what the panel should list for the current text.
+// Returns the ordered list of selectable values (matches first,
+// then the "Use ..." entry if the text isn't an exact match).
+function getComboboxItems(id) {
+  const input = document.getElementById(id);
+  const typed = (input?.value || "").trim();
+  const query = typed.toLowerCase();
+  const options = optionsForCombobox(id);
+
+  const filtered = options.filter(
+    (o) => !query || o.toLowerCase().includes(query),
+  );
+  const exactMatch = options.some((o) => o.toLowerCase() === query);
+  const showCreate = typed.length > 0 && !exactMatch;
+
+  return { typed, filtered, showCreate };
+}
+
+// Rebuilds ONLY the panel's contents and shows it. Never calls render().
+function refreshComboboxPanel(id) {
+  const panel = document.getElementById(id + "-panel");
+  if (!panel) return;
+
+  const { typed, filtered, showCreate } = getComboboxItems(id);
+  state.comboboxActive = -1;
+
+  let html = "";
+
+  if (filtered.length === 0 && !showCreate) {
+    html += `<div class="combobox-empty">No matches. Type a value to use it.</div>`;
+  }
+
+  filtered.forEach((o) => {
+    html += `
+      <div class="combobox-item"
+        data-value="${escapeTransferDetailText(o)}"
+        onmousedown="event.preventDefault(); selectComboboxValue('${id}', this.dataset.value)">
+        ${escapeTransferDetailText(o)}
+      </div>
+    `;
+  });
+
+  if (showCreate) {
+    html += `
+      <div class="combobox-item create-new"
+        data-value="${escapeTransferDetailText(typed)}"
+        onmousedown="event.preventDefault(); selectComboboxValue('${id}', this.dataset.value)">
+        Use "${escapeTransferDetailText(typed)}"
+      </div>
+    `;
+  }
+
+  panel.innerHTML = html;
+  panel.classList.remove("hidden");
+}
+
+function showComboboxPanel(id) {
+  refreshComboboxPanel(id);
+}
+
+function hideComboboxPanel(id) {
+  const panel = document.getElementById(id + "-panel");
+  if (panel) panel.classList.add("hidden");
+  state.comboboxActive = -1;
+}
+
+function toggleComboboxPanel(id) {
+  const panel = document.getElementById(id + "-panel");
+  if (!panel) return;
+
+  if (panel.classList.contains("hidden")) {
+    document.getElementById(id)?.focus();
+    refreshComboboxPanel(id);
+  } else {
+    hideComboboxPanel(id);
+  }
+}
+
+function highlightComboboxItem(id) {
+  const panel = document.getElementById(id + "-panel");
+  if (!panel) return;
+
+  panel.querySelectorAll(".combobox-item").forEach((el, i) => {
+    const isActive = i === state.comboboxActive;
+    el.classList.toggle("active", isActive);
+    if (isActive) el.scrollIntoView({ block: "nearest" });
+  });
+}
+
+function onComboboxKeydown(event, id) {
+  const panel = document.getElementById(id + "-panel");
+  const { typed, filtered, showCreate } = getComboboxItems(id);
+  const values = showCreate ? [...filtered, typed] : filtered;
+
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    if (panel && panel.classList.contains("hidden")) refreshComboboxPanel(id);
+    state.comboboxActive = Math.min(state.comboboxActive + 1, values.length - 1);
+    highlightComboboxItem(id);
+  } else if (event.key === "ArrowUp") {
+    event.preventDefault();
+    state.comboboxActive = Math.max(state.comboboxActive - 1, 0);
+    highlightComboboxItem(id);
+  } else if (event.key === "Enter") {
+    if (state.comboboxActive >= 0 && state.comboboxActive < values.length) {
+      event.preventDefault();
+      selectComboboxValue(id, values[state.comboboxActive]);
     }
+  } else if (event.key === "Escape") {
+    hideComboboxPanel(id);
+  }
+}
 
-    function openCombobox(id) {
-      state.openCombobox = id;
-      state.comboboxActive = -1;
-      render();
-    }
-
-    function toggleCombobox(id, event) {
-      event.stopPropagation();
-      if (state.openCombobox === id) {
-        state.openCombobox = null;
-      } else {
-        state.openCombobox = id;
-      }
-      state.comboboxActive = -1;
-      render();
-    }
-
-    function onComboboxInput(id) {
-      // Input value already lives in the DOM. We just need to re-render so the
-      // filtered panel updates, but we must preserve focus and value.
-      const input = document.getElementById(id);
-      const value = input?.value || "";
-      const selStart = input?.selectionStart;
-      const selEnd = input?.selectionEnd;
-
-      state.openCombobox = id;
-      state.comboboxActive = -1;
-      render();
-
-      // Restore focus and caret position
-      setTimeout(() => {
-        const newInput = document.getElementById(id);
-        if (newInput) {
-          newInput.focus();
-          try {
-            newInput.setSelectionRange(selStart, selEnd);
-          } catch (e) { }
-        }
-      }, 0);
-    }
-
-    function onComboboxKeydown(event, id) {
-      const options = optionsForCombobox(id);
-      const typed = event.target.value || "";
-      const query = typed.toLowerCase();
-      const filtered = options.filter(
-        (o) => !query || o.toLowerCase().includes(query),
-      );
-      const exactMatch = options.some((o) => o.toLowerCase() === query);
-      const showCreate = typed.length > 0 && !exactMatch;
-
-      const totalItems = filtered.length + (showCreate ? 1 : 0);
-
-      if (event.key === "ArrowDown") {
-        event.preventDefault();
-        state.openCombobox = id;
-        state.comboboxActive = Math.min(
-          state.comboboxActive + 1,
-          totalItems - 1,
-        );
-        render();
-        refocusCombobox(id);
-      } else if (event.key === "ArrowUp") {
-        event.preventDefault();
-        state.comboboxActive = Math.max(state.comboboxActive - 1, 0);
-        render();
-        refocusCombobox(id);
-      } else if (event.key === "Enter") {
-        if (state.comboboxActive >= 0 && state.comboboxActive < totalItems) {
-          event.preventDefault();
-          const value =
-            state.comboboxActive < filtered.length
-              ? filtered[state.comboboxActive]
-              : typed;
-          selectComboboxValue(id, value);
-        }
-      } else if (event.key === "Escape") {
-        state.openCombobox = null;
-        state.comboboxActive = -1;
-        render();
-        refocusCombobox(id);
-      }
-    }
-
-    function onComboboxBlur(event, id) {
-      // Small delay so an mousedown on a panel item can fire first.
-      setTimeout(() => {
-        // If focus has moved somewhere else and the panel is still open, close it.
-        if (state.openCombobox === id) {
-          state.openCombobox = null;
-          state.comboboxActive = -1;
-          render();
-        }
-      }, 150);
-    }
-
-    function refocusCombobox(id) {
-      setTimeout(() => {
-        const input = document.getElementById(id);
-        if (input) {
-          input.focus();
-          // Put caret at end
-          const len = input.value.length;
-          try {
-            input.setSelectionRange(len, len);
-          } catch (e) { }
-        }
-      }, 0);
-    }
-
-    // Map combobox ids to their option lists.
-    function optionsForCombobox(id) {
-      if (id === "npCategory") return PRODUCT_CATEGORIES;
-      if (id === "npUnit") return PRODUCT_UNITS;
-      return [];
-    }
-
-    function selectComboboxValue(id, value) {
-      const input = document.getElementById(id);
-      if (input) input.value = value;
-
-      // Remove the panel directly instead of a full re-render.
-      // A full re-render destroys the DOM node mid-click, which causes the
-      // browser to drop the click and the selection never appears to take.
-      const wrap = input?.closest(".combobox");
-      const panel = wrap?.querySelector(".combobox-panel");
-      if (panel) panel.remove();
-
-      state.openCombobox = null;
-      state.comboboxActive = -1;
-      // No render() — DOM and state are consistent as-is.
-      // The input's value will be read fresh next time we need it
-      // (e.g. on save or on the next combobox interaction).
-    }
-
+function selectComboboxValue(id, value) {
+  const input = document.getElementById(id);
+  if (input) input.value = value;
+  hideComboboxPanel(id);
+}
+    
+    
     function renderEditProductModal() {
       const p = getInvProduct(state.inventoryProductId);
       if (!p) return "";
