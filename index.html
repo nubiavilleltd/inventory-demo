@@ -4404,18 +4404,24 @@ DISPATCH DASHBOARD DEMO SEED
                   Nothing is available to pick up right now.
                 </div>
               `
-            : `
-                <label class="mb-12" style="display:flex; align-items:flex-start; gap:8px; font-size:12px; line-height:1.3; padding:10px; background:#fdfdfd; border:2px solid ${isDeferred ? "#1a1a1a" : "#ccc"}; border-radius:4px; cursor:pointer; margin-bottom:12px;">
-                  <input type="checkbox" id="deferAllCheckbox"
-                    style="width:auto; margin-top:2px;"
-                    ${isDeferred ? "checked" : ""}
-                    onchange="state.deferAllItems = this.checked; render();">
-                  <span>
-                    <strong>Customer is not taking anything at the moment (defer all items)</strong>
-                    <br>
-                    <span style="color:#666;">The operator will log a pickup of 0 items.</span>
-                  </span>
-                </label>
+                     : `
+                ${(() => {
+                  const totalFulfilled = (o.fulfilmentLines || []).reduce((s, l) => s + l.fulfilled, 0);
+                  if (totalFulfilled > 0) return "";
+                  return `
+                    <label class="mb-12" style="display:flex; align-items:flex-start; gap:8px; font-size:12px; line-height:1.3; padding:10px; background:#fdfdfd; border:2px solid ${isDeferred ? '#1a1a1a' : '#ccc'}; border-radius:4px; cursor:pointer; margin-bottom:12px;">
+                      <input type="checkbox" id="deferAllCheckbox"
+                        style="width:auto; margin-top:2px;"
+                        ${isDeferred ? "checked" : ""}
+                        onchange="state.deferAllItems = this.checked; render();">
+                      <span>
+                        <strong>Customer is not taking anything at the moment (defer all items)</strong>
+                        <br>
+                        <span style="color:#666;">The operator will log a pickup of 0 items.</span>
+                      </span>
+                    </label>
+                  `;
+                })()}
 
                 <div style="font-weight:bold; font-size:13px; margin-bottom:8px;">Items being collected</div>
 
@@ -6177,18 +6183,24 @@ DISPATCH DASHBOARD DEMO SEED
             </button>
           `
           : `
-            <!-- THE DEFER CHECKBOX IS NOW AT THE TOP -->
-            <label class="mb-12" style="display:flex; align-items:flex-start; gap:8px; font-size:12px; line-height:1.3; padding:10px; background:#fdfdfd; border:2px solid ${isDeferred ? "#1a1a1a" : "#ccc"}; border-radius:4px; cursor:pointer; margin-bottom:12px;">
-              <input type="checkbox" id="deferAllCheckbox"
-                style="width:auto; margin-top:2px;"
-                ${isDeferred ? "checked" : ""}
-                onchange="state.deferAllItems = this.checked; render();">
-              <span>
-                <strong>Customer is not taking anything at the moment (defer all items)</strong>
-                <br>
-                <span style="color:#666;">The operator will log a pickup of 0 items.</span>
-              </span>
-            </label>
+            ${(() => {
+              const totalFulfilled = (o.fulfilmentLines || []).reduce((s, l) => s + l.fulfilled, 0);
+              if (totalFulfilled > 0) return "";
+              return `
+                <!-- THE DEFER CHECKBOX IS NOW AT THE TOP -->
+                <label class="mb-12" style="display:flex; align-items:flex-start; gap:8px; font-size:12px; line-height:1.3; padding:10px; background:#fdfdfd; border:2px solid ${isDeferred ? '#1a1a1a' : '#ccc'}; border-radius:4px; cursor:pointer; margin-bottom:12px;">
+                  <input type="checkbox" id="deferAllCheckbox"
+                    style="width:auto; margin-top:2px;"
+                    ${isDeferred ? "checked" : ""}
+                    onchange="state.deferAllItems = this.checked; render();">
+                  <span>
+                    <strong>Customer is not taking anything at the moment (defer all items)</strong>
+                    <br>
+                    <span style="color:#666;">The operator will log a pickup of 0 items.</span>
+                  </span>
+                </label>
+              `;
+            })()}
 
             <div style="font-weight:bold; font-size:13px; margin-bottom:8px;">Items being collected</div>
 
