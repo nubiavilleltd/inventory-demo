@@ -3702,36 +3702,36 @@ DISPATCH DASHBOARD DEMO SEED
           if (stockResult.warning) {
             if (!confirm(stockResult.message + "\n\nProceed anyway?")) return;
           }
-
-                if (o.state === "submitted") {
+          if (o.state === "submitted") {
             // Void the old invoice and generate a new one
             o.invoiceHistory = o.invoiceHistory || [];
-            if (o.invoiceNumber) {
+            const oldNumber = o.invoiceNumber;
+            
+            if (oldNumber) {
               o.invoiceHistory.push({
-                number: o.invoiceNumber,
+                number: oldNumber,
                 status: "voided",
                 voidedAt: new Date().toISOString(),
                 reason: "Order edited",
               });
+
+              // NEW: Reach into the global INVOICES array and void the old snapshot
+              const oldInvSnapshot = INVOICES.find(inv => inv.invoiceNumber === oldNumber);
+              if (oldInvSnapshot) {
+                oldInvSnapshot.status = "Voided";
+              }
             }
 
-            // Update the global Orders array to reflect the edit
-            const idx = ORDERS.findIndex(ord => ord.orderNumber === o.orderNumber);
-            if (idx !== -1) {
-              ORDERS[idx] = JSON.parse(JSON.stringify(o));
-            }
-                    const oldNumber = o.invoiceNumber;
-            
-            // Mark the old invoice as Voided in the global list
-            const oldSnapshot = INVOICES.find(inv => inv.invoiceNumber === oldNumber);
-            if (oldSnapshot) oldSnapshot.status = "Voided";
-
-            // Generate new invoice and snapshot
+            // Generate the new invoice number
             o.invoiceNumber = genNum("INV");
             logTimeline(
               `Order edited. Invoice ${oldNumber} voided. New invoice ${o.invoiceNumber} issued.`,
             );
 
+            // Update the global Orders array to reflect the edit
+            syncOrderSnapshot(o);
+
+            // Create the new invoice snapshot
             const newSnapshot = {
               invoiceNumber: o.invoiceNumber,
               orderNumber: o.orderNumber,
@@ -4026,7 +4026,7 @@ DISPATCH DASHBOARD DEMO SEED
 
       // Record the acknowledgement on the order.
 
-      // Continue with submission
+        // Continue with submission
       o.invoiceDate = todayISO();
 
       // Due date = invoice date + standard payment terms.
@@ -4034,7 +4034,25 @@ DISPATCH DASHBOARD DEMO SEED
       dueDate.setDate(dueDate.getDate() + DEFAULT_PAYMENT_TERMS_DAYS);
       o.dueDate = dueDate.toISOString().split("T")[0];
 
-            o.invoiceNumber = genNum("INV");
+      // ---- NEW: Void any previous invoice if re-submitting an existing one ----
+      if (o.invoiceNumber) {
+        o.invoiceHistory = o.invoiceHistory || [];
+        o.invoiceHistory.push({
+          number: o.invoiceNumber,
+          status: "voided",
+          voidedAt: new Date().toISOString(),
+          reason: "Order edited",
+        });
+
+        // Void the old snapshot in the global INVOICES array
+        const oldInvSnapshot = INVOICES.find(inv => inv.invoiceNumber === o.invoiceNumber);
+        if (oldInvSnapshot) {
+          oldInvSnapshot.status = "Voided";
+        }
+      }
+      // -------------------------------------------------------------------------
+
+      o.invoiceNumber = genNum("INV");
       logTimeline(
         `Invoice ${o.invoiceNumber} generated (Due: ${formatDate(o.dueDate)})`,
       );
