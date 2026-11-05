@@ -11807,15 +11807,18 @@ MOVEMENT LOG PAGE
         </div>
       </div>
 
-      ${missingUnits.length > 0 ? `
+
+            ${outstanding > 0 ? `
       <div style="
         border-top:1px solid #e5e7eb;
         padding-top:16px;
         margin-bottom:20px;
       ">
         <div style="font-weight:bold; margin-bottom:12px;">
-          Missing Items (${missingUnits.length})
+          Missing Items (${outstanding})
         </div>
+        
+        ${product.trackingType === "Individual" ? `
         <table style="width:100%; border-collapse:collapse; font-size:13px;">
           <thead>
             <tr>
@@ -11840,9 +11843,37 @@ MOVEMENT LOG PAGE
             `).join("")}
           </tbody>
         </table>
+        ` : `
+        <table style="width:100%; border-collapse:collapse; font-size:13px;">
+          <thead>
+            <tr>
+              <th style="text-align:left; padding:8px; border-bottom:2px solid #ccc;">Description</th>
+              <th style="text-align:left; padding:8px; border-bottom:2px solid #ccc;">Condition</th>
+              <th style="text-align:left; padding:8px; border-bottom:2px solid #ccc;">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="padding:8px; border-bottom:1px solid #eee;">
+                ${escapeTransferDetailText(product.name)} (Stock Quantity)
+              </td>
+              <td style="padding:8px; border-bottom:1px solid #eee;">
+                N/A
+              </td>
+              <td style="padding:8px; border-bottom:1px solid #eee;">
+                <span class="badge badge-partial">Unaccounted For</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        `}
       </div>
       ` : ""}
 
+    
+      
+      
+      
       <div style="
         border-top:1px solid #e5e7eb;
         padding-top:16px;
