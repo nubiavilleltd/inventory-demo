@@ -11547,7 +11547,8 @@ MOVEMENT LOG PAGE
     }
 
 
-    function renderTransferDiscrepancyDetailsPage(c) {
+
+        function renderTransferDiscrepancyDetailsPage(c) {
       const transfer = TRANSFERS.find(
         (t) => t.id === state.selectedTransferDiscrepancyId,
       );
@@ -11581,6 +11582,11 @@ MOVEMENT LOG PAGE
 
       const isResolved = outstanding === 0;
       const unit = product?.unitOfMeasure || "unit";
+
+      // NEW: Fetch the exact units that are currently missing
+      const missingUnits = product?.trackingType === "Individual" 
+        ? UNITS.filter(u => u.discrepancyTransferId === transfer.id && u.status === "Unaccounted For")
+        : [];
 
       const resolutionHistory = resolutions.length
         ? resolutions.map((resolution) => {
@@ -11746,11 +11752,17 @@ MOVEMENT LOG PAGE
         <div style="font-size:12px; line-height:1.9; color:#555;">
           <div>
             <strong>Product:</strong>
-            ${escapeTransferDetailText(product?.name || "—")}
+            ${product 
+              ? `<a href="#" style="color:#1e40af; text-decoration:underline;" onclick="event.preventDefault(); state.activeTab='inventory'; state.inventoryView='product'; state.inventoryProductId='${product.id}'; render();">${escapeTransferDetailText(product.name)}</a>`
+              : "—"
+            }
           </div>
           <div>
             <strong>Batch:</strong>
-            ${escapeTransferDetailText(batch?.batchNumber || "—")}
+            ${batch 
+              ? `<a href="#" style="color:#1e40af; text-decoration:underline;" onclick="event.preventDefault(); state.activeTab='inventory'; state.inventoryView='batch'; state.inventoryBatchId='${batch.id}'; render();">${escapeTransferDetailText(batch.batchNumber)}</a>`
+              : "—"
+            }
           </div>
           <div>
             <strong>From:</strong>
@@ -11794,6 +11806,42 @@ MOVEMENT LOG PAGE
           ${escapeTransferDetailText(transfer.discrepancyReason || "No reason recorded.")}
         </div>
       </div>
+
+      ${missingUnits.length > 0 ? `
+      <div style="
+        border-top:1px solid #e5e7eb;
+        padding-top:16px;
+        margin-bottom:20px;
+      ">
+        <div style="font-weight:bold; margin-bottom:12px;">
+          Missing Items (${missingUnits.length})
+        </div>
+        <table style="width:100%; border-collapse:collapse; font-size:13px;">
+          <thead>
+            <tr>
+              <th style="text-align:left; padding:8px; border-bottom:2px solid #ccc;">Tag Number</th>
+              <th style="text-align:left; padding:8px; border-bottom:2px solid #ccc;">Condition</th>
+              <th style="text-align:left; padding:8px; border-bottom:2px solid #ccc;">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${missingUnits.map(u => `
+              <tr>
+                <td style="padding:8px; border-bottom:1px solid #eee;">
+                  <a href="#" style="color:#1e40af; text-decoration:underline;" onclick="event.preventDefault(); state.activeTab='inventory'; state.inventoryView='unit'; state.inventoryUnitId='${u.id}'; render();">${escapeTransferDetailText(u.tag)}</a>
+                </td>
+                <td style="padding:8px; border-bottom:1px solid #eee;">
+                  <span class="badge badge-condition-${(u.condition || "New").toLowerCase()}">${escapeTransferDetailText(u.condition || "New")}</span>
+                </td>
+                <td style="padding:8px; border-bottom:1px solid #eee;">
+                  <span class="badge badge-partial">${escapeTransferDetailText(u.status)}</span>
+                </td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+      ` : ""}
 
       <div style="
         border-top:1px solid #e5e7eb;
