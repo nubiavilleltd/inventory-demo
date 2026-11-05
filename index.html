@@ -496,7 +496,7 @@
     <h1>Order Lifecycle Demo</h1>
     <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap">
       <div class="toggle-group" id="tabNav">
-        <button class="toggle-btn active" data-tab="orders">
+             <button class="toggle-btn active" data-tab="orders-list">
           Orders
         </button>
         <button class="toggle-btn" data-tab="inventory">
@@ -1469,7 +1469,7 @@
       transferChangingUnitsFor: false, // true while the drill-in is open
 
       // Top-level tab
-      activeTab: "orders", // 'orders' | 'inventory' | 'dispatch' | 'customer-portal' | 'invoices'
+      activeTab: "orders-list", // 'orders' | 'orders-list' | 'inventory' | 'dispatch' | 'customer-portal' | 'invoices' | 'fleet'
       invoiceFilter: "",
       invoiceView: "list", // 'list' | 'detail'
       selectedInvoiceNumber: null,
@@ -2225,13 +2225,21 @@ DISPATCH DASHBOARD DEMO SEED
         } else {
           renderInvoicesList(c);
         }
-      } else {
-        // Orders tab
+         } else if (state.activeTab === "orders-list") {
+        renderOrdersList(c);
+      } else if (state.activeTab === "orders-list") {
+        // If the user clicks the "Orders" tab, they should always see the list
+        renderOrdersList(c);
+      } else if (state.activeTab === "orders") {
+        // This is the "New Order" / "Order Details" flow
         if (state.currentPage === "order-creation") renderOrderCreation(c);
         else if (state.currentPage === "order-details") renderOrderDetails(c);
         else if (state.currentPage === "success") renderSuccess(c);
+        else renderOrdersList(c); // Fallback
+      } else {
+        // Default fallback
+        renderOrdersList(c);
       }
-
       updateStatusBar();
       renderModal();
     }
@@ -2531,6 +2539,126 @@ DISPATCH DASHBOARD DEMO SEED
       // Hiding the banner for now to clean up the UI.
       return "";
     }
+
+
+
+            // Sync the global ORDERS array with the active state.order
+    function syncOrderSnapshot(o) {
+      if (!o || !o.orderNumber) return;
+      
+      const snapshot = JSON.parse(JSON.stringify(o));
+      const idx = ORDERS.findIndex(ord => ord.orderNumber === o.orderNumber);
+      
+      if (idx !== -1) {
+        ORDERS[idx] = snapshot;
+      } else {
+        ORDERS.push(snapshot);
+      }
+    }
+
+    function renderOrdersList(c) {
+      const totalOrders = ORDERS.length;
+      const pendingDispatch = ORDERS.filter(o => o.state === "confirmed" && o.fulfillment === "Delivery").length;
+      const inTransit = ORDERS.filter(o => o.state === "out-for-delivery").length;
+      const delivered = ORDERS.filter(o => o.state === "completed" || o.state === "delivered").length;
+      
+      const totalRevenue = ORDERS.reduce((sum, o) => sum + calcTotals(o).paid, 0);
+
+      c.innerHTML = `
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+      <div>
+        <h2 style="font-size:20px;">Orders</h2>
+        <div style="font-size:12px; color:#555;">Manage customer orders, dispatch, billing and payments</div>
+      </div>
+          <button class="btn-primary" onclick="state.activeTab='orders'; state.currentPage='order-creation'; state.currentScenario='walkin'; render();">
+        + New Order
+      </button>
+    </div>
+
+    <div class="row">
+      <div class="col"><div class="card" style="text-align:center; padding:12px; background:#f0f9ff; border-color:#bae6fd;">
+        <div style="font-size:11px; color:#0369a1;">Total Orders</div>
+        <div style="font-size:22px; font-weight:bold; color:#0369a1;">${totalOrders}</div>
+      </div></div>
+      <div class="col"><div class="card" style="text-align:center; padding:12px; background:#fef3c7; border-color:#fde68a;">
+        <div style="font-size:11px; color:#92400e;">Pending Dispatch</div>
+        <div style="font-size:22px; font-weight:bold; color:#92400e;">${pendingDispatch}</div>
+      </div></div>
+      <div class="col"><div class="card" style="text-align:center; padding:12px; background:#e0f2fe; border-color:#bae6fd;">
+        <div style="font-size:11px; color:#0369a1;">In Transit</div>
+        <div style="font-size:22px; font-weight:bold; color:#0369a1;">${inTransit}</div>
+      </div></div>
+      <div class="col"><div class="card" style="text-align:center; padding:12px; background:#dcfce7; border-color:#bbf7d0;">
+        <div style="font-size:11px; color:#166534;">Delivered</div>
+        <div style="font-size:22px; font-weight:bold; color:#166534;">${delivered}</div>
+      </div></div>
+      <div class="col"><div class="card" style="text-align:center; padding:12px; background:#f3e8ff; border-color:#d8b4fe;">
+        <div style="font-size:11px; color:#6b21a8;">Total Revenue</div>
+        <div style="font-size:22px; font-weight:bold; color:#6b21a8;">${money(totalRevenue)}</div>
+      </div></div>
+    </div>
+
+    <div class="card" style="padding:0;">
+      <table>
+        <thead>
+          <tr>
+            <th style="padding-left:12px;">Order No.</th>
+            <th>Created At</th>
+            <th>Customer</th>
+            <th>Amount</th>
+            <th>Order Status</th>
+            <th>Payment Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${ORDERS.slice().reverse().map((o) => {
+            const customer = getCustomer(o.customerId);
+            const t = calcTotals(o);
+            
+            let payBadge = "badge-unpaid";
+            if (t.paid >= t.total && t.total > 0) payBadge = "badge-paid";
+            else if (t.paid > 0) payBadge = "badge-partial";
+
+            return `
+              <tr>
+                <td style="padding-left:12px; font-weight:bold;">${o.orderNumber}</td>
+                <td>${formatDate(o.invoiceDate || o.scheduledDate)}</td>
+                <td>${customer?.name || "—"}</td>
+                <td>${money(t.total)}</td>
+                <td><span class="badge ${stateBadge(o)}">${stateLabel(o)}</span></td>
+                <td><span class="badge ${payBadge}">${paymentStatus(o).toUpperCase()}</span></td>
+                <td>
+                  <button onclick="loadOrderForViewing('${o.orderNumber}')" style="font-size:11px; padding:2px 8px;">View</button>
+                </td>
+              </tr>
+            `;
+          }).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+    }
+
+    // Helper to load an order from the history into the active state
+    function loadOrderForViewing(orderNumber) {
+      const order = ORDERS.find(o => o.orderNumber === orderNumber);
+      if (!order) return;
+      
+      // Deep copy so we don't accidentally mutate the global list directly
+      state.order = JSON.parse(JSON.stringify(order));
+      
+      // Also load the associated customer so the UI has the right address/credit info
+      const customer = getCustomer(order.customerId);
+      if (customer) {
+        state.customer = JSON.parse(JSON.stringify(customer));
+      }
+      
+      state.activeTab = "orders";
+      state.currentPage = "order-details";
+      render();
+    }
+
 
     /* ============ ORDER CREATION PAGE ============ */
        /* ============ ORDER CREATION PAGE ============ */
@@ -3925,19 +4053,9 @@ DISPATCH DASHBOARD DEMO SEED
         payments: o.payments.map(p => ({ ...p })),
       };
       
-      // Avoid duplicates if re-submitting a draft
+        // Avoid duplicates if re-submitting a draft
       if (!INVOICES.find(inv => inv.invoiceNumber === o.invoiceNumber)) {
         INVOICES.push(snapshot);
-      }
-
-      // Snapshot the order for the global Orders list
-      const orderSnapshot = JSON.parse(JSON.stringify(o));
-      if (!ORDERS.find(ord => ord.orderNumber === o.orderNumber)) {
-        ORDERS.push(orderSnapshot);
-      } else {
-        // Update existing snapshot if it's a re-submit
-        const idx = ORDERS.findIndex(ord => ord.orderNumber === o.orderNumber);
-        ORDERS[idx] = orderSnapshot;
       }
       const t = calcTotals(o);
 
@@ -3975,7 +4093,11 @@ DISPATCH DASHBOARD DEMO SEED
       if (!recordPayment) {
         o.state = "submitted";
         logTimeline("Order submitted (unpaid)");
-           state.successContext = {
+        
+        // Snapshot the order NOW that the state is updated
+        syncOrderSnapshot(o);
+
+        state.successContext = {
           title: "Order Submitted",
           subtitle: `${o.orderNumber} · Invoice generated`,
           documentLabel: "Invoice",
@@ -3985,6 +4107,7 @@ DISPATCH DASHBOARD DEMO SEED
         state.activeModal = "receipt-success";
         render();
       } else {
+        // Payment modal will handle the state change and snapshot
         state.activeModal = "payment";
         render();
       }
@@ -5327,14 +5450,11 @@ DISPATCH DASHBOARD DEMO SEED
         ensureOrderInDispatchPool(o);
       }
 
-         // Sync the invoice status in the global list
+           // Sync the invoice status in the global list
       syncInvoiceStatus(o);
 
       // Update the global Orders array
-      const ordIdx = ORDERS.findIndex(ord => ord.orderNumber === o.orderNumber);
-      if (ordIdx !== -1) {
-        ORDERS[ordIdx] = JSON.parse(JSON.stringify(o));
-      }
+      syncOrderSnapshot(o);
 
       state.activeModal = null;
 
@@ -16031,13 +16151,23 @@ DELIVERY CONFIRMATION
       document.querySelectorAll("[data-tab]").forEach((btn) => {
         btn.addEventListener("click", () => {
           state.activeTab = btn.dataset.tab;
-          document
+                   document
             .querySelectorAll("[data-tab]")
-            .forEach((b) =>
-              b.classList.toggle("active", b.dataset.tab === state.activeTab),
-            );
+            .forEach((b) => {
+              // The "Orders" tab should stay active whether viewing the list or creating a new order
+              const isActive = 
+                b.dataset.tab === state.activeTab || 
+                (b.dataset.tab === "orders-list" && state.activeTab === "orders");
+              b.classList.toggle("active", isActive);
+            });
 
-          // Reset view state when entering a tab
+                 // Reset view state when entering a tab
+          if (state.activeTab === "orders-list") {
+            // If they are mid-way through creating an order, reset it
+            // (Or we can leave it, but resetting is safer for the demo)
+            state.currentPage = "order-creation";
+            initScenario("walkin");
+          }
           if (state.activeTab === "inventory") {
             state.inventoryView = "list";
             state.inventoryProductId = null;
@@ -16087,7 +16217,7 @@ DELIVERY CONFIRMATION
             fulfilmentLines: [{ productId: "p1", ordered: 1, fulfilled: 1 }],
             fulfilmentStatus: "complete",
           },
-          {
+                 {
             orderNumber: "ORD-20261002-002",
             invoiceNumber: "INV-20261002-002",
             customerId: "c2",
@@ -16097,7 +16227,7 @@ DELIVERY CONFIRMATION
             state: "confirmed",
             invoiceDate: "2026-10-02",
             dueDate: "2026-10-09",
-            payments: [],
+            payments: [{ date: "2026-10-02", amount: 80000, method: "Bank Transfer" }],
             creditApplied: 0,
             timeline: [],
             fulfilmentLines: [{ productId: "p2", ordered: 5, fulfilled: 5 }],
