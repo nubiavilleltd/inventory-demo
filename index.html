@@ -511,6 +511,10 @@
            <button class="toggle-btn" data-tab="invoices">
           Invoices
         </button>
+
+          <button class="toggle-btn" data-tab="fleet">
+          Fleet
+        </button>
       </div>
       <select id="scenarioSelect" class="hidden">
         <option value="walkin">1. Walk-in Retail</option>
@@ -701,57 +705,98 @@
       },
     ];
 
-    const DRIVERS = [
+       const DRIVERS = [
       {
         id: "d1",
-        name: "John Doe",
-        phone: "08055556666",
-        status: "Available",
+        name: "Ibikunle Johnson",
+        email: "ibikunle@example.com",
+        phone: "+2348102515228",
+        licenseNumber: "23GDFS532",
+        licenseExpiry: "2026-07-31",
+        experienceYears: 9,
+        status: "Available", // "Available" | "Assigned" | "In Transit" | "Off Duty" | "Suspended" | "Inactive"
         defaultVehicleId: "v1",
       },
       {
         id: "d2",
-        name: "Jane Smith",
-        phone: "08055557777",
+        name: "Omololu Jumat",
+        email: "omololu@example.com",
+        phone: "08012345678",
+        licenseNumber: "drv-2334",
+        licenseExpiry: "2026-09-30",
+        experienceYears: 5,
         status: "Available",
-        defaultVehicleId: "v2",
+        defaultVehicleId: null, // Intentionally no vehicle for testing
       },
       {
         id: "d3",
-        name: "Mike Johnson",
-        phone: "08055558888",
-        status: "On Trip",
-        defaultVehicleId: "v3",
+        name: "Ebuga Ezeanya",
+        email: "ebugal@example.com",
+        phone: "+2349090891242",
+        licenseNumber: "2653gsh63",
+        licenseExpiry: "2026-09-05",
+        experienceYears: 2,
+        status: "Suspended",
+        defaultVehicleId: null,
       },
     ];
 
-    const VEHICLES = [
+        const VEHICLES = [
       {
         id: "v1",
-        plate: "KJA-123-XY",
-        type: "Van",
-        capacity: 100,
-        status: "Available",
+        name: "Toyota Camry",
+        make: "Iveco",
+        model: "TGS",
+        year: 2019,
+        plateNumber: "GHG353490",
+        type: "Lpg Tanker",
+        capacity: 0,
+        fuelType: "Diesel",
+        status: "Available", // "Available" | "Assigned" | "In Transit" | "Maintenance" | "Suspended" | "Inactive"
         defaultDriverId: "d1",
+        lastServiceDate: "2026-08-07",
+        nextServiceDate: "2026-08-08",
+        insuranceExpiry: "2026-08-07",
+        roadworthinessExpiry: "2026-08-12",
       },
       {
         id: "v2",
-        plate: "KJA-456-AB",
-        type: "Truck",
-        capacity: 200,
+        name: "New Vehicle",
+        make: "Iveco",
+        model: "TGS",
+        year: 2021,
+        plateNumber: "ABC1234",
+        type: "Service Truck",
+        capacity: 35000,
+        fuelType: "Petrol",
         status: "Available",
-        defaultDriverId: "d2",
+        defaultDriverId: null,
+        lastServiceDate: "2026-08-01",
+        nextServiceDate: "2026-08-13",
+        insuranceExpiry: "2026-08-01",
+        roadworthinessExpiry: "2026-08-15",
       },
       {
         id: "v3",
-        plate: "KJA-789-CD",
-        type: "Bike",
-        capacity: 20,
+        name: "Truck",
+        make: "MAN",
+        model: "TGS",
+        year: 2020,
+        plateNumber: "GHG35343",
+        type: "Lpg Tanker",
+        capacity: 30000,
+        fuelType: "Diesel",
         status: "Maintenance",
-        defaultDriverId: "d3",
+        defaultDriverId: null,
+        lastServiceDate: "2026-07-01",
+        nextServiceDate: "2026-08-19",
+        insuranceExpiry: "2026-07-01",
+        roadworthinessExpiry: "2026-08-20",
       },
     ];
 
+
+    
     const COURIERS = ["DHL", "GIG Logistics", "Local Dispatch", "Other"];
 
     /* ============ INVENTORY DATA ============ */
@@ -1468,11 +1513,17 @@
       transferNotes: "",
       transferChangingUnitsFor: false, // true while the drill-in is open
 
-      // Top-level tab
+           // Top-level tab
       activeTab: "orders-list", // 'orders' | 'orders-list' | 'inventory' | 'dispatch' | 'customer-portal' | 'invoices' | 'fleet'
       invoiceFilter: "",
       invoiceView: "list", // 'list' | 'detail'
       selectedInvoiceNumber: null,
+      
+      // Fleet state
+      fleetTab: "drivers", // 'drivers' | 'vehicles'
+      fleetFilter: "",
+      selectedDriverId: null, // Opens driver details modal
+      selectedVehicleId: null, // Opens vehicle details modal
 
       // Customer credit portal state (public, self-service)
       customerPortal: {
@@ -2219,17 +2270,14 @@ DISPATCH DASHBOARD DEMO SEED
         }
            } else if (state.activeTab === "customer-portal") {
         renderCustomerPortal(c);
-      } else if (state.activeTab === "invoices") {
+        } else if (state.activeTab === "invoices") {
         if (state.invoiceView === "detail") {
           renderInvoiceDetail(c, state.selectedInvoiceNumber);
         } else {
           renderInvoicesList(c);
         }
-         } else if (state.activeTab === "orders-list") {
-        renderOrdersList(c);
-      } else if (state.activeTab === "orders-list") {
-        // If the user clicks the "Orders" tab, they should always see the list
-        renderOrdersList(c);
+      } else if (state.activeTab === "fleet") {
+        renderFleetPage(c);
       } else if (state.activeTab === "orders") {
         // This is the "New Order" / "Order Details" flow
         if (state.currentPage === "order-creation") renderOrderCreation(c);
@@ -16135,6 +16183,106 @@ DELIVERY CONFIRMATION
   `;
     }
 
+        function renderFleetPage(c) {
+      const filter = state.fleetFilter.toLowerCase();
+      
+      const filteredDrivers = DRIVERS.filter(d => 
+        d.name.toLowerCase().includes(filter) || 
+        d.email.toLowerCase().includes(filter) ||
+        d.licenseNumber.toLowerCase().includes(filter)
+      );
+      
+      const filteredVehicles = VEHICLES.filter(v => 
+        v.name.toLowerCase().includes(filter) || 
+        v.plateNumber.toLowerCase().includes(filter) ||
+        v.make.toLowerCase().includes(filter)
+      );
+
+      c.innerHTML = `
+    <div class="card">
+      <div class="card-title">Fleet Management</div>
+      <div style="font-size:12px; color:#555; margin-bottom:12px;">Manage drivers, vehicles, and their assignments.</div>
+      
+      <div class="toggle-group" style="margin-bottom:12px;">
+        <button class="toggle-btn ${state.fleetTab === "drivers" ? "active" : ""}" onclick="state.fleetTab='drivers'; render();">Drivers</button>
+        <button class="toggle-btn ${state.fleetTab === "vehicles" ? "active" : ""}" onclick="state.fleetTab='vehicles'; render();">Vehicles</button>
+      </div>
+
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <input type="text" id="fleetSearch" placeholder="🔍 Search..." value="${state.fleetFilter}"
+          style="max-width:250px;"
+          oninput="state.fleetFilter=this.value; render();">
+        <button class="btn-primary" onclick="alert('Add functionality coming in Patch 2');">
+          ${state.fleetTab === "drivers" ? "+ Add Driver" : "+ Add Vehicle"}
+        </button>
+      </div>
+
+      ${state.fleetTab === "drivers" ? `
+        <table>
+          <thead>
+            <tr>
+              <th>DRIVER</th>
+              <th>PHONE</th>
+              <th>LICENSE</th>
+              <th>STATUS</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filteredDrivers.length === 0 ? `<tr><td colspan="4" class="empty-state">No drivers found.</td></tr>` : ""}
+            ${filteredDrivers.map(d => {
+              const statusClass = d.status === "Available" ? "badge-paid" : d.status === "Suspended" || d.status === "Inactive" ? "badge-cancelled" : "badge-partial";
+              return `
+                <tr style="cursor:pointer;" onclick="state.selectedDriverId='${d.id}'; state.activeModal='driver-details'; render();">
+                  <td>
+                    <div style="font-weight:bold;">${d.name}</div>
+                    <div style="font-size:11px; color:#888;">${d.email}</div>
+                  </td>
+                  <td>${d.phone}</td>
+                  <td>
+                    <div>${d.licenseNumber}</div>
+                    <div style="font-size:11px; color:#888;">Exp: ${formatDate(d.licenseExpiry)}</div>
+                  </td>
+                  <td><span class="badge ${statusClass}">${d.status}</span></td>
+                </tr>
+              `;
+            }).join("")}
+          </tbody>
+        </table>
+      ` : `
+        <table>
+          <thead>
+            <tr>
+              <th>VEHICLE</th>
+              <th>PLATE NO.</th>
+              <th>TYPE</th>
+              <th>CAPACITY</th>
+              <th>STATUS</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filteredVehicles.length === 0 ? `<tr><td colspan="5" class="empty-state">No vehicles found.</td></tr>` : ""}
+            ${filteredVehicles.map(v => {
+              const statusClass = v.status === "Available" ? "badge-paid" : v.status === "Suspended" || v.status === "Inactive" || v.status === "Maintenance" ? "badge-cancelled" : "badge-partial";
+              return `
+                <tr style="cursor:pointer;" onclick="state.selectedVehicleId='${v.id}'; state.activeModal='vehicle-details'; render();">
+                  <td>
+                    <div style="font-weight:bold;">${v.name}</div>
+                    <div style="font-size:11px; color:#888;">${v.make} · ${v.year}</div>
+                  </td>
+                  <td>${v.plateNumber}</td>
+                  <td>${v.type}</td>
+                  <td>${v.capacity ? v.capacity.toLocaleString() + " kg" : "—"}</td>
+                  <td><span class="badge ${statusClass}">${v.status}</span></td>
+                </tr>
+              `;
+            }).join("")}
+          </tbody>
+        </table>
+      `}
+    </div>
+  `;
+    }
+
     function printInvoice(invoiceNumber) {
       // In a real app, this would generate a PDF or open a print-specific view.
       // For the prototype, we trigger the browser's print dialog.
@@ -16210,6 +16358,10 @@ DELIVERY CONFIRMATION
           if (state.activeTab === "invoices") {
             state.invoiceView = "list";
             state.selectedInvoiceNumber = null;
+          }
+          if (state.activeTab === "fleet") {
+            state.fleetTab = "drivers";
+            state.fleetFilter = "";
           }
 
           render();
