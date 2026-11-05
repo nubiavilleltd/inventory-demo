@@ -488,6 +488,42 @@
       color: #888;
       font-style: italic;
     }
+
+    /* ---------- QR labels ---------- */
+.qr-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+.qr-label {
+  border: 1px solid #1a1a1a;
+  border-radius: 4px;
+  padding: 8px;
+  background: #fff;
+  font-size: 11px;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+.qr-label-top { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+.qr-box {
+  width: 56px; height: 56px; flex-shrink: 0;
+  background: #eee; border: 1px solid #999;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; color: #555;
+}
+.qr-label-title { font-weight: bold; font-size: 12px; }
+.qr-label-code { font-weight: bold; font-size: 12px; word-break: break-all; }
+.qr-label-line { color: #444; font-size: 10px; }
+.qr-label-footer { font-weight: bold; font-size: 10px; margin-top: 2px; }
+
+#printArea { display: none; }
+
+@media print {
+  body > *:not(#printArea) { display: none !important; }
+  body { display: block; padding: 0; background: #fff; }
+  #printArea { display: block; }
+  #printArea .qr-grid { grid-template-columns: repeat(auto-fill, 64mm); gap: 6mm; }
+}
   </style>
 </head>
 
@@ -537,6 +573,7 @@
 
   <div id="mainContent"></div>
   <div id="modalContainer"></div>
+  <div id="printArea"></div>
 
   <div class="status-bar">
     <span>Order: <strong id="statusOrderState">—</strong></span>
@@ -730,8 +767,8 @@
       },
       {
         id: "d3",
-        name: "Ebuga Ezeanya",
-        email: "ebugal@example.com",
+        name: "Ebuka Ezeanya",
+        email: "ebukal@example.com",
         phone: "+2349090891242",
         licenseNumber: "2653gsh63",
         licenseExpiry: "2026-09-05",
@@ -2290,6 +2327,7 @@ DISPATCH DASHBOARD DEMO SEED
       }
       updateStatusBar();
       renderModal();
+      syncPrintArea();
     }
 
     /* ============================================================
@@ -5339,6 +5377,8 @@ DISPATCH DASHBOARD DEMO SEED
         c.innerHTML = renderTagsDetailModal();
       } else if (state.activeModal === "receipt-success") {
         c.innerHTML = renderReceiptSuccessModal();
+      } else if (state.activeModal === "print-labels") {
+        c.innerHTML = renderPrintLabelsModal();
       } else if (state.activeModal === "driver-details") {
         c.innerHTML = renderDriverDetailsModal();
       } else if (state.activeModal === "vehicle-details") {
@@ -8431,7 +8471,7 @@ INVENTORY LIST PAGE
             </div>
           </div>
           <div style="margin-top:8px;">
-             <button onclick="alert('Printing QR Code for ${unit.tag}...')" style="font-size:11px;">Print QR Code</button>
+            <button onclick="printUnitLabel('${unit.id}')" style="font-size:11px;">Print QR Code</button>
           </div>
         </div>
       </div>
@@ -8603,16 +8643,21 @@ INVENTORY LIST PAGE
           <div style="font-size:11px; color:#666;">Product</div>
           <div style="font-weight:bold; font-size:13px;">${product.name}</div>
         </div>
-        <div class="col" style="max-width:150px; text-align:right;">
+            ${isIndividual ? "" : `
+        <div class="col" style="max-width:170px; text-align:right;">
           <div style="border:2px solid #1a1a1a; border-radius:4px; padding:8px; display:inline-block; background:#fff;">
             <div style="width:80px; height:80px; background:#eee; display:flex; align-items:center; justify-content:center; font-size:10px; text-align:center; color:#555;">
               QR<br>CODE
             </div>
           </div>
           <div style="margin-top:8px;">
-             <button onclick="alert('Printing Delivery Note QR for ${batch.batchNumber}...')" style="font-size:11px;">Print QR</button>
+            <label for="batchLabelCount" style="font-size:11px;">Number of labels</label>
+            <input type="number" id="batchLabelCount" value="1" min="1" max="${MAX_BATCH_LABELS}" style="width:70px; text-align:center;">
           </div>
-        </div>
+          <div style="margin-top:8px;">
+            <button onclick="printBatchLabels('${batch.id}')" style="font-size:11px;">Print Batch QR</button>
+          </div>
+        </div>`}
       </div>
 
       <div class="row" style="margin-bottom:16px;">
@@ -8673,6 +8718,7 @@ INVENTORY LIST PAGE
           : ""
         }
     </div>
+    ${isIndividual ? renderBatchItemsCard(batch) : ""}
 
     <div class="card" style="padding:16px;">
       <div style="font-weight:bold; font-size:14px; margin-bottom:16px; border-bottom:1px solid #eee; padding-bottom:8px;">Movement History</div>
@@ -8789,7 +8835,11 @@ INVENTORY LIST PAGE
                   : ""
                 }
                               </td>
-                              <td>
+                                           <td style="white-space:nowrap;">
+                                ${canReprintLabel(u)
+                  ? `<button onclick="printUnitLabel('${u.id}')" style="font-size:11px; padding:2px 8px;">Print QR</button>`
+                  : ""
+                }
                                 ${!isRemoved && u.status !== "Sold"
                   ? `<button onclick="state.activeModal='edit-unit-condition'; state.editingUnitId='${u.id}'; render();" style="font-size:11px; padding:2px 8px;">Edit</button>`
                   : ""
@@ -15979,6 +16029,161 @@ DELIVERY CONFIRMATION
       trip.changingUnitsFor = null;
       render();
     }
+
+
+    /* ============ QR LABEL PRINTING ============ */
+// One pipeline for every label. A label is:
+// { code, title, lines: [], footer }
+const MAX_BATCH_LABELS = 200;
+
+// Units we still physically hold get labels in "Print All".
+const isLabelPrintable = (u) => ["Available", "Reserved"].includes(u.status);
+// Reprint is allowed on anything that still exists as a record
+// (Sold units can come back as returns).
+const canReprintLabel = (u) => !["Removed", "Written Off"].includes(u.status);
+
+function buildUnitLabel(unit) {
+  const product = getInvProduct(unit.productId);
+  const batch = unit.batchId ? getBatch(unit.batchId) : null;
+  return {
+    code: unit.tag,
+    title: product?.name || "",
+    lines: batch ? [batch.batchNumber] : [],
+    footer: "",
+  };
+}
+
+function buildBatchLabels(batch, count) {
+  const product = getInvProduct(batch.productId);
+  return Array.from({ length: count }, (_, i) => ({
+    code: batch.batchNumber,
+    title: product?.name || "",
+    lines: [`${batch.supplier} · ${formatDate(batch.receivedDate)}`],
+    footer: count > 1 ? `Label ${i + 1} of ${count}` : "",
+  }));
+}
+
+function renderLabelHTML(l) {
+  const esc = escapeTransferDetailText;
+  return `
+    <div class="qr-label">
+      <div class="qr-label-top">
+        <div class="qr-box">QR</div>
+        <div class="qr-label-title">${esc(l.title)}</div>
+      </div>
+      <div class="qr-label-code">${esc(l.code)}</div>
+      ${l.lines.map((t) => `<div class="qr-label-line">${esc(t)}</div>`).join("")}
+      ${l.footer ? `<div class="qr-label-footer">${esc(l.footer)}</div>` : ""}
+    </div>`;
+}
+
+function openLabelPrint(title, labels) {
+  if (!labels.length) return;
+  state.labelPrint = { title, labels };
+  state.activeModal = "print-labels";
+  render();
+}
+
+function renderPrintLabelsModal() {
+  const p = state.labelPrint;
+  if (!p) return "";
+  return `
+    <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+      <div class="modal" style="max-width:720px;">
+        <div class="modal-header">${escapeTransferDetailText(p.title)} <button class="close-x" onclick="closeModal()">×</button></div>
+        <div class="modal-body">
+          <div style="font-size:12px; color:#555; margin-bottom:8px;">
+            ${p.labels.length} label${p.labels.length === 1 ? "" : "s"}. Preview only: when you print, just the labels are printed.
+          </div>
+          <div class="qr-grid">${p.labels.map(renderLabelHTML).join("")}</div>
+        </div>
+        <div class="modal-footer">
+          <button onclick="closeModal()">Cancel</button>
+          <button class="btn-primary" onclick="window.print()">🖨 Print</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+// Fills the hidden print area. @media print shows ONLY this element.
+function syncPrintArea() {
+  const pa = document.getElementById("printArea");
+  if (!pa) return;
+  pa.innerHTML =
+    state.activeModal === "print-labels" && state.labelPrint
+      ? `<div class="qr-grid">${state.labelPrint.labels.map(renderLabelHTML).join("")}</div>`
+      : "";
+}
+
+/* ---- Entry points ---- */
+function printUnitLabel(unitId) {
+  const u = UNITS.find((x) => x.id === unitId);
+  if (!u) return;
+  openLabelPrint("Print QR Code", [buildUnitLabel(u)]);
+}
+
+function printAllBatchUnitLabels(batchId) {
+  const units = UNITS.filter((u) => u.batchId === batchId && isLabelPrintable(u))
+    .sort((a, b) => (a.tag < b.tag ? -1 : 1));
+  if (!units.length) return alert("No units in this batch need labels.");
+  openLabelPrint(`Print QR Codes (${units.length})`, units.map(buildUnitLabel));
+}
+
+function printBatchLabels(batchId) {
+  const batch = getBatch(batchId);
+  if (!batch) return;
+  const n = Number(document.getElementById("batchLabelCount")?.value);
+  if (!Number.isInteger(n) || n < 1 || n > MAX_BATCH_LABELS) {
+    return alert(`Enter a whole number of labels between 1 and ${MAX_BATCH_LABELS}.`);
+  }
+  openLabelPrint(`Print Batch QR Labels (${n})`, buildBatchLabels(batch, n));
+}
+
+/* ---- "Items in this Batch" card (Individual Items only) ---- */
+function renderBatchItemsCard(batch) {
+  const units = UNITS.filter((u) => u.batchId === batch.id)
+    .sort((a, b) => (a.tag < b.tag ? -1 : 1));
+  const printable = units.filter(isLabelPrintable).length;
+  const statusBadge = (s) =>
+    s === "Available" ? "badge-paid"
+    : s === "Reserved" ? "badge-partial"
+    : ["Removed", "Written Off"].includes(s) ? "badge-cancelled"
+    : "badge-draft";
+
+  return `
+    <div class="card" style="padding:16px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:16px; border-bottom:1px solid #eee; padding-bottom:8px;">
+        <div style="font-weight:bold; font-size:14px;">Items in this Batch (${units.length})</div>
+        <button class="btn-primary" onclick="printAllBatchUnitLabels('${batch.id}')" ${printable === 0 ? "disabled" : ""}>
+          🖨 Print ${printable} QR Code${printable === 1 ? "" : "s"}
+        </button>
+      </div>
+      ${units.length === 0
+        ? `<div class="empty-state">No items in this batch.</div>`
+        : `<div style="overflow-x:auto;">
+            <table>
+              <thead>
+                <tr><th>Tag</th><th>Condition</th><th>Status</th><th>Location</th><th></th></tr>
+              </thead>
+              <tbody>
+                ${units.map((u) => `
+                  <tr>
+                    <td>
+                      <a href="#" style="color:#1e40af; text-decoration:underline;"
+                        onclick="event.preventDefault(); state.inventoryView='unit'; state.inventoryUnitId='${u.id}'; render();">${u.tag}</a>
+                    </td>
+                    <td><span class="badge badge-condition-${(u.condition || "New").toLowerCase()}">${u.condition || "New"}</span></td>
+                    <td><span class="badge ${statusBadge(u.status)}">${u.status}</span></td>
+                    <td>${getLocation(u.locationId)?.name || "—"}</td>
+                    <td style="white-space:nowrap;">
+                      ${canReprintLabel(u) ? `<button onclick="printUnitLabel('${u.id}')" style="font-size:11px; padding:2px 8px;">Print QR</button>` : ""}
+                    </td>
+                  </tr>`).join("")}
+              </tbody>
+            </table>
+          </div>`}
+    </div>`;
+}
 
     /* ============ RESET & BOOTSTRAP ============ */
     function resetDemo() {
