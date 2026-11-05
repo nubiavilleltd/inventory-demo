@@ -583,6 +583,8 @@
       { id: "p4", name: "Office Chair", price: 85000, stock: 15 },
     ];
 
+    const INVOICES = [];
+
     const CUSTOMERS = [
       {
         id: "c1",
@@ -2985,6 +2987,22 @@ DISPATCH DASHBOARD DEMO SEED
 
     ${renderFulfilmentHistory(o)}
 
+        ${o.invoiceNumber ? `
+    <div class="card">
+      <div class="card-title">Invoice</div>
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+        <div>
+          <div style="font-weight:bold; font-size:13px;">${o.invoiceNumber}</div>
+          <div style="font-size:11px; color:#666; margin-top:2px;">Generated on ${formatDate(o.invoiceDate)}</div>
+        </div>
+        <div>
+          <button onclick="printInvoice('${o.invoiceNumber}')">Print Invoice</button>
+          <button onclick="emailInvoice('${o.invoiceNumber}')">Email Invoice</button>
+        </div>
+      </div>
+    </div>
+    ` : ""}
+
     <div class="card">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
         <div class="card-title" style="margin:0;">Payment History</div>
@@ -3846,11 +3864,29 @@ DISPATCH DASHBOARD DEMO SEED
       dueDate.setDate(dueDate.getDate() + DEFAULT_PAYMENT_TERMS_DAYS);
       o.dueDate = dueDate.toISOString().split("T")[0];
 
-      o.invoiceNumber = genNum("INV");
+            o.invoiceNumber = genNum("INV");
       logTimeline(
         `Invoice ${o.invoiceNumber} generated (Due: ${formatDate(o.dueDate)})`,
       );
 
+      // Snapshot the invoice for the global Invoices list
+      const snapshot = {
+        invoiceNumber: o.invoiceNumber,
+        orderNumber: o.orderNumber,
+        customerId: o.customerId,
+        date: o.invoiceDate,
+        dueDate: o.dueDate,
+        items: o.items.map(i => ({ ...i })),
+        amount: calcTotals(o).total,
+        amountPaid: calcTotals(o).paid,
+        status: calcTotals(o).outstanding <= 0 ? "Paid" : "Unpaid", // Simple for now
+        payments: o.payments.map(p => ({ ...p })),
+      };
+      
+      // Avoid duplicates if re-submitting a draft
+      if (!INVOICES.find(inv => inv.invoiceNumber === o.invoiceNumber)) {
+        INVOICES.push(snapshot);
+      }
       const t = calcTotals(o);
 
       // If credit fully covers the order, treat as paid
@@ -15676,6 +15712,21 @@ DELIVERY CONFIRMATION
         error: null,
       };
       initScenario(document.getElementById("scenarioSelect").value);
+      render();
+    }
+
+        function printInvoice(invoiceNumber) {
+      // In a real app, this would generate a PDF or open a print-specific view.
+      // For the prototype, we trigger the browser's print dialog.
+      window.print();
+      logTimeline(`Invoice ${invoiceNumber} printed.`);
+      render(); // Re-render to show the timeline update
+    }
+
+    function emailInvoice(invoiceNumber) {
+      // Simulate sending an email
+      alert(`Invoice ${invoiceNumber} has been emailed to the customer.`);
+      logTimeline(`Invoice ${invoiceNumber} emailed.`);
       render();
     }
 
