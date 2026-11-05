@@ -9369,7 +9369,7 @@ function selectComboboxValue(id, value) {
  NEW PRODUCT MODAL
  ============================================================ */
 
-    function renderNewProductModal() {
+       function renderNewProductModal() {
       return `
     <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
       <div class="modal">
@@ -9424,6 +9424,25 @@ function selectComboboxValue(id, value) {
           <label class="mt-12">Description</label>
           <textarea id="npDesc" placeholder="Optional notes about this product."></textarea>
 
+          <!-- NEW: Product Images Dropzone -->
+          <label class="mt-12">Product Images</label>
+          <div 
+            class="file-upload" 
+            style="padding: 24px; border: 2px dashed #999; background: #fdfdfd; margin-top: 4px;"
+            onclick="alert('Image upload is disabled in this prototype.')"
+          >
+            <div style="font-size: 24px; margin-bottom: 8px;">☁️</div>
+            <div style="font-size: 13px; font-weight: bold; color: #1e40af; margin-bottom: 4px;">
+              Click to attach or drag and drop
+            </div>
+            <div style="font-size: 11px; color: #666;">
+              PNG, JPG, JPEG, WEBP · Max 5 MB per file · Up to 3 images
+            </div>
+          </div>
+          <div style="font-size: 11px; color: #666; margin-top: 4px;">
+            Up to 3 images. First image is used as the primary display image.
+          </div>
+
         </div>
         <div class="modal-footer">
           <button onclick="closeModal()">Cancel</button>
@@ -9432,8 +9451,9 @@ function selectComboboxValue(id, value) {
       </div>
     </div>
   `;
-    }
-
+    } 
+    
+    
     function attachNewProductHandlers() {
       document
         .getElementById("confirmNewProductBtn")
