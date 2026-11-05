@@ -16210,21 +16210,24 @@ function printBatchLabels(batchId) {
 }
 
 /* ---- "Items in this Batch" card (Individual Items only) ---- */
-function renderBatchItemsCard(batch) {
-  const units = UNITS.filter((u) => u.batchId === batch.id)
-    .sort((a, b) => (a.tag < b.tag ? -1 : 1));
-  const printable = units.filter(isLabelPrintable).length;
-  const statusBadge = (s) =>
-    s === "Available" ? "badge-paid"
-    : s === "Reserved" ? "badge-partial"
-    : ["Removed", "Written Off"].includes(s) ? "badge-cancelled"
-    : s === "Unsellable" ? "badge-unsellable"
-    : "badge-draft";
+    function renderBatchItemsCard(batch) {
+      const units = UNITS.filter((u) => u.batchId === batch.id)
+        .sort((a, b) => (a.tag < b.tag ? -1 : 1));
+      const printable = units.filter(isLabelPrintable).length;
+      const statusBadge = (s) =>
+        s === "Available" ? "badge-paid"
+        : s === "Reserved" ? "badge-partial"
+        : ["Removed", "Written Off"].includes(s) ? "badge-cancelled"
+        : s === "Unsellable" ? "badge-unsellable"
+        : "badge-draft";
 
-  return `
+      return `
     <div class="card" style="padding:16px;">
       <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:16px; border-bottom:1px solid #eee; padding-bottom:8px;">
-        <div style="font-weight:bold; font-size:14px;">Items in this Batch (${units.length})</div>
+        <div>
+          <div style="font-weight:bold; font-size:14px;">Items in this Batch (${units.length})</div>
+          ${printable < units.length ? `<div style="font-size:11px; color:#666; margin-top:2px;">Only ${printable} item${printable === 1 ? "" : "s"} require labels (excludes Sold/Unsellable).</div>` : ""}
+        </div>
         <button class="btn-primary" onclick="printAllBatchUnitLabels('${batch.id}')" ${printable === 0 ? "disabled" : ""}>
           🖨 Print ${printable} QR Code${printable === 1 ? "" : "s"}
         </button>
@@ -16254,7 +16257,7 @@ function renderBatchItemsCard(batch) {
             </table>
           </div>`}
     </div>`;
-}
+    }
 
     /* ============ RESET & BOOTSTRAP ============ */
     function resetDemo() {
