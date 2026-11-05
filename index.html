@@ -168,9 +168,15 @@
       background: #dbeafe;
     }
 
-    .badge-removed {
+       .badge-removed {
       background: #f3f4f6;
       color: #6b7280;
+    }
+
+    .badge-unsellable {
+      background: #e5e7eb;
+      color: #4b5563;
+      border-color: #9ca3af;
     }
 
     .badge-condition-new {
@@ -1245,7 +1251,7 @@
     }
 
     // Compute stock for any product (Individual or StockQuantity)
-    function getStockSummary(productId, locationId) {
+       function getStockSummary(productId, locationId) {
       const product = getInvProduct(productId);
 
       if (!product) {
@@ -1267,7 +1273,6 @@
 
         const accountedUnits = allUnits.filter((u) => {
           const status = (u.status || "").toLowerCase();
-
           return status !== "removed" && status !== "unaccounted for";
         });
 
@@ -1313,6 +1318,8 @@
         unaccountedFor: 0,
       };
     }
+    
+    
     // Stock status label
     function getStockStatus(productId, locationId) {
       const product = getInvProduct(productId);
@@ -8802,7 +8809,9 @@ INVENTORY LIST PAGE
                     ? "badge-partial"
                     : u.status === "Removed"
                       ? "badge-cancelled"
-                      : "badge-draft";
+                      : u.status === "Unsellable"
+                        ? "badge-unsellable"
+                        : "badge-draft";
               const conditionClass =
                 u.condition === "New"
                   ? "badge-paid"
@@ -13488,11 +13497,12 @@ MOVEMENT LOG PAGE
 EDIT UNIT CONDITION MODAL
 ============================================================ */
 
-    function renderEditUnitConditionModal() {
+       function renderEditUnitConditionModal() {
       const unit = UNITS.find((u) => u.id === state.editingUnitId);
       if (!unit) return '<div class="empty-state">Unit not found.</div>';
 
       const product = getInvProduct(unit.productId);
+      const isUnsellable = unit.condition === "Damaged" || unit.condition === "Used";
 
       return `
     <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
@@ -13509,13 +13519,20 @@ EDIT UNIT CONDITION MODAL
           </div>
 
           <label>Condition *</label>
-          <select id="editUnitCondition">
+          <select id="editUnitCondition" onchange="
+            const isUnsellable = this.value === 'Damaged' || this.value === 'Used';
+            document.getElementById('unsellableWarning').style.display = isUnsellable ? 'block' : 'none';
+          ">
             <option value="New"         ${unit.condition === "New" ? "selected" : ""}>New</option>
             <option value="Used"        ${unit.condition === "Used" ? "selected" : ""}>Used</option>
             <option value="Refurbished" ${unit.condition === "Refurbished" ? "selected" : ""}>Refurbished</option>
             <option value="Damaged"     ${unit.condition === "Damaged" ? "selected" : ""}>Damaged</option>
             <option value="Returned"    ${unit.condition === "Returned" ? "selected" : ""}>Returned</option>
           </select>
+
+          <div id="unsellableWarning" style="display:${isUnsellable ? 'block' : 'none'}; margin-top:8px; padding:8px; border:2px dashed #991b1b; border-radius:4px; background:#fee2e2; font-size:12px; color:#991b1b;">
+            ⚠ Saving this will change the status to <strong>Unsellable</strong>. It will no longer be available for sale or auto-picked for dispatch.
+          </div>
 
           <label class="mt-12">Reason / Notes</label>
           <input type="text" id="editUnitReason" placeholder="Optional: why is the condition changing?">
@@ -13530,7 +13547,7 @@ EDIT UNIT CONDITION MODAL
   `;
     }
 
-    function attachEditUnitConditionHandlers() {
+        function attachEditUnitConditionHandlers() {
       document
         .getElementById("confirmEditUnitBtn")
         ?.addEventListener("click", () => {
@@ -13543,15 +13560,35 @@ EDIT UNIT CONDITION MODAL
             .getElementById("editUnitReason")
             .value.trim();
           const oldCondition = unit.condition || "New";
+          const oldStatus = unit.status;
 
           unit.condition = newCondition;
+
+          // Auto-switch status based on condition
+          const isUnsellable = newCondition === "Damaged" || newCondition === "Used";
+          
+          if (isUnsellable) {
+            // Only change to Unsellable if it was previously Available
+            if (unit.status === "Available") {
+              unit.status = "Unsellable";
+            }
+          } else {
+            // If it was Unsellable and is now fixed, put it back to Available
+            if (unit.status === "Unsellable") {
+              unit.status = "Available";
+            }
+          }
+
+          const statusChanged = unit.status !== oldStatus 
+            ? ` (Status: ${oldStatus} → ${unit.status})` 
+            : "";
 
           logMovement(
             unit.productId,
             unit.locationId,
             "condition_change",
             0,
-            `${unit.tag}: ${oldCondition} → ${newCondition}${reason ? " · " + reason : ""}`,
+            `${unit.tag}: ${oldCondition} → ${newCondition}${statusChanged}${reason ? " · " + reason : ""}`,
             unit.id,
             unit.batchId,
           );
@@ -13561,6 +13598,9 @@ EDIT UNIT CONDITION MODAL
         });
     }
 
+
+
+  
     /* ============================================================
 DISPATCH WIZARD HELPERS
 ============================================================ */
@@ -13575,7 +13615,6 @@ DISPATCH WIZARD HELPERS
           u.status === "Available" &&
           (!u.softReservedFor || u.softReservedFor === orderNumber),
       );
-      // Sort FIFO: oldest receivedDate first, then by tag alphabetically
       candidates.sort((a, b) => {
         if (a.receivedDate !== b.receivedDate)
           return a.receivedDate < b.receivedDate ? -1 : 1;
@@ -15880,8 +15919,7 @@ DELIVERY CONFIRMATION
 
     // Auto-pick N available units for a trip, excluding units already
     // reserved for another order in the same trip
-    function autoPickUnitsForTrip(productId, locationId, qty, trip) {
-      // Collect unit IDs already picked for OTHER orders in this trip
+       function autoPickUnitsForTrip(productId, locationId, qty, trip) {
       const alreadyPicked = new Set();
       Object.keys(trip.orderUnitSelections).forEach((key) => {
         (trip.orderUnitSelections[key] || []).forEach((uid) =>
@@ -15905,7 +15943,8 @@ DELIVERY CONFIRMATION
 
       return candidates.slice(0, qty).map((u) => u.id);
     }
-
+    
+    
     // Discard the trip in progress and return to the dashboard
     function discardTrip() {
       if (!confirm("Discard this trip? All selections will be lost.")) return;
@@ -16148,6 +16187,7 @@ function renderBatchItemsCard(batch) {
     s === "Available" ? "badge-paid"
     : s === "Reserved" ? "badge-partial"
     : ["Removed", "Written Off"].includes(s) ? "badge-cancelled"
+    : s === "Unsellable" ? "badge-unsellable"
     : "badge-draft";
 
   return `
