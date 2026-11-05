@@ -508,6 +508,9 @@
         <button class="toggle-btn" data-tab="customer-portal">
           Customer Portal
         </button>
+           <button class="toggle-btn" data-tab="invoices">
+          Invoices
+        </button>
       </div>
       <select id="scenarioSelect" class="hidden">
         <option value="walkin">1. Walk-in Retail</option>
@@ -1464,7 +1467,11 @@
       transferChangingUnitsFor: false, // true while the drill-in is open
 
       // Top-level tab
-      activeTab: "orders", // 'orders' | 'inventory' | 'dispatch' | 'customer-portal'
+      activeTab: "orders", // 'orders' | 'inventory' | 'dispatch' | 'customer-portal' | 'invoices'
+      invoiceFilter: "",
+      invoiceView: "list", // 'list' | 'detail'
+      selectedInvoiceNumber: null,
+
       // Customer credit portal state (public, self-service)
       customerPortal: {
         step: "email", // 'email' | 'otp' | 'view'
@@ -2208,8 +2215,14 @@ DISPATCH DASHBOARD DEMO SEED
         } else {
           renderDispatchDashboard(c);
         }
-      } else if (state.activeTab === "customer-portal") {
+           } else if (state.activeTab === "customer-portal") {
         renderCustomerPortal(c);
+      } else if (state.activeTab === "invoices") {
+        if (state.invoiceView === "detail") {
+          renderInvoiceDetail(c, state.selectedInvoiceNumber);
+        } else {
+          renderInvoicesList(c);
+        }
       } else {
         // Orders tab
         if (state.currentPage === "order-creation") renderOrderCreation(c);
@@ -15715,7 +15728,187 @@ DELIVERY CONFIRMATION
       render();
     }
 
-        function printInvoice(invoiceNumber) {
+            function renderInvoicesList(c) {
+      const f = state.invoiceFilter.toLowerCase();
+      const filtered = INVOICES.filter(
+        (inv) =>
+          inv.invoiceNumber.toLowerCase().includes(f) ||
+          inv.orderNumber.toLowerCase().includes(f),
+      ).sort((a, b) => new Date(b.date) - new Date(a.date)); // Newest first
+
+      c.innerHTML = `
+    <div class="card">
+      <div class="card-title">Invoices</div>
+      <div style="font-size:12px; color:#555; margin-bottom:12px;">Manage all invoices and track payments</div>
+      
+      <input type="text" id="invoiceSearch" placeholder="🔍 Search by invoice or order number..."
+        value="${state.invoiceFilter}" 
+        style="margin-bottom:16px;"
+        oninput="state.invoiceFilter=this.value; render();">
+
+      ${filtered.length === 0 
+        ? `<div class="empty-state">No invoices found.</div>` 
+        : `
+        <table>
+          <thead>
+            <tr>
+              <th style="padding-left:12px;">Invoice</th>
+              <th>Order</th>
+              <th>Date</th>
+              <th>Amount</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filtered.map((inv) => {
+              const badgeClass = 
+                inv.status === "Paid" ? "badge-paid" :
+                inv.status === "Unpaid" ? "badge-unpaid" :
+                inv.status === "Partially Paid" ? "badge-partial" :
+                "badge-cancelled";
+              return `
+                <tr style="cursor:pointer;" onclick="state.invoiceView='detail'; state.selectedInvoiceNumber='${inv.invoiceNumber}'; render();">
+                  <td style="padding-left:12px; font-weight:bold;">${inv.invoiceNumber}</td>
+                  <td>${inv.orderNumber}</td>
+                  <td>${formatDate(inv.date)}</td>
+                  <td>${money(inv.amount)}</td>
+                  <td><span class="badge ${badgeClass}">${inv.status}</span></td>
+                </tr>
+              `;
+            }).join("")}
+          </tbody>
+        </table>
+      `}
+    </div>
+  `;
+    }
+
+    function renderInvoiceDetail(c, invoiceNumber) {
+      const inv = INVOICES.find((i) => i.invoiceNumber === invoiceNumber);
+      if (!inv) {
+        c.innerHTML = '<div class="empty-state">Invoice not found.</div>';
+        return;
+      }
+      const customer = getCustomer(inv.customerId);
+
+      c.innerHTML = `
+    <div style="margin-bottom:12px;">
+      <button onclick="state.invoiceView='list'; state.selectedInvoiceNumber=null; render();">← Back to Invoices</button>
+    </div>
+
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+      <div>
+        <h2 style="font-size:20px;">${inv.invoiceNumber}</h2>
+        <div style="font-size:12px; color:#555;">Invoice lifecycle and payment tracking</div>
+      </div>
+      <button class="btn-primary" onclick="printInvoice('${inv.invoiceNumber}')">Download Invoice</button>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Invoice Summary</div>
+      <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+        <div style="font-size:12px; color:#555;">Billing details and payment status</div>
+        <span class="badge ${inv.status === "Paid" ? "badge-paid" : inv.status === "Unpaid" ? "badge-unpaid" : "badge-partial"}">${inv.status}</span>
+      </div>
+      
+      <div class="row mt-12">
+        <div class="col">
+          <div style="font-size:11px; color:#666;">Invoice Number</div>
+          <div style="font-weight:bold; font-size:13px;">${inv.invoiceNumber}</div>
+        </div>
+        <div class="col">
+          <div style="font-size:11px; color:#666;">Invoice Date</div>
+          <div style="font-weight:bold; font-size:13px;">${formatDate(inv.date)}</div>
+        </div>
+        <div class="col">
+          <div style="font-size:11px; color:#666;">Due Date</div>
+          <div style="font-weight:bold; font-size:13px;">${formatDate(inv.dueDate)}</div>
+        </div>
+      </div>
+
+      <div class="row mt-12">
+        <div class="col">
+          <div style="font-size:11px; color:#666;">Total Amount</div>
+          <div style="font-weight:bold; font-size:13px;">${money(inv.amount)}</div>
+        </div>
+        <div class="col">
+          <div style="font-size:11px; color:#666;">Amount Paid</div>
+          <div style="font-weight:bold; font-size:13px; color:#166534;">${money(inv.amountPaid)}</div>
+        </div>
+        <div class="col">
+          <div style="font-size:11px; color:#666;">Balance</div>
+          <div style="font-weight:bold; font-size:13px; color:${inv.amount - inv.amountPaid > 0 ? "#991b1b" : "#166534"};">
+            ${money(inv.amount - inv.amountPaid)}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Related Order</div>
+      <div style="font-size:12px; color:#555; margin-bottom:12px;">Linked order information for this invoice</div>
+      
+      <div class="row">
+        <div class="col">
+          <div style="font-size:11px; color:#666;">Order Number</div>
+          <div style="font-weight:bold; font-size:13px;">${inv.orderNumber}</div>
+        </div>
+        <div class="col">
+          <div style="font-size:11px; color:#666;">Customer</div>
+          <div style="font-weight:bold; font-size:13px;">${customer?.name || "—"}</div>
+        </div>
+      </div>
+
+      <div class="mt-12">
+        <div style="font-size:11px; color:#666; margin-bottom:4px;">Order Items</div>
+        <table>
+          <thead><tr><th>Product</th><th>Qty</th><th>Unit Price</th><th style="text-align:right;">Total</th></tr></thead>
+          <tbody>
+            ${inv.items.map(item => {
+              const p = getProduct(item.productId);
+              return `<tr>
+                <td>${p?.name || "—"}</td>
+                <td>${item.qty}</td>
+                <td>${money(p?.price || 0)}</td>
+                <td style="text-align:right;">${money((p?.price || 0) * item.qty)}</td>
+              </tr>`;
+            }).join("")}
+          </tbody>
+        </table>
+        <div class="summary-box" style="margin-top:12px;">
+          <div class="summary-row total"><span>Grand Total</span><span>${money(inv.amount)}</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Payments</div>
+      ${inv.payments.length === 0 
+        ? `<div class="empty-state">No payments recorded yet.</div>` 
+        : `
+        <table>
+          <thead><tr><th>Date</th><th>Method</th><th style="text-align:right;">Amount</th></tr></thead>
+          <tbody>
+            ${inv.payments.map(p => `
+              <tr>
+                <td>${formatDate(p.date)}</td>
+                <td>${p.method}</td>
+                <td style="text-align:right;">${money(p.amount)}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+        <div class="summary-box" style="margin-top:12px; background:#f0fdf4;">
+          <div class="summary-row total" style="border-color:#166534; color:#166534;">
+            <span>Total Paid</span><span>${money(inv.amountPaid)}</span>
+          </div>
+        </div>
+        `}
+    </div>
+  `;
+    }
+
+    function printInvoice(invoiceNumber) {
       // In a real app, this would generate a PDF or open a print-specific view.
       // For the prototype, we trigger the browser's print dialog.
       window.print();
@@ -15766,7 +15959,7 @@ DELIVERY CONFIRMATION
               state.dispatchView = "dashboard";
             }
           }
-          if (state.activeTab === "customer-portal") {
+                 if (state.activeTab === "customer-portal") {
             // Reset the portal to the email step each time the tab is opened.
             state.customerPortal = {
               step: "email",
@@ -15777,10 +15970,56 @@ DELIVERY CONFIRMATION
               error: null,
             };
           }
+          if (state.activeTab === "invoices") {
+            state.invoiceView = "list";
+            state.selectedInvoiceNumber = null;
+          }
 
           render();
         });
       });
+
+            // Seed a few historical invoices for the demo
+      if (INVOICES.length === 0) {
+        INVOICES.push(
+          {
+            invoiceNumber: "INV-20261001-001",
+            orderNumber: "ORD-20261001-001",
+            customerId: "c1",
+            date: "2026-10-01",
+            dueDate: "2026-10-08",
+            items: [{ productId: "p1", qty: 1 }],
+            amount: 200000,
+            amountPaid: 200000,
+            status: "Paid",
+            payments: [{ date: "2026-10-01", amount: 200000, method: "Cash" }],
+          },
+          {
+            invoiceNumber: "INV-20261002-002",
+            orderNumber: "ORD-20261002-002",
+            customerId: "c2",
+            date: "2026-10-02",
+            dueDate: "2026-10-09",
+            items: [{ productId: "p2", qty: 5 }],
+            amount: 80000,
+            amountPaid: 0,
+            status: "Unpaid",
+            payments: [],
+          },
+          {
+            invoiceNumber: "INV-20261003-003",
+            orderNumber: "ORD-20261003-003",
+            customerId: "c3",
+            date: "2026-10-03",
+            dueDate: "2026-10-10",
+            items: [{ productId: "p3", qty: 1 }],
+            amount: 500000,
+            amountPaid: 250000,
+            status: "Partially Paid",
+            payments: [{ date: "2026-10-03", amount: 250000, method: "POS" }],
+          }
+        );
+      }
 
       initScenario("walkin");
       render();
