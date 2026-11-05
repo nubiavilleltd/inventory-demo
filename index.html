@@ -496,7 +496,7 @@
     <h1>Order Lifecycle Demo</h1>
     <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap">
       <div class="toggle-group" id="tabNav">
-             <button class="toggle-btn active" data-tab="orders-list">
+        <button class="toggle-btn active" data-tab="orders-list">
           Orders
         </button>
         <button class="toggle-btn" data-tab="inventory">
@@ -508,11 +508,11 @@
         <button class="toggle-btn" data-tab="customer-portal">
           Customer Portal
         </button>
-           <button class="toggle-btn" data-tab="invoices">
+        <button class="toggle-btn" data-tab="invoices">
           Invoices
         </button>
 
-          <button class="toggle-btn" data-tab="fleet">
+        <button class="toggle-btn" data-tab="fleet">
           Fleet
         </button>
       </div>
@@ -705,7 +705,7 @@
       },
     ];
 
-       const DRIVERS = [
+    const DRIVERS = [
       {
         id: "d1",
         name: "Ibikunle Johnson",
@@ -741,7 +741,7 @@
       },
     ];
 
-        const VEHICLES = [
+    const VEHICLES = [
       {
         id: "v1",
         name: "Toyota Camry",
@@ -796,7 +796,7 @@
     ];
 
 
-    
+
     const COURIERS = ["DHL", "GIG Logistics", "Local Dispatch", "Other"];
 
     /* ============ INVENTORY DATA ============ */
@@ -851,7 +851,7 @@
         tagPrefix: "IPH",
         minimumStock: 3,
       },
-       {
+      {
         id: "p4",
         name: "Office Chair",
         sku: "CHR-001",
@@ -1052,7 +1052,7 @@
         locationId: "loc2",
         receivedDate: "2026-10-02",
       },
-          {
+      {
         id: "u14",
         productId: "p3",
         tag: "IPH-20261002-005",
@@ -1095,9 +1095,9 @@
 
     // Stock levels for stock-quantity products per location, per batch.
     // Each row is a "batch at a location".
-   
 
-          const STOCK = [
+
+    const STOCK = [
       // Cartons of Oil (p2) - Batch b4 (Dangote)
       {
         productId: "p2",
@@ -1513,12 +1513,12 @@
       transferNotes: "",
       transferChangingUnitsFor: false, // true while the drill-in is open
 
-           // Top-level tab
+      // Top-level tab
       activeTab: "orders-list", // 'orders' | 'orders-list' | 'inventory' | 'dispatch' | 'customer-portal' | 'invoices' | 'fleet'
       invoiceFilter: "",
       invoiceView: "list", // 'list' | 'detail'
       selectedInvoiceNumber: null,
-      
+
       // Fleet state
       fleetTab: "drivers", // 'drivers' | 'vehicles'
       fleetFilter: "",
@@ -1568,7 +1568,7 @@
       recoveryNote: "",
       receiveDiscrepancyReason: "",
 
-           // Discrepancy write-off modal state
+      // Discrepancy write-off modal state
       writeOffTransferId: null,
       writeOffQty: "",
       writeOffSelectedUnits: [],
@@ -1620,11 +1620,11 @@
       const start = new Date();
       const end = new Date();
       end.setDate(end.getDate() + days);
-      
+
       const formatStr = (d) => d.toLocaleDateString("en-GB", {
         day: "2-digit", month: "short", year: "numeric"
       });
-      
+
       return {
         start: formatStr(start),
         end: formatStr(end),
@@ -1634,7 +1634,7 @@
       };
     }
 
-        // Extract a unique, sorted list of suppliers from existing batches
+    // Extract a unique, sorted list of suppliers from existing batches
     function getUniqueSuppliers() {
       const suppliers = BATCHES.map((b) => b.supplier).filter(Boolean);
       return [...new Set(suppliers)].sort();
@@ -2268,9 +2268,9 @@ DISPATCH DASHBOARD DEMO SEED
         } else {
           renderDispatchDashboard(c);
         }
-           } else if (state.activeTab === "customer-portal") {
+      } else if (state.activeTab === "customer-portal") {
         renderCustomerPortal(c);
-        } else if (state.activeTab === "invoices") {
+      } else if (state.activeTab === "invoices") {
         if (state.invoiceView === "detail") {
           renderInvoiceDetail(c, state.selectedInvoiceNumber);
         } else {
@@ -2590,13 +2590,13 @@ DISPATCH DASHBOARD DEMO SEED
 
 
 
-            // Sync the global ORDERS array with the active state.order
+    // Sync the global ORDERS array with the active state.order
     function syncOrderSnapshot(o) {
       if (!o || !o.orderNumber) return;
-      
+
       const snapshot = JSON.parse(JSON.stringify(o));
       const idx = ORDERS.findIndex(ord => ord.orderNumber === o.orderNumber);
-      
+
       if (idx !== -1) {
         ORDERS[idx] = snapshot;
       } else {
@@ -2609,7 +2609,7 @@ DISPATCH DASHBOARD DEMO SEED
       const pendingDispatch = ORDERS.filter(o => o.state === "confirmed" && o.fulfillment === "Delivery").length;
       const inTransit = ORDERS.filter(o => o.state === "out-for-delivery").length;
       const delivered = ORDERS.filter(o => o.state === "completed" || o.state === "delivered").length;
-      
+
       const totalRevenue = ORDERS.reduce((sum, o) => sum + calcTotals(o).paid, 0);
 
       c.innerHTML = `
@@ -2661,14 +2661,14 @@ DISPATCH DASHBOARD DEMO SEED
         </thead>
         <tbody>
           ${ORDERS.slice().reverse().map((o) => {
-            const customer = getCustomer(o.customerId);
-            const t = calcTotals(o);
-            
-            let payBadge = "badge-unpaid";
-            if (t.paid >= t.total && t.total > 0) payBadge = "badge-paid";
-            else if (t.paid > 0) payBadge = "badge-partial";
+        const customer = getCustomer(o.customerId);
+        const t = calcTotals(o);
 
-            return `
+        let payBadge = "badge-unpaid";
+        if (t.paid >= t.total && t.total > 0) payBadge = "badge-paid";
+        else if (t.paid > 0) payBadge = "badge-partial";
+
+        return `
               <tr>
                 <td style="padding-left:12px; font-weight:bold;">${o.orderNumber}</td>
                 <td>${formatDate(o.invoiceDate || o.scheduledDate)}</td>
@@ -2681,7 +2681,7 @@ DISPATCH DASHBOARD DEMO SEED
                 </td>
               </tr>
             `;
-          }).join("")}
+      }).join("")}
         </tbody>
       </table>
     </div>
@@ -2692,16 +2692,16 @@ DISPATCH DASHBOARD DEMO SEED
     function loadOrderForViewing(orderNumber) {
       const order = ORDERS.find(o => o.orderNumber === orderNumber);
       if (!order) return;
-      
+
       // Deep copy so we don't accidentally mutate the global list directly
       state.order = JSON.parse(JSON.stringify(order));
-      
+
       // Also load the associated customer so the UI has the right address/credit info
       const customer = getCustomer(order.customerId);
       if (customer) {
         state.customer = JSON.parse(JSON.stringify(customer));
       }
-      
+
       state.activeTab = "orders";
       state.currentPage = "order-details";
       render();
@@ -2709,7 +2709,7 @@ DISPATCH DASHBOARD DEMO SEED
 
 
     /* ============ ORDER CREATION PAGE ============ */
-       /* ============ ORDER CREATION PAGE ============ */
+    /* ============ ORDER CREATION PAGE ============ */
     function renderOrderCreation(c) {
       const o = state.order,
         cust = state.customer;
@@ -2993,10 +2993,10 @@ DISPATCH DASHBOARD DEMO SEED
   `;
       attachOrderCreationHandlers();
     }
-    
+
     /* ============ ORDER DETAILS PAGE ============ */
 
-        /* ============ ORDER DETAILS PAGE ============ */
+    /* ============ ORDER DETAILS PAGE ============ */
     function renderOrderDetails(c) {
       const o = state.order,
         cust = state.customer;
@@ -3041,10 +3041,10 @@ DISPATCH DASHBOARD DEMO SEED
           <label>${o.fulfillment === "Delivery" ? "Delivery Window" : "Scheduled"}</label>
           <strong>${o.fulfillment === "Delivery"
           ? (() => {
-              const urgency = o.deliveryUrgency || "Standard";
-              const range = getDeliveryDateRange(urgency);
-              return `${range.start} – ${range.end}`;
-            })()
+            const urgency = o.deliveryUrgency || "Standard";
+            const range = getDeliveryDateRange(urgency);
+            return `${range.start} – ${range.end}`;
+          })()
           : formatDate(o.scheduledDate)
         }</strong>
         </div>
@@ -3509,7 +3509,7 @@ DISPATCH DASHBOARD DEMO SEED
 
       attachOrderDetailsHandlers();
     }
-   
+
 
     /* ============ SUCCESS PAGE ============ */
     function renderSuccess(c) {
@@ -3558,7 +3558,7 @@ DISPATCH DASHBOARD DEMO SEED
       });
     }
 
-        function renderReceiptSuccessModal() {
+    function renderReceiptSuccessModal() {
       const o = state.order;
       const t = calcTotals(o);
       const ctx = state.successContext || {
@@ -3618,8 +3618,8 @@ DISPATCH DASHBOARD DEMO SEED
         }[channel] || channel;
       logTimeline(`Document: ${channelLabel}`);
 
- 
-       // Clear working state. The operator is already on the Order Details page
+
+      // Clear working state. The operator is already on the Order Details page
       // in the background, so we just close the modal and re-render.
       state.successContext = null;
       state.activeModal = null;
@@ -3754,7 +3754,7 @@ DISPATCH DASHBOARD DEMO SEED
             // Void the old invoice and generate a new one
             o.invoiceHistory = o.invoiceHistory || [];
             const oldNumber = o.invoiceNumber;
-            
+
             if (oldNumber) {
               o.invoiceHistory.push({
                 number: oldNumber,
@@ -4074,7 +4074,7 @@ DISPATCH DASHBOARD DEMO SEED
 
       // Record the acknowledgement on the order.
 
-        // Continue with submission
+      // Continue with submission
       o.invoiceDate = todayISO();
 
       // Due date = invoice date + standard payment terms.
@@ -4105,7 +4105,7 @@ DISPATCH DASHBOARD DEMO SEED
         `Invoice ${o.invoiceNumber} generated (Due: ${formatDate(o.dueDate)})`,
       );
 
-            // Snapshot the invoice for the global Invoices list
+      // Snapshot the invoice for the global Invoices list
       const snapshot = {
         invoiceNumber: o.invoiceNumber,
         orderNumber: o.orderNumber,
@@ -4118,8 +4118,8 @@ DISPATCH DASHBOARD DEMO SEED
         status: calcTotals(o).outstanding <= 0 ? "Paid" : "Unpaid", // Simple for now
         payments: o.payments.map(p => ({ ...p })),
       };
-      
-        // Avoid duplicates if re-submitting a draft
+
+      // Avoid duplicates if re-submitting a draft
       if (!INVOICES.find(inv => inv.invoiceNumber === o.invoiceNumber)) {
         INVOICES.push(snapshot);
       }
@@ -4144,7 +4144,7 @@ DISPATCH DASHBOARD DEMO SEED
           deductStockDirectlyForPickup(o);
         }
 
-            state.successContext = {
+        state.successContext = {
           title: isWalkin ? "Order Completed" : "Payment Recorded",
           subtitle: `${o.orderNumber} · Covered by credit`,
           documentLabel: "Receipt",
@@ -4159,7 +4159,7 @@ DISPATCH DASHBOARD DEMO SEED
       if (!recordPayment) {
         o.state = "submitted";
         logTimeline("Order submitted (unpaid)");
-        
+
         // Snapshot the order NOW that the state is updated
         syncOrderSnapshot(o);
 
@@ -4459,7 +4459,7 @@ DISPATCH DASHBOARD DEMO SEED
       }
     }
 
-     function renderFulfilmentRoutingModal() {
+    function renderFulfilmentRoutingModal() {
       const o = state.order;
       const cust = state.customer;
       const outstanding = calcOutstandingLines(o);
@@ -4670,9 +4670,9 @@ DISPATCH DASHBOARD DEMO SEED
                 <div style="font-size:11px; color:#166534;">Estimated Delivery</div>
                 <div style="font-size:14px; font-weight:bold;">
                   ${(() => {
-                    const range = getDeliveryDateRange(state.routingUrgency);
-                    return `${range.start} – ${range.end}`;
-                  })()}
+            const range = getDeliveryDateRange(state.routingUrgency);
+            return `${range.start} – ${range.end}`;
+          })()}
                 </div>
                 <div style="font-size:11px; color:#166534; margin-top:6px;">Delivery Fee</div>
                 <div style="font-size:18px; font-weight:bold;">${money(liveFee)}</div>
@@ -4705,11 +4705,11 @@ DISPATCH DASHBOARD DEMO SEED
                   Nothing is available to pick up right now.
                 </div>
               `
-                     : `
+            : `
                 ${(() => {
-                  const totalFulfilled = (o.fulfilmentLines || []).reduce((s, l) => s + l.fulfilled, 0);
-                  if (totalFulfilled > 0) return "";
-                  return `
+              const totalFulfilled = (o.fulfilmentLines || []).reduce((s, l) => s + l.fulfilled, 0);
+              if (totalFulfilled > 0) return "";
+              return `
                     <label class="mb-12" style="display:flex; align-items:flex-start; gap:8px; font-size:12px; line-height:1.3; padding:10px; background:#fdfdfd; border:2px solid ${isDeferred ? '#1a1a1a' : '#ccc'}; border-radius:4px; cursor:pointer; margin-bottom:12px;">
                       <input type="checkbox" id="deferAllCheckbox"
                         style="width:auto; margin-top:2px;"
@@ -4722,7 +4722,7 @@ DISPATCH DASHBOARD DEMO SEED
                       </span>
                     </label>
                   `;
-                })()}
+            })()}
 
                 <div style="font-weight:bold; font-size:13px; margin-bottom:8px;">Items being collected</div>
 
@@ -4809,7 +4809,7 @@ DISPATCH DASHBOARD DEMO SEED
     </div>
   `;
     }
-    
+
     function renderFulfilmentHistory(o) {
       const history = o.fulfilmentHistory || [];
       if (history.length === 0) return "";
@@ -5318,7 +5318,7 @@ DISPATCH DASHBOARD DEMO SEED
         attachDiscrepancyReceiptHandlers();
       } else if (state.activeModal === "transfer-recovery") {
         c.innerHTML = renderTransferRecoveryModal();
-              } else if (state.activeModal === "transfer-write-off") {
+      } else if (state.activeModal === "transfer-write-off") {
         c.innerHTML = renderTransferWriteOffModal();
       } else if (state.activeModal === "transfer-stock") {
         c.innerHTML = renderTransferStockModal();
@@ -5335,7 +5335,7 @@ DISPATCH DASHBOARD DEMO SEED
       } else if (state.activeModal === "bulk-confirm-delivery") {
         c.innerHTML = renderBulkConfirmDeliveryModal();
         attachBulkConfirmDeliveryHandlers();
-          } else if (state.activeModal === "tags-detail") {
+      } else if (state.activeModal === "tags-detail") {
         c.innerHTML = renderTagsDetailModal();
       } else if (state.activeModal === "receipt-success") {
         c.innerHTML = renderReceiptSuccessModal();
@@ -5345,7 +5345,7 @@ DISPATCH DASHBOARD DEMO SEED
         c.innerHTML = renderVehicleDetailsModal();
       } else if (state.activeModal === "assign-vehicle") {
         c.innerHTML = renderAssignVehicleModal();
-           } else if (state.activeModal === "assign-driver") {
+      } else if (state.activeModal === "assign-driver") {
         c.innerHTML = renderAssignDriverModal();
       } else if (state.activeModal === "add-driver") {
         c.innerHTML = renderAddDriverModal();
@@ -5359,7 +5359,7 @@ DISPATCH DASHBOARD DEMO SEED
       } else if (state.activeModal === "edit-vehicle") {
         c.innerHTML = renderEditVehicleModal();
         attachVehicleFormHandlers();
-      } 
+      }
     }
 
     function closeModal() {
@@ -5386,7 +5386,7 @@ DISPATCH DASHBOARD DEMO SEED
       state.bulkFeeMethod = "Cash";
       state.bulkFeeReference = "";
       state.bulkFeeWaiveReason = "";
-        state.selectedDriverId = null;
+      state.selectedDriverId = null;
       state.selectedVehicleId = null;
       render();
     }
@@ -5538,7 +5538,7 @@ DISPATCH DASHBOARD DEMO SEED
         ensureOrderInDispatchPool(o);
       }
 
-           // Sync the invoice status in the global list
+      // Sync the invoice status in the global list
       syncInvoiceStatus(o);
 
       // Update the global Orders array
@@ -5574,7 +5574,7 @@ DISPATCH DASHBOARD DEMO SEED
         state.activeModal = "picked-up-by";
         render();
         return;
-       } else {
+      } else {
         state.successContext = {
           title: "Payment Recorded",
           subtitle: `${o.orderNumber} · ${money(amount)} received`,
@@ -5777,12 +5777,12 @@ DISPATCH DASHBOARD DEMO SEED
             releaseDeliveryReservation(o);
           }
 
-                 // -------- 3. Move to Cancelled --------
+          // -------- 3. Move to Cancelled --------
           o.state = "cancelled";
 
           // Cancelled orders leave the dispatch pool.
           removeOrderFromDispatchPool(o.orderNumber);
-          
+
           // Sync the invoice status to Voided
           syncInvoiceStatus(o);
 
@@ -6523,9 +6523,9 @@ DISPATCH DASHBOARD DEMO SEED
           `
           : `
             ${(() => {
-              const totalFulfilled = (o.fulfilmentLines || []).reduce((s, l) => s + l.fulfilled, 0);
-              if (totalFulfilled > 0) return "";
-              return `
+            const totalFulfilled = (o.fulfilmentLines || []).reduce((s, l) => s + l.fulfilled, 0);
+            if (totalFulfilled > 0) return "";
+            return `
                 <!-- THE DEFER CHECKBOX IS NOW AT THE TOP -->
                 <label class="mb-12" style="display:flex; align-items:flex-start; gap:8px; font-size:12px; line-height:1.3; padding:10px; background:#fdfdfd; border:2px solid ${isDeferred ? '#1a1a1a' : '#ccc'}; border-radius:4px; cursor:pointer; margin-bottom:12px;">
                   <input type="checkbox" id="deferAllCheckbox"
@@ -6539,7 +6539,7 @@ DISPATCH DASHBOARD DEMO SEED
                   </span>
                 </label>
               `;
-            })()}
+          })()}
 
             <div style="font-weight:bold; font-size:13px; margin-bottom:8px;">Items being collected</div>
 
@@ -6971,7 +6971,7 @@ DISPATCH DASHBOARD DEMO SEED
         documentLabel: state.paymentRecordedThisSession ? "Receipt" : null,
         isWalkin: false,
       };
-          state.paymentRecordedThisSession = false;
+      state.paymentRecordedThisSession = false;
       state.currentPage = "order-details";
       state.activeModal = "receipt-success";
 
@@ -7299,7 +7299,7 @@ DISPATCH DASHBOARD DEMO SEED
             isWalkin: false,
           };
 
-           // Reset the flag so subsequent handovers don't show it
+          // Reset the flag so subsequent handovers don't show it
           state.paymentRecordedThisSession = false;
 
           state.currentPage = "order-details";
@@ -9222,11 +9222,11 @@ RECEIVE STOCK MODAL
           <label class="mt-12">Supplier *</label>
                     <label class="mt-12">Supplier *</label>
           ${renderCombobox(
-            "receiveSupplier",
-            getUniqueSuppliers(),
-            "",
-            "Select or type a new supplier..."
-          )}
+          "receiveSupplier",
+          getUniqueSuppliers(),
+          "",
+          "Select or type a new supplier..."
+        )}
 
           <div id="receivePreview" class="mt-12"></div>
 
@@ -9417,10 +9417,10 @@ RECEIVE STOCK MODAL
     //   options     — array of strings (suggestions)
     //   value       — current value (string)
     //   placeholder — placeholder text for the input
-        
 
- function renderCombobox(id, options, value, placeholder) {
-  return `
+
+    function renderCombobox(id, options, value, placeholder) {
+      return `
     <div class="combobox" data-combobox="${id}">
       <div class="combobox-input">
         <input type="text"
@@ -9439,136 +9439,136 @@ RECEIVE STOCK MODAL
       <div class="combobox-panel hidden" id="${id}-panel"></div>
     </div>
   `;
-}
+    }
 
-// Map combobox ids to their option lists.
-function optionsForCombobox(id) {
-  if (id === "npCategory") return PRODUCT_CATEGORIES;
-  if (id === "npUnit") return PRODUCT_UNITS;
-  if (id === "receiveSupplier") return getUniqueSuppliers();
-  return [];
-}
+    // Map combobox ids to their option lists.
+    function optionsForCombobox(id) {
+      if (id === "npCategory") return PRODUCT_CATEGORIES;
+      if (id === "npUnit") return PRODUCT_UNITS;
+      if (id === "receiveSupplier") return getUniqueSuppliers();
+      return [];
+    }
 
-// Works out what the panel should list for the current text.
-// Returns the ordered list of selectable values (matches first,
-// then the "Use ..." entry if the text isn't an exact match).
-function getComboboxItems(id) {
-  const input = document.getElementById(id);
-  const typed = (input?.value || "").trim();
-  const query = typed.toLowerCase();
-  const options = optionsForCombobox(id);
+    // Works out what the panel should list for the current text.
+    // Returns the ordered list of selectable values (matches first,
+    // then the "Use ..." entry if the text isn't an exact match).
+    function getComboboxItems(id) {
+      const input = document.getElementById(id);
+      const typed = (input?.value || "").trim();
+      const query = typed.toLowerCase();
+      const options = optionsForCombobox(id);
 
-  const filtered = options.filter(
-    (o) => !query || o.toLowerCase().includes(query),
-  );
-  const exactMatch = options.some((o) => o.toLowerCase() === query);
-  const showCreate = typed.length > 0 && !exactMatch;
+      const filtered = options.filter(
+        (o) => !query || o.toLowerCase().includes(query),
+      );
+      const exactMatch = options.some((o) => o.toLowerCase() === query);
+      const showCreate = typed.length > 0 && !exactMatch;
 
-  return { typed, filtered, showCreate };
-}
+      return { typed, filtered, showCreate };
+    }
 
-// Rebuilds ONLY the panel's contents and shows it. Never calls render().
-function refreshComboboxPanel(id) {
-  const panel = document.getElementById(id + "-panel");
-  if (!panel) return;
+    // Rebuilds ONLY the panel's contents and shows it. Never calls render().
+    function refreshComboboxPanel(id) {
+      const panel = document.getElementById(id + "-panel");
+      if (!panel) return;
 
-  const { typed, filtered, showCreate } = getComboboxItems(id);
-  state.comboboxActive = -1;
+      const { typed, filtered, showCreate } = getComboboxItems(id);
+      state.comboboxActive = -1;
 
-  let html = "";
+      let html = "";
 
-  if (filtered.length === 0 && !showCreate) {
-    html += `<div class="combobox-empty">No matches. Type a value to use it.</div>`;
-  }
+      if (filtered.length === 0 && !showCreate) {
+        html += `<div class="combobox-empty">No matches. Type a value to use it.</div>`;
+      }
 
-  filtered.forEach((o) => {
-    html += `
+      filtered.forEach((o) => {
+        html += `
       <div class="combobox-item"
         data-value="${escapeTransferDetailText(o)}"
         onmousedown="event.preventDefault(); selectComboboxValue('${id}', this.dataset.value)">
         ${escapeTransferDetailText(o)}
       </div>
     `;
-  });
+      });
 
-  if (showCreate) {
-    html += `
+      if (showCreate) {
+        html += `
       <div class="combobox-item create-new"
         data-value="${escapeTransferDetailText(typed)}"
         onmousedown="event.preventDefault(); selectComboboxValue('${id}', this.dataset.value)">
         Use "${escapeTransferDetailText(typed)}"
       </div>
     `;
-  }
+      }
 
-  panel.innerHTML = html;
-  panel.classList.remove("hidden");
-}
-
-function showComboboxPanel(id) {
-  refreshComboboxPanel(id);
-}
-
-function hideComboboxPanel(id) {
-  const panel = document.getElementById(id + "-panel");
-  if (panel) panel.classList.add("hidden");
-  state.comboboxActive = -1;
-}
-
-function toggleComboboxPanel(id) {
-  const panel = document.getElementById(id + "-panel");
-  if (!panel) return;
-
-  if (panel.classList.contains("hidden")) {
-    document.getElementById(id)?.focus();
-    refreshComboboxPanel(id);
-  } else {
-    hideComboboxPanel(id);
-  }
-}
-
-function highlightComboboxItem(id) {
-  const panel = document.getElementById(id + "-panel");
-  if (!panel) return;
-
-  panel.querySelectorAll(".combobox-item").forEach((el, i) => {
-    const isActive = i === state.comboboxActive;
-    el.classList.toggle("active", isActive);
-    if (isActive) el.scrollIntoView({ block: "nearest" });
-  });
-}
-
-function onComboboxKeydown(event, id) {
-  const panel = document.getElementById(id + "-panel");
-  const { typed, filtered, showCreate } = getComboboxItems(id);
-  const values = showCreate ? [...filtered, typed] : filtered;
-
-  if (event.key === "ArrowDown") {
-    event.preventDefault();
-    if (panel && panel.classList.contains("hidden")) refreshComboboxPanel(id);
-    state.comboboxActive = Math.min(state.comboboxActive + 1, values.length - 1);
-    highlightComboboxItem(id);
-  } else if (event.key === "ArrowUp") {
-    event.preventDefault();
-    state.comboboxActive = Math.max(state.comboboxActive - 1, 0);
-    highlightComboboxItem(id);
-  } else if (event.key === "Enter") {
-    if (state.comboboxActive >= 0 && state.comboboxActive < values.length) {
-      event.preventDefault();
-      selectComboboxValue(id, values[state.comboboxActive]);
+      panel.innerHTML = html;
+      panel.classList.remove("hidden");
     }
-  } else if (event.key === "Escape") {
-    hideComboboxPanel(id);
-  }
-}
 
-function selectComboboxValue(id, value) {
-  const input = document.getElementById(id);
-  if (input) input.value = value;
-  hideComboboxPanel(id);
-}
-    
-    
+    function showComboboxPanel(id) {
+      refreshComboboxPanel(id);
+    }
+
+    function hideComboboxPanel(id) {
+      const panel = document.getElementById(id + "-panel");
+      if (panel) panel.classList.add("hidden");
+      state.comboboxActive = -1;
+    }
+
+    function toggleComboboxPanel(id) {
+      const panel = document.getElementById(id + "-panel");
+      if (!panel) return;
+
+      if (panel.classList.contains("hidden")) {
+        document.getElementById(id)?.focus();
+        refreshComboboxPanel(id);
+      } else {
+        hideComboboxPanel(id);
+      }
+    }
+
+    function highlightComboboxItem(id) {
+      const panel = document.getElementById(id + "-panel");
+      if (!panel) return;
+
+      panel.querySelectorAll(".combobox-item").forEach((el, i) => {
+        const isActive = i === state.comboboxActive;
+        el.classList.toggle("active", isActive);
+        if (isActive) el.scrollIntoView({ block: "nearest" });
+      });
+    }
+
+    function onComboboxKeydown(event, id) {
+      const panel = document.getElementById(id + "-panel");
+      const { typed, filtered, showCreate } = getComboboxItems(id);
+      const values = showCreate ? [...filtered, typed] : filtered;
+
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        if (panel && panel.classList.contains("hidden")) refreshComboboxPanel(id);
+        state.comboboxActive = Math.min(state.comboboxActive + 1, values.length - 1);
+        highlightComboboxItem(id);
+      } else if (event.key === "ArrowUp") {
+        event.preventDefault();
+        state.comboboxActive = Math.max(state.comboboxActive - 1, 0);
+        highlightComboboxItem(id);
+      } else if (event.key === "Enter") {
+        if (state.comboboxActive >= 0 && state.comboboxActive < values.length) {
+          event.preventDefault();
+          selectComboboxValue(id, values[state.comboboxActive]);
+        }
+      } else if (event.key === "Escape") {
+        hideComboboxPanel(id);
+      }
+    }
+
+    function selectComboboxValue(id, value) {
+      const input = document.getElementById(id);
+      if (input) input.value = value;
+      hideComboboxPanel(id);
+    }
+
+
     function renderEditProductModal() {
       const p = getInvProduct(state.inventoryProductId);
       if (!p) return "";
@@ -9684,7 +9684,7 @@ function selectComboboxValue(id, value) {
  NEW PRODUCT MODAL
  ============================================================ */
 
-       function renderNewProductModal() {
+    function renderNewProductModal() {
       return `
     <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
       <div class="modal">
@@ -9766,9 +9766,9 @@ function selectComboboxValue(id, value) {
       </div>
     </div>
   `;
-    } 
-    
-    
+    }
+
+
     function attachNewProductHandlers() {
       document
         .getElementById("confirmNewProductBtn")
@@ -11505,9 +11505,9 @@ MOVEMENT LOG PAGE
 
           const note = escapeTransferDetailText(resolution.note || "");
 
-const noteLabel = resolution.type === "Write-off"
-  ? "Write-off Reason"
-  : "Recovery Note";
+          const noteLabel = resolution.type === "Write-off"
+            ? "Write-off Reason"
+            : "Recovery Note";
           const unitIds = Array.isArray(resolution.unitIds)
             ? resolution.unitIds
             : [];
@@ -11554,9 +11554,9 @@ const noteLabel = resolution.type === "Write-off"
             }
 
          ${note
-  ? `<div><strong>${noteLabel}:</strong> ${note}</div>`
-  : ""
-}
+              ? `<div><strong>${noteLabel}:</strong> ${note}</div>`
+              : ""
+            }
             </div>
           </div>
         `;
@@ -11735,7 +11735,7 @@ const noteLabel = resolution.type === "Write-off"
         padding-top:16px;
       ">
     ${outstanding > 0
-  ? `
+          ? `
       <button
         class="btn-primary"
         onclick="openTransferRecoveryModal('${transfer.id}')"
@@ -11750,8 +11750,8 @@ const noteLabel = resolution.type === "Write-off"
         Write Off
       </button>
     `
-  : ""
-}
+          : ""
+        }
 
         <button onclick="closeTransferDiscrepancyDetails()">
           Back to Discrepancies
@@ -12184,110 +12184,110 @@ const noteLabel = resolution.type === "Write-off"
 
 
     function confirmTransferWriteOff() {
-  const transfer = TRANSFERS.find(
-    (t) => t.id === state.writeOffTransferId
-  );
+      const transfer = TRANSFERS.find(
+        (t) => t.id === state.writeOffTransferId
+      );
 
-  if (!transfer) {
-    alert("Transfer could not be found.");
-    return;
-  }
+      if (!transfer) {
+        alert("Transfer could not be found.");
+        return;
+      }
 
-  const product = getInvProduct(transfer.productId);
+      const product = getInvProduct(transfer.productId);
 
-  if (!product) {
-    alert("Product could not be found.");
-    return;
-  }
+      if (!product) {
+        alert("Product could not be found.");
+        return;
+      }
 
-  const outstanding = getTransferOutstanding(transfer);
+      const outstanding = getTransferOutstanding(transfer);
 
-  if (outstanding <= 0) {
-    alert("This discrepancy has already been resolved.");
-    closeTransferWriteOffModal();
-    return;
-  }
+      if (outstanding <= 0) {
+        alert("This discrepancy has already been resolved.");
+        closeTransferWriteOffModal();
+        return;
+      }
 
-  const reason = String(state.writeOffReason || "").trim();
+      const reason = String(state.writeOffReason || "").trim();
 
-  if (!reason) {
-    alert("Please provide a reason for writing off this discrepancy.");
-    return;
-  }
+      if (!reason) {
+        alert("Please provide a reason for writing off this discrepancy.");
+        return;
+      }
 
-  let qty = 0;
-  let unitIds = [];
+      let qty = 0;
+      let unitIds = [];
 
-  if (product.trackingType === "StockQuantity") {
-    qty = Number(state.writeOffQty);
+      if (product.trackingType === "StockQuantity") {
+        qty = Number(state.writeOffQty);
 
-    if (!Number.isInteger(qty) || qty <= 0) {
-      alert("Enter a valid whole-number quantity.");
-      return;
+        if (!Number.isInteger(qty) || qty <= 0) {
+          alert("Enter a valid whole-number quantity.");
+          return;
+        }
+
+        if (qty > outstanding) {
+          alert(`You can only write off up to ${outstanding} units.`);
+          return;
+        }
+      } else if (product.trackingType === "Individual") {
+        const eligibleUnits = getEligibleWriteOffUnits(transfer);
+        const selectedIds = [...new Set(state.writeOffSelectedUnits || [])];
+
+        const selectedUnits = eligibleUnits.filter((unit) =>
+          selectedIds.includes(unit.id)
+        );
+
+        if (selectedUnits.length === 0) {
+          alert("Please select at least one unit to write off.");
+          return;
+        }
+
+        if (selectedUnits.length !== selectedIds.length) {
+          alert("Some selected units are no longer eligible for write-off. Please review your selection.");
+          return;
+        }
+
+        qty = selectedUnits.length;
+
+        if (qty > outstanding) {
+          alert(`You can only write off up to ${outstanding} units.`);
+          return;
+        }
+
+        unitIds = selectedUnits.map((unit) => unit.id);
+
+        // Mark the selected units as written off.
+        selectedUnits.forEach((unit) => {
+          unit.status = "Written Off";
+        });
+      } else {
+        alert("Unsupported product tracking type.");
+        return;
+      }
+
+      // Record the write-off against the transfer discrepancy.
+      if (!Array.isArray(transfer.resolutions)) {
+        transfer.resolutions = [];
+      }
+
+      transfer.resolutions.push({
+        id: `RES-${Date.now()}`,
+        type: "Write-off",
+        qty,
+        locationId: null,
+        unitIds,
+        note: reason,
+        at: new Date().toISOString(),
+        by: "You"
+      });
+
+      // Recalculate the transfer status.
+      syncTransferStatus(transfer);
+
+      // Close the modal and refresh the details page.
+      closeTransferWriteOffModal();
     }
-
-    if (qty > outstanding) {
-      alert(`You can only write off up to ${outstanding} units.`);
-      return;
-    }
-  } else if (product.trackingType === "Individual") {
-    const eligibleUnits = getEligibleWriteOffUnits(transfer);
-    const selectedIds = [...new Set(state.writeOffSelectedUnits || [])];
-
-    const selectedUnits = eligibleUnits.filter((unit) =>
-      selectedIds.includes(unit.id)
-    );
-
-    if (selectedUnits.length === 0) {
-      alert("Please select at least one unit to write off.");
-      return;
-    }
-
-    if (selectedUnits.length !== selectedIds.length) {
-      alert("Some selected units are no longer eligible for write-off. Please review your selection.");
-      return;
-    }
-
-    qty = selectedUnits.length;
-
-    if (qty > outstanding) {
-      alert(`You can only write off up to ${outstanding} units.`);
-      return;
-    }
-
-    unitIds = selectedUnits.map((unit) => unit.id);
-
-    // Mark the selected units as written off.
-    selectedUnits.forEach((unit) => {
-      unit.status = "Written Off";
-    });
-  } else {
-    alert("Unsupported product tracking type.");
-    return;
-  }
-
-  // Record the write-off against the transfer discrepancy.
-  if (!Array.isArray(transfer.resolutions)) {
-    transfer.resolutions = [];
-  }
-
-  transfer.resolutions.push({
-    id: `RES-${Date.now()}`,
-    type: "Write-off",
-    qty,
-    locationId: null,
-    unitIds,
-    note: reason,
-    at: new Date().toISOString(),
-    by: "You"
-  });
-
-  // Recalculate the transfer status.
-  syncTransferStatus(transfer);
-
-  // Close the modal and refresh the details page.
-  closeTransferWriteOffModal();
-}
 
 
 
@@ -12437,129 +12437,129 @@ const noteLabel = resolution.type === "Write-off"
 
 
     function openTransferWriteOffModal(transferId) {
-  const transfer = TRANSFERS.find(
-    item => item.id === transferId
-  );
+      const transfer = TRANSFERS.find(
+        item => item.id === transferId
+      );
 
-  if (!transfer) {
-    return alert("Transfer not found.");
-  }
+      if (!transfer) {
+        return alert("Transfer not found.");
+      }
 
-  const product = getInvProduct(transfer.productId);
+      const product = getInvProduct(transfer.productId);
 
-  if (
-    !product ||
-    !["StockQuantity", "Individual"].includes(product.trackingType)
-  ) {
-    return alert("This product tracking type is not supported.");
-  }
+      if (
+        !product ||
+        !["StockQuantity", "Individual"].includes(product.trackingType)
+      ) {
+        return alert("This product tracking type is not supported.");
+      }
 
-  const outstanding = getTransferOutstanding(transfer);
+      const outstanding = getTransferOutstanding(transfer);
 
-  if (outstanding <= 0) {
-    return alert("This discrepancy has already been resolved.");
-  }
+      if (outstanding <= 0) {
+        return alert("This discrepancy has already been resolved.");
+      }
 
-  state.writeOffTransferId = transferId;
+      state.writeOffTransferId = transferId;
 
-  state.writeOffQty =
-    product.trackingType === "StockQuantity"
-      ? String(outstanding)
-      : "";
+      state.writeOffQty =
+        product.trackingType === "StockQuantity"
+          ? String(outstanding)
+          : "";
 
-  state.writeOffSelectedUnits = [];
-  state.writeOffUnitSearch = "";
-  state.writeOffReason = "";
+      state.writeOffSelectedUnits = [];
+      state.writeOffUnitSearch = "";
+      state.writeOffReason = "";
 
-  state.activeModal = "transfer-write-off";
+      state.activeModal = "transfer-write-off";
 
-  render();
-}
-
-
-
-function closeTransferWriteOffModal() {
-  state.writeOffTransferId = null;
-  state.writeOffQty = "";
-  state.writeOffSelectedUnits = [];
-  state.writeOffUnitSearch = "";
-  state.writeOffReason = "";
-
-  // Close the modal and reveal the discrepancy details page.
-  state.activeModal = null;
-
-  render();
-}
-
-
-function getEligibleWriteOffUnits(transfer) {
-  if (!transfer || !Array.isArray(transfer.unitIds)) {
-    return [];
-  }
-
-  return UNITS.filter(unitRecord =>
-    transfer.unitIds.includes(unitRecord.id) &&
-    unitRecord.productId === transfer.productId &&
-    unitRecord.batchId === transfer.batchId &&
-    unitRecord.status === "Unaccounted For" &&
-    unitRecord.locationId === null &&
-    unitRecord.discrepancyTransferId === transfer.id
-  ).sort((a, b) => {
-    if (a.receivedDate !== b.receivedDate) {
-      return a.receivedDate < b.receivedDate ? -1 : 1;
+      render();
     }
 
-    return a.tag < b.tag ? -1 : 1;
-  });
-}
 
 
-function toggleWriteOffUnit(unitId, maxQty) {
-  const transfer = TRANSFERS.find(
-    item => item.id === state.writeOffTransferId
-  );
+    function closeTransferWriteOffModal() {
+      state.writeOffTransferId = null;
+      state.writeOffQty = "";
+      state.writeOffSelectedUnits = [];
+      state.writeOffUnitSearch = "";
+      state.writeOffReason = "";
 
-  if (!transfer) return;
+      // Close the modal and reveal the discrepancy details page.
+      state.activeModal = null;
 
-  const eligibleIds = new Set(
-    getEligibleWriteOffUnits(transfer).map(
-      unitRecord => unitRecord.id
-    )
-  );
-
-  if (!eligibleIds.has(unitId)) {
-    alert("This unit is no longer eligible for write-off.");
-    render();
-    return;
-  }
-
-  let selected = [...(state.writeOffSelectedUnits || [])];
-
-  if (selected.includes(unitId)) {
-    selected = selected.filter(id => id !== unitId);
-  } else {
-    if (selected.length >= maxQty) {
-      alert(`You can select up to ${maxQty} units.`);
-      return;
+      render();
     }
 
-    selected.push(unitId);
-  }
 
-  state.writeOffSelectedUnits = selected;
+    function getEligibleWriteOffUnits(transfer) {
+      if (!transfer || !Array.isArray(transfer.unitIds)) {
+        return [];
+      }
 
-  render();
-}
+      return UNITS.filter(unitRecord =>
+        transfer.unitIds.includes(unitRecord.id) &&
+        unitRecord.productId === transfer.productId &&
+        unitRecord.batchId === transfer.batchId &&
+        unitRecord.status === "Unaccounted For" &&
+        unitRecord.locationId === null &&
+        unitRecord.discrepancyTransferId === transfer.id
+      ).sort((a, b) => {
+        if (a.receivedDate !== b.receivedDate) {
+          return a.receivedDate < b.receivedDate ? -1 : 1;
+        }
+
+        return a.tag < b.tag ? -1 : 1;
+      });
+    }
+
+
+    function toggleWriteOffUnit(unitId, maxQty) {
+      const transfer = TRANSFERS.find(
+        item => item.id === state.writeOffTransferId
+      );
+
+      if (!transfer) return;
+
+      const eligibleIds = new Set(
+        getEligibleWriteOffUnits(transfer).map(
+          unitRecord => unitRecord.id
+        )
+      );
+
+      if (!eligibleIds.has(unitId)) {
+        alert("This unit is no longer eligible for write-off.");
+        render();
+        return;
+      }
+
+      let selected = [...(state.writeOffSelectedUnits || [])];
+
+      if (selected.includes(unitId)) {
+        selected = selected.filter(id => id !== unitId);
+      } else {
+        if (selected.length >= maxQty) {
+          alert(`You can select up to ${maxQty} units.`);
+          return;
+        }
+
+        selected.push(unitId);
+      }
+
+      state.writeOffSelectedUnits = selected;
+
+      render();
+    }
 
 
 
-function renderTransferWriteOffModal() {
-  const transfer = TRANSFERS.find(
-    item => item.id === state.writeOffTransferId
-  );
+    function renderTransferWriteOffModal() {
+      const transfer = TRANSFERS.find(
+        item => item.id === state.writeOffTransferId
+      );
 
-  if (!transfer) {
-    return `
+      if (!transfer) {
+        return `
       <div class="modal-overlay">
         <div class="modal">
           <div class="modal-body">
@@ -12574,15 +12574,15 @@ function renderTransferWriteOffModal() {
         </div>
       </div>
     `;
-  }
+      }
 
-  const product = getInvProduct(transfer.productId);
+      const product = getInvProduct(transfer.productId);
 
-  if (
-    !product ||
-    !["StockQuantity", "Individual"].includes(product.trackingType)
-  ) {
-    return `
+      if (
+        !product ||
+        !["StockQuantity", "Individual"].includes(product.trackingType)
+      ) {
+        return `
       <div class="modal-overlay">
         <div class="modal">
           <div class="modal-body">
@@ -12597,33 +12597,33 @@ function renderTransferWriteOffModal() {
         </div>
       </div>
     `;
-  }
+      }
 
-  const outstanding = getTransferOutstanding(transfer);
-  const isIndividual = product.trackingType === "Individual";
-  const unit = product.unitOfMeasure || "unit";
+      const outstanding = getTransferOutstanding(transfer);
+      const isIndividual = product.trackingType === "Individual";
+      const unit = product.unitOfMeasure || "unit";
 
-  const batch = transfer.batchId
-    ? getBatch(transfer.batchId)
-    : null;
+      const batch = transfer.batchId
+        ? getBatch(transfer.batchId)
+        : null;
 
-  const eligibleUnits = isIndividual
-    ? getEligibleWriteOffUnits(transfer)
-    : [];
+      const eligibleUnits = isIndividual
+        ? getEligibleWriteOffUnits(transfer)
+        : [];
 
-  const selectedUnitIds = state.writeOffSelectedUnits || [];
+      const selectedUnitIds = state.writeOffSelectedUnits || [];
 
-  const search = String(
-    state.writeOffUnitSearch || ""
-  ).toLowerCase();
+      const search = String(
+        state.writeOffUnitSearch || ""
+      ).toLowerCase();
 
-  const filteredUnits = eligibleUnits.filter(unitRecord =>
-    !search ||
-    String(unitRecord.tag || "").toLowerCase().includes(search)
-  );
+      const filteredUnits = eligibleUnits.filter(unitRecord =>
+        !search ||
+        String(unitRecord.tag || "").toLowerCase().includes(search)
+      );
 
-  const unitSelectionContent = isIndividual
-    ? `
+      const unitSelectionContent = isIndividual
+        ? `
       <div style="margin-top:16px;">
 
         <label>
@@ -12666,20 +12666,20 @@ function renderTransferWriteOffModal() {
         ">
 
           ${filteredUnits.length === 0
-            ? `
+          ? `
               <div class="empty-state">
                 ${eligibleUnits.length === 0
-                  ? "No units are eligible for write-off."
-                  : "No units match your search."
-                }
+            ? "No units are eligible for write-off."
+            : "No units match your search."
+          }
               </div>
             `
-            : filteredUnits.map(unitRecord => {
-                const checked = selectedUnitIds.includes(
-                  unitRecord.id
-                );
+          : filteredUnits.map(unitRecord => {
+            const checked = selectedUnitIds.includes(
+              unitRecord.id
+            );
 
-                return `
+            return `
                   <label style="
                     display:flex;
                     gap:8px;
@@ -12708,8 +12708,8 @@ function renderTransferWriteOffModal() {
 
                     <span style="font-size:11px;color:#888;">
                       ${escapeTransferDetailText(
-                        unitRecord.condition || "New"
-                      )}
+              unitRecord.condition || "New"
+            )}
                     </span>
 
                     <span style="font-size:11px;color:#888;">
@@ -12718,8 +12718,8 @@ function renderTransferWriteOffModal() {
 
                   </label>
                 `;
-              }).join("")
-          }
+          }).join("")
+        }
 
         </div>
 
@@ -12730,7 +12730,7 @@ function renderTransferWriteOffModal() {
 
       </div>
     `
-    : `
+        : `
       <div style="margin-top:16px;">
 
         <label for="writeOffQty">
@@ -12768,7 +12768,7 @@ function renderTransferWriteOffModal() {
       </div>
     `;
 
-  return `
+      return `
     <div class="modal-overlay"
       onclick="
         if(event.target === this) {
@@ -12806,8 +12806,8 @@ function renderTransferWriteOffModal() {
             <div style="margin-top:8px;">
               Transfer:
               ${escapeTransferDetailText(
-                transfer.transferNumber || transfer.id
-              )}
+        transfer.transferNumber || transfer.id
+      )}
             </div>
 
             <div style="margin-top:6px;">
@@ -12821,8 +12821,8 @@ function renderTransferWriteOffModal() {
               Original batch:
               <strong>
                 ${escapeTransferDetailText(
-                  batch?.batchNumber || transfer.batchId || "—"
-                )}
+        batch?.batchNumber || transfer.batchId || "—"
+      )}
               </strong>
             </div>
 
@@ -12900,7 +12900,7 @@ function renderTransferWriteOffModal() {
       </div>
     </div>
   `;
-}
+    }
 
 
 
@@ -15994,7 +15994,7 @@ DELIVERY CONFIRMATION
       render();
     }
 
-                // Keep the global INVOICES array in sync with the live order state.
+    // Keep the global INVOICES array in sync with the live order state.
     // This should be called whenever payments are recorded, edited, or cancelled.
     function syncInvoiceStatus(order) {
       if (!order || !order.invoiceNumber) return;
@@ -16007,7 +16007,7 @@ DELIVERY CONFIRMATION
       if (!snapshot) return; // If it doesn't exist, nothing to sync
 
       const t = calcTotals(order);
-      
+
       // Update amounts
       snapshot.amount = t.total;
       snapshot.amountPaid = t.paid;
@@ -16043,9 +16043,9 @@ DELIVERY CONFIRMATION
         style="margin-bottom:16px;"
         oninput="state.invoiceFilter=this.value; render();">
 
-      ${filtered.length === 0 
-        ? `<div class="empty-state">No invoices found.</div>` 
-        : `
+      ${filtered.length === 0
+          ? `<div class="empty-state">No invoices found.</div>`
+          : `
         <table>
           <thead>
             <tr>
@@ -16058,12 +16058,12 @@ DELIVERY CONFIRMATION
           </thead>
           <tbody>
             ${filtered.map((inv) => {
-              const badgeClass = 
-                inv.status === "Paid" ? "badge-paid" :
+            const badgeClass =
+              inv.status === "Paid" ? "badge-paid" :
                 inv.status === "Unpaid" ? "badge-unpaid" :
-                inv.status === "Partially Paid" ? "badge-partial" :
-                "badge-cancelled";
-              return `
+                  inv.status === "Partially Paid" ? "badge-partial" :
+                    "badge-cancelled";
+            return `
                 <tr style="cursor:pointer;" onclick="state.invoiceView='detail'; state.selectedInvoiceNumber='${inv.invoiceNumber}'; render();">
                   <td style="padding-left:12px; font-weight:bold;">${inv.invoiceNumber}</td>
                   <td>${inv.orderNumber}</td>
@@ -16072,7 +16072,7 @@ DELIVERY CONFIRMATION
                   <td><span class="badge ${badgeClass}">${inv.status}</span></td>
                 </tr>
               `;
-            }).join("")}
+          }).join("")}
           </tbody>
         </table>
       `}
@@ -16162,14 +16162,14 @@ DELIVERY CONFIRMATION
           <thead><tr><th>Product</th><th>Qty</th><th>Unit Price</th><th style="text-align:right;">Total</th></tr></thead>
           <tbody>
             ${inv.items.map(item => {
-              const p = getProduct(item.productId);
-              return `<tr>
+        const p = getProduct(item.productId);
+        return `<tr>
                 <td>${p?.name || "—"}</td>
                 <td>${item.qty}</td>
                 <td>${money(p?.price || 0)}</td>
                 <td style="text-align:right;">${money((p?.price || 0) * item.qty)}</td>
               </tr>`;
-            }).join("")}
+      }).join("")}
           </tbody>
         </table>
         <div class="summary-box" style="margin-top:12px;">
@@ -16180,9 +16180,9 @@ DELIVERY CONFIRMATION
 
     <div class="card">
       <div class="card-title">Payments</div>
-      ${inv.payments.length === 0 
-        ? `<div class="empty-state">No payments recorded yet.</div>` 
-        : `
+      ${inv.payments.length === 0
+          ? `<div class="empty-state">No payments recorded yet.</div>`
+          : `
         <table>
           <thead><tr><th>Date</th><th>Method</th><th style="text-align:right;">Amount</th></tr></thead>
           <tbody>
@@ -16205,19 +16205,19 @@ DELIVERY CONFIRMATION
   `;
     }
 
-        function renderDriverDetailsModal() {
+    function renderDriverDetailsModal() {
       const driver = DRIVERS.find(d => d.id === state.selectedDriverId);
       if (!driver) return "";
-      
+
       const vehicle = VEHICLES.find(v => v.id === driver.defaultVehicleId);
-      
+
       let actionButtons = `<button onclick="state.activeModal='edit-driver'; render();">Edit</button>`;
-      
+
       if (driver.status === "Suspended" || driver.status === "Inactive") {
         actionButtons += `<button class="btn-primary" onclick="activateDriver('${driver.id}')">Activate</button>`;
       } else {
         actionButtons += `<button onclick="state.activeModal='assign-vehicle'; render();">Assign Vehicle</button>`;
-        
+
         if (driver.status !== "In Transit") {
           actionButtons += `<button class="btn-danger" onclick="suspendDriver('${driver.id}')">Suspend</button>`;
           actionButtons += `<button class="btn-danger" onclick="deactivateDriver('${driver.id}')">Deactivate</button>`;
@@ -16232,10 +16232,10 @@ DELIVERY CONFIRMATION
         <div class="modal-header" style="display:block;">
           <div style="display:flex; gap:16px; align-items:flex-start;">
             <div style="width:64px; height:64px; border-radius:50%; border:2px solid #1a1a1a; background:#f0f0f0; overflow:hidden; flex-shrink:0; display:flex; align-items:center; justify-content:center;">
-              ${driver.imageUrl 
-                ? `<img src="${driver.imageUrl}" style="width:100%; height:100%; object-fit:cover;">` 
-                : `<span style="font-size:24px; color:#888;">👤</span>`
-              }
+              ${driver.imageUrl
+          ? `<img src="${driver.imageUrl}" style="width:100%; height:100%; object-fit:cover;">`
+          : `<span style="font-size:24px; color:#888;">👤</span>`
+        }
             </div>
             <div style="flex:1;">
               <div style="display:flex; justify-content:space-between; align-items:flex-start;">
@@ -16273,7 +16273,7 @@ DELIVERY CONFIRMATION
     }
 
 
-    
+
     function suspendDriver(id) {
       if (!confirm("Suspend this driver? They will be removed from active dispatch.")) return;
       const d = DRIVERS.find(x => x.id === id);
@@ -16301,17 +16301,17 @@ DELIVERY CONFIRMATION
       }
     }
 
-        function renderFleetPage(c) {
+    function renderFleetPage(c) {
       const filter = state.fleetFilter.toLowerCase();
-      
-      const filteredDrivers = DRIVERS.filter(d => 
-        d.name.toLowerCase().includes(filter) || 
+
+      const filteredDrivers = DRIVERS.filter(d =>
+        d.name.toLowerCase().includes(filter) ||
         d.email.toLowerCase().includes(filter) ||
         d.licenseNumber.toLowerCase().includes(filter)
       );
-      
-      const filteredVehicles = VEHICLES.filter(v => 
-        v.name.toLowerCase().includes(filter) || 
+
+      const filteredVehicles = VEHICLES.filter(v =>
+        v.name.toLowerCase().includes(filter) ||
         v.plateNumber.toLowerCase().includes(filter) ||
         v.make.toLowerCase().includes(filter)
       );
@@ -16349,9 +16349,9 @@ DELIVERY CONFIRMATION
           <tbody>
             ${filteredDrivers.length === 0 ? `<tr><td colspan="5" class="empty-state">No drivers found.</td></tr>` : ""}
             ${filteredDrivers.map(d => {
-              const statusClass = d.status === "Available" ? "badge-paid" : d.status === "Suspended" || d.status === "Inactive" ? "badge-cancelled" : "badge-partial";
-              const vehicle = VEHICLES.find(v => v.id === d.defaultVehicleId);
-              return `
+        const statusClass = d.status === "Available" ? "badge-paid" : d.status === "Suspended" || d.status === "Inactive" ? "badge-cancelled" : "badge-partial";
+        const vehicle = VEHICLES.find(v => v.id === d.defaultVehicleId);
+        return `
                 <tr style="cursor:pointer;" onclick="state.selectedDriverId='${d.id}'; state.activeModal='driver-details'; render();">
                   <td>
                     <div style="display:flex; align-items:center; gap:8px;">
@@ -16370,15 +16370,15 @@ DELIVERY CONFIRMATION
                     <div style="font-size:11px; color:#888;">Exp: ${formatDate(d.licenseExpiry)}</div>
                   </td>
                   <td>
-                    ${vehicle 
-                      ? `<div style="font-weight:bold;">${vehicle.name}</div><div style="font-size:11px; color:#888;">${vehicle.plateNumber}</div>` 
-                      : `<span style="color:#888; font-style:italic;">Unassigned</span>`
-                    }
+                    ${vehicle
+            ? `<div style="font-weight:bold;">${vehicle.name}</div><div style="font-size:11px; color:#888;">${vehicle.plateNumber}</div>`
+            : `<span style="color:#888; font-style:italic;">Unassigned</span>`
+          }
                   </td>
                   <td><span class="badge ${statusClass}">${d.status}</span></td>
                 </tr>
               `;
-            }).join("")}
+      }).join("")}
           </tbody>
         </table>
       ` : `
@@ -16396,9 +16396,9 @@ DELIVERY CONFIRMATION
           <tbody>
             ${filteredVehicles.length === 0 ? `<tr><td colspan="6" class="empty-state">No vehicles found.</td></tr>` : ""}
             ${filteredVehicles.map(v => {
-              const statusClass = v.status === "Available" ? "badge-paid" : v.status === "Suspended" || v.status === "Inactive" || v.status === "Maintenance" ? "badge-cancelled" : "badge-partial";
-              const driver = DRIVERS.find(d => d.id === v.defaultDriverId);
-              return `
+        const statusClass = v.status === "Available" ? "badge-paid" : v.status === "Inactive" || v.status === "Maintenance" ? "badge-cancelled" : "badge-partial";
+        const driver = DRIVERS.find(d => d.id === v.defaultDriverId);
+        return `
                 <tr style="cursor:pointer;" onclick="state.selectedVehicleId='${v.id}'; state.activeModal='vehicle-details'; render();">
                   <td>
                     <div style="display:flex; align-items:center; gap:8px;">
@@ -16415,15 +16415,15 @@ DELIVERY CONFIRMATION
                   <td>${v.type}</td>
                   <td>${v.capacity ? v.capacity.toLocaleString() + " kg" : "—"}</td>
                   <td>
-                    ${driver 
-                      ? `<div style="font-weight:bold;">${driver.name}</div><div style="font-size:11px; color:#888;">${driver.phone}</div>` 
-                      : `<span style="color:#888; font-style:italic;">Unassigned</span>`
-                    }
+                    ${driver
+            ? `<div style="font-weight:bold;">${driver.name}</div><div style="font-size:11px; color:#888;">${driver.phone}</div>`
+            : `<span style="color:#888; font-style:italic;">Unassigned</span>`
+          }
                   </td>
                   <td><span class="badge ${statusClass}">${v.status}</span></td>
                 </tr>
               `;
-            }).join("")}
+      }).join("")}
           </tbody>
         </table>
       `}
@@ -16432,29 +16432,28 @@ DELIVERY CONFIRMATION
     }
 
 
-    
-        
-        function renderVehicleDetailsModal() {
+
+
+    function renderVehicleDetailsModal() {
       const vehicle = VEHICLES.find(v => v.id === state.selectedVehicleId);
       if (!vehicle) return "";
-      
+
       const driver = DRIVERS.find(d => d.id === vehicle.defaultDriverId);
-      
+
       // Determine which actions to show based on status
       let actionButtons = `<button onclick="state.activeModal='edit-vehicle'; render();">Edit</button>`;
-      
-      if (vehicle.status === "Suspended" || vehicle.status === "Inactive" || vehicle.status === "Maintenance") {
+
+      if (vehicle.status === "Inactive" || vehicle.status === "Maintenance") {
         actionButtons += `<button class="btn-primary" onclick="activateVehicle('${vehicle.id}')">Reinstate</button>`;
       } else {
         actionButtons += `<button onclick="state.activeModal='assign-driver'; render();">Assign Driver</button>`;
-        
+
         if (vehicle.status !== "In Transit") {
-          actionButtons += `<button class="btn-danger" onclick="suspendVehicle('${vehicle.id}')">Suspend</button>`;
           actionButtons += `<button class="btn-danger" onclick="deactivateVehicle('${vehicle.id}')">Deactivate</button>`;
         }
       }
 
-      const statusClass = vehicle.status === "Available" ? "badge-paid" : vehicle.status === "Suspended" || vehicle.status === "Inactive" || vehicle.status === "Maintenance" ? "badge-cancelled" : "badge-partial";
+      const statusClass = vehicle.status === "Available" ? "badge-paid" : vehicle.status === "Inactive" || vehicle.status === "Maintenance" ? "badge-cancelled" : "badge-partial";
 
       return `
     <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
@@ -16462,10 +16461,10 @@ DELIVERY CONFIRMATION
         <div class="modal-header" style="display:block;">
           <div style="display:flex; gap:16px; align-items:flex-start;">
             <div style="width:64px; height:64px; border-radius:8px; border:2px solid #1a1a1a; background:#f0f0f0; overflow:hidden; flex-shrink:0; display:flex; align-items:center; justify-content:center;">
-              ${vehicle.imageUrl 
-                ? `<img src="${vehicle.imageUrl}" style="width:100%; height:100%; object-fit:cover;">` 
-                : `<span style="font-size:24px; color:#888;">🚚</span>`
-              }
+              ${vehicle.imageUrl
+          ? `<img src="${vehicle.imageUrl}" style="width:100%; height:100%; object-fit:cover;">`
+          : `<span style="font-size:24px; color:#888;">🚚</span>`
+        }
             </div>
             <div style="flex:1;">
               <div style="display:flex; justify-content:space-between; align-items:flex-start;">
@@ -16514,8 +16513,8 @@ DELIVERY CONFIRMATION
     </div>
   `;
     }
-   
-    
+
+
     function activateVehicle(id) {
       if (!confirm("Reinstate this vehicle?")) return;
       const v = VEHICLES.find(x => x.id === id);
@@ -16534,10 +16533,10 @@ DELIVERY CONFIRMATION
       }
     }
 
-        function renderAssignVehicleModal() {
+    function renderAssignVehicleModal() {
       const driver = DRIVERS.find(d => d.id === state.selectedDriverId);
       if (!driver) return "";
-      
+
       // Show all vehicles, but highlight available vs assigned
       return `
     <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
@@ -16550,25 +16549,25 @@ DELIVERY CONFIRMATION
           
           <div style="max-height:300px; overflow-y:auto; border:2px solid #1a1a1a; border-radius:4px; padding:8px;">
             ${VEHICLES.map(v => {
-              const isCurrent = driver.defaultVehicleId === v.id;
-              const isAssigned = v.defaultDriverId && v.defaultDriverId !== driver.id;
-              const assignedDriver = isAssigned ? DRIVERS.find(d => d.id === v.defaultDriverId) : null;
-              
-              return `
+        const isCurrent = driver.defaultVehicleId === v.id;
+        const isAssigned = v.defaultDriverId && v.defaultDriverId !== driver.id;
+        const assignedDriver = isAssigned ? DRIVERS.find(d => d.id === v.defaultDriverId) : null;
+
+        return `
                 <label style="display:flex; gap:8px; align-items:flex-start; padding:8px 4px; border-bottom:1px dashed #ddd; font-size:12px; cursor:pointer;">
                   <input type="radio" name="assignVehicle" value="${v.id}" ${isCurrent ? "checked" : ""} style="width:auto; margin-top:2px;">
                   <div style="flex:1;">
                     <div style="font-weight:bold;">${v.name} (${v.plateNumber})</div>
-                    ${isCurrent 
-                      ? `<div style="font-size:11px; color:#166534;">✓ Currently assigned to this driver</div>`
-                      : isAssigned 
-                        ? `<div style="font-size:11px; color:#92400e;">⚠ Assigned to ${assignedDriver.name}. Selecting this will swap.</div>`
-                        : `<div style="font-size:11px; color:#166534;">✓ Available</div>`
-                    }
+                    ${isCurrent
+            ? `<div style="font-size:11px; color:#166534;">✓ Currently assigned to this driver</div>`
+            : isAssigned
+              ? `<div style="font-size:11px; color:#92400e;">⚠ Assigned to ${assignedDriver.name}. Selecting this will swap.</div>`
+              : `<div style="font-size:11px; color:#166534;">✓ Available</div>`
+          }
                   </div>
                 </label>
               `;
-            }).join("")}
+      }).join("")}
           </div>
         </div>
         <div class="modal-footer">
@@ -16583,13 +16582,13 @@ DELIVERY CONFIRMATION
     function commitAssignVehicle() {
       const selectedRadio = document.querySelector('input[name="assignVehicle"]:checked');
       if (!selectedRadio) return alert("Select a vehicle.");
-      
+
       const vehicleId = selectedRadio.value;
       const driver = DRIVERS.find(d => d.id === state.selectedDriverId);
       const vehicle = VEHICLES.find(v => v.id === vehicleId);
-      
+
       if (!driver || !vehicle) return;
-      
+
       // If the vehicle is currently assigned to someone else, unassign them
       if (vehicle.defaultDriverId && vehicle.defaultDriverId !== driver.id) {
         const oldDriver = DRIVERS.find(d => d.id === vehicle.defaultDriverId);
@@ -16598,7 +16597,7 @@ DELIVERY CONFIRMATION
           oldDriver.status = "Available";
         }
       }
-      
+
       // If the driver already had a vehicle, free it up
       if (driver.defaultVehicleId) {
         const oldVehicle = VEHICLES.find(v => v.id === driver.defaultVehicleId);
@@ -16607,20 +16606,20 @@ DELIVERY CONFIRMATION
           oldVehicle.status = "Available";
         }
       }
-      
+
       // Set the new assignment
       driver.defaultVehicleId = vehicleId;
       driver.status = "Assigned";
       vehicle.defaultDriverId = driver.id;
       vehicle.status = "Assigned";
-      
+
       closeModal();
     }
 
     function renderAssignDriverModal() {
       const vehicle = VEHICLES.find(v => v.id === state.selectedVehicleId);
       if (!vehicle) return "";
-      
+
       return `
     <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
       <div class="modal">
@@ -16632,25 +16631,25 @@ DELIVERY CONFIRMATION
           
           <div style="max-height:300px; overflow-y:auto; border:2px solid #1a1a1a; border-radius:4px; padding:8px;">
             ${DRIVERS.map(d => {
-              const isCurrent = vehicle.defaultDriverId === d.id;
-              const isAssigned = d.defaultVehicleId && d.defaultVehicleId !== vehicle.id;
-              const assignedVehicle = isAssigned ? VEHICLES.find(v => v.id === d.defaultVehicleId) : null;
-              
-              return `
+        const isCurrent = vehicle.defaultDriverId === d.id;
+        const isAssigned = d.defaultVehicleId && d.defaultVehicleId !== vehicle.id;
+        const assignedVehicle = isAssigned ? VEHICLES.find(v => v.id === d.defaultVehicleId) : null;
+
+        return `
                 <label style="display:flex; gap:8px; align-items:flex-start; padding:8px 4px; border-bottom:1px dashed #ddd; font-size:12px; cursor:pointer;">
                   <input type="radio" name="assignDriver" value="${d.id}" ${isCurrent ? "checked" : ""} style="width:auto; margin-top:2px;">
                   <div style="flex:1;">
                     <div style="font-weight:bold;">${d.name}</div>
-                    ${isCurrent 
-                      ? `<div style="font-size:11px; color:#166534;">✓ Currently assigned to this vehicle</div>`
-                      : isAssigned 
-                        ? `<div style="font-size:11px; color:#92400e;">⚠ Assigned to ${assignedVehicle.name}. Selecting this will swap.</div>`
-                        : `<div style="font-size:11px; color:#166534;">✓ Available</div>`
-                    }
+                    ${isCurrent
+            ? `<div style="font-size:11px; color:#166534;">✓ Currently assigned to this vehicle</div>`
+            : isAssigned
+              ? `<div style="font-size:11px; color:#92400e;">⚠ Assigned to ${assignedVehicle.name}. Selecting this will swap.</div>`
+              : `<div style="font-size:11px; color:#166534;">✓ Available</div>`
+          }
                   </div>
                 </label>
               `;
-            }).join("")}
+      }).join("")}
           </div>
         </div>
         <div class="modal-footer">
@@ -16665,13 +16664,13 @@ DELIVERY CONFIRMATION
     function commitAssignDriver() {
       const selectedRadio = document.querySelector('input[name="assignDriver"]:checked');
       if (!selectedRadio) return alert("Select a driver.");
-      
+
       const driverId = selectedRadio.value;
       const vehicle = VEHICLES.find(v => v.id === state.selectedVehicleId);
       const driver = DRIVERS.find(d => d.id === driverId);
-      
+
       if (!driver || !vehicle) return;
-      
+
       // If the driver is currently assigned to another vehicle, unassign them
       if (driver.defaultVehicleId && driver.defaultVehicleId !== vehicle.id) {
         const oldVehicle = VEHICLES.find(v => v.id === driver.defaultVehicleId);
@@ -16680,7 +16679,7 @@ DELIVERY CONFIRMATION
           oldVehicle.status = "Available";
         }
       }
-      
+
       // If the vehicle already had a driver, free them up
       if (vehicle.defaultDriverId) {
         const oldDriver = DRIVERS.find(d => d.id === vehicle.defaultDriverId);
@@ -16689,23 +16688,23 @@ DELIVERY CONFIRMATION
           oldDriver.status = "Available";
         }
       }
-      
+
       // Set the new assignment
       vehicle.defaultDriverId = driverId;
       vehicle.status = "Assigned";
       driver.defaultVehicleId = vehicle.id;
       driver.status = "Assigned";
-      
+
       closeModal();
     }
 
 
 
-        /* ============================================================
-       FLEET: ADD & EDIT MODALS
-       ============================================================ */
+    /* ============================================================
+   FLEET: ADD & EDIT MODALS
+   ============================================================ */
 
-           function renderAddDriverModal() {
+    function renderAddDriverModal() {
       return `
     <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
       <div class="modal">
@@ -16773,10 +16772,10 @@ DELIVERY CONFIRMATION
     }
 
 
-        function renderEditDriverModal() {
+    function renderEditDriverModal() {
       const d = DRIVERS.find(x => x.id === state.selectedDriverId);
       if (!d) return "";
-      
+
       return `
     <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
       <div class="modal">
@@ -16848,9 +16847,9 @@ DELIVERY CONFIRMATION
     }
 
 
-      
-    
-        function attachDriverFormHandlers() {
+
+
+    function attachDriverFormHandlers() {
       document.getElementById("saveDriverBtn")?.addEventListener("click", () => {
         const name = document.getElementById("drvName").value.trim();
         const email = document.getElementById("drvEmail").value.trim();
@@ -16896,13 +16895,13 @@ DELIVERY CONFIRMATION
             defaultVehicleId,
             imageUrl
           };
-          
+
           // If we just assigned a vehicle, update the vehicle's driver ID
           if (defaultVehicleId) {
-             const v = VEHICLES.find(x => x.id === defaultVehicleId);
-             if (v) v.defaultDriverId = newDriver.id;
+            const v = VEHICLES.find(x => x.id === defaultVehicleId);
+            if (v) v.defaultDriverId = newDriver.id;
           }
-          
+
           DRIVERS.push(newDriver);
         } else if (state.activeModal === "edit-driver") {
           const d = DRIVERS.find(x => x.id === state.selectedDriverId);
@@ -16915,7 +16914,7 @@ DELIVERY CONFIRMATION
                 if (oldV.status === "Assigned") oldV.status = "Available";
               }
             }
-            
+
             d.name = name;
             d.email = email;
             d.phone = phone;
@@ -16938,7 +16937,7 @@ DELIVERY CONFIRMATION
       });
     }
 
-        function renderAddVehicleModal() {
+    function renderAddVehicleModal() {
       return `
     <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
       <div class="modal">
@@ -17011,7 +17010,6 @@ DELIVERY CONFIRMATION
               <select id="vehStatus">
                 <option value="Available">Available</option>
                 <option value="Maintenance">Maintenance</option>
-                <option value="Suspended">Suspended</option>
               </select>
             </div>
           </div>
@@ -17052,13 +17050,13 @@ DELIVERY CONFIRMATION
     </div>
   `;
     }
-   
 
 
-        function renderEditVehicleModal() {
+
+    function renderEditVehicleModal() {
       const v = VEHICLES.find(x => x.id === state.selectedVehicleId);
       if (!v) return "";
-      
+
       return `
     <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
       <div class="modal">
@@ -17125,7 +17123,6 @@ DELIVERY CONFIRMATION
                 <option value="Assigned" ${v.status === "Assigned" ? "selected" : ""}>Assigned</option>
                 <option value="In Transit" ${v.status === "In Transit" ? "selected" : ""}>In Transit</option>
                 <option value="Maintenance" ${v.status === "Maintenance" ? "selected" : ""}>Maintenance</option>
-                <option value="Suspended" ${v.status === "Suspended" ? "selected" : ""}>Suspended</option>
                 <option value="Inactive" ${v.status === "Inactive" ? "selected" : ""}>Inactive</option>
               </select>
             </div>
@@ -17168,10 +17165,10 @@ DELIVERY CONFIRMATION
   `;
     }
 
-     
-      
 
-       function attachVehicleFormHandlers() {
+
+
+    function attachVehicleFormHandlers() {
       document.getElementById("saveVehicleBtn")?.addEventListener("click", () => {
         const name = document.getElementById("vehName").value.trim();
         const make = document.getElementById("vehMake").value.trim();
@@ -17274,8 +17271,8 @@ DELIVERY CONFIRMATION
         closeModal();
       });
     }
-    
-    
+
+
     function printInvoice(invoiceNumber) {
       // In a real app, this would generate a PDF or open a print-specific view.
       // For the prototype, we trigger the browser's print dialog.
@@ -17310,17 +17307,17 @@ DELIVERY CONFIRMATION
       document.querySelectorAll("[data-tab]").forEach((btn) => {
         btn.addEventListener("click", () => {
           state.activeTab = btn.dataset.tab;
-                   document
+          document
             .querySelectorAll("[data-tab]")
             .forEach((b) => {
               // The "Orders" tab should stay active whether viewing the list or creating a new order
-              const isActive = 
-                b.dataset.tab === state.activeTab || 
+              const isActive =
+                b.dataset.tab === state.activeTab ||
                 (b.dataset.tab === "orders-list" && state.activeTab === "orders");
               b.classList.toggle("active", isActive);
             });
 
-                 // Reset view state when entering a tab
+          // Reset view state when entering a tab
           if (state.activeTab === "orders-list") {
             // If they are mid-way through creating an order, reset it
             // (Or we can leave it, but resetting is safer for the demo)
@@ -17337,7 +17334,7 @@ DELIVERY CONFIRMATION
               state.dispatchView = "dashboard";
             }
           }
-                 if (state.activeTab === "customer-portal") {
+          if (state.activeTab === "customer-portal") {
             // Reset the portal to the email step each time the tab is opened.
             state.customerPortal = {
               step: "email",
@@ -17361,7 +17358,7 @@ DELIVERY CONFIRMATION
         });
       });
 
-           // Seed a few historical orders for the demo
+      // Seed a few historical orders for the demo
       if (ORDERS.length === 0) {
         ORDERS.push(
           {
@@ -17380,7 +17377,7 @@ DELIVERY CONFIRMATION
             fulfilmentLines: [{ productId: "p1", ordered: 1, fulfilled: 1 }],
             fulfilmentStatus: "complete",
           },
-                 {
+          {
             orderNumber: "ORD-20261002-002",
             invoiceNumber: "INV-20261002-002",
             customerId: "c2",
