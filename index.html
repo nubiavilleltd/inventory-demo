@@ -3584,11 +3584,32 @@ DISPATCH DASHBOARD DEMO SEED
                 reason: "Order edited",
               });
             }
-            const oldNumber = o.invoiceNumber;
+                    const oldNumber = o.invoiceNumber;
+            
+            // Mark the old invoice as Voided in the global list
+            const oldSnapshot = INVOICES.find(inv => inv.invoiceNumber === oldNumber);
+            if (oldSnapshot) oldSnapshot.status = "Voided";
+
+            // Generate new invoice and snapshot
             o.invoiceNumber = genNum("INV");
             logTimeline(
               `Order edited. Invoice ${oldNumber} voided. New invoice ${o.invoiceNumber} issued.`,
             );
+
+            const newSnapshot = {
+              invoiceNumber: o.invoiceNumber,
+              orderNumber: o.orderNumber,
+              customerId: o.customerId,
+              date: todayISO(),
+              dueDate: o.dueDate,
+              items: o.items.map(i => ({ ...i })),
+              amount: calcTotals(o).total,
+              amountPaid: calcTotals(o).paid,
+              status: "Unpaid",
+              payments: [],
+            };
+            INVOICES.push(newSnapshot);
+            syncInvoiceStatus(o); // Catch any initial paid states
           } else {
             logTimeline("Draft updated.");
           }
@@ -5288,6 +5309,9 @@ DISPATCH DASHBOARD DEMO SEED
         ensureOrderInDispatchPool(o);
       }
 
+      // Sync the invoice status in the global list
+      syncInvoiceStatus(o);
+
       state.activeModal = null;
 
       // Determine which milestone we just hit.
@@ -5526,6 +5550,10 @@ DISPATCH DASHBOARD DEMO SEED
 
           // Cancelled orders leave the dispatch pool.
           removeOrderFromDispatchPool(o.orderNumber);
+
+          // Sync the invoice status to Voided
+          syncInvoiceStatus(o);
+
           state.activeModal = null;
           render();
         });
@@ -15728,7 +15756,38 @@ DELIVERY CONFIRMATION
       render();
     }
 
-            function renderInvoicesList(c) {
+                // Keep the global INVOICES array in sync with the live order state.
+    // This should be called whenever payments are recorded, edited, or cancelled.
+    function syncInvoiceStatus(order) {
+      if (!order || !order.invoiceNumber) return;
+
+      // Check if we already have an invoice snapshot for this order number
+      let snapshot = INVOICES.find(
+        (inv) => inv.invoiceNumber === order.invoiceNumber
+      );
+
+      if (!snapshot) return; // If it doesn't exist, nothing to sync
+
+      const t = calcTotals(order);
+      
+      // Update amounts
+      snapshot.amount = t.total;
+      snapshot.amountPaid = t.paid;
+      snapshot.payments = JSON.parse(JSON.stringify(order.payments || [])); // Deep copy
+
+      // Update status
+      if (order.state === "cancelled") {
+        snapshot.status = "Voided";
+      } else if (t.outstanding <= 0) {
+        snapshot.status = "Paid";
+      } else if (t.paid > 0) {
+        snapshot.status = "Partially Paid";
+      } else {
+        snapshot.status = "Unpaid";
+      }
+    }
+
+    function renderInvoicesList(c) {
       const f = state.invoiceFilter.toLowerCase();
       const filtered = INVOICES.filter(
         (inv) =>
