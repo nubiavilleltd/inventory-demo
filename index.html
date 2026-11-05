@@ -1609,6 +1609,7 @@
       recoveryQty: "",
       receiveQty: "", // NEW (Stock Quantity only)
       receiveSelectedUnits: [], // NEW (Individual Items only)
+      receiveSelectedConditions: {}, // NEW: Store condition overrides
       recoveryNote: "",
       receiveDiscrepancyReason: "",
 
@@ -9973,7 +9974,8 @@ RECEIVE STOCK MODAL
       render();
     }
 
-    function renderReceiveTransferModal() {
+
+        function renderReceiveTransferModal() {
       const transfer = TRANSFERS.find(
         (t) => t.id === state.receivingTransferId,
       );
@@ -10006,13 +10008,30 @@ RECEIVE STOCK MODAL
             ${units
             .map((u) => {
               const checked = state.receiveSelectedUnits.includes(u.id);
+              const currentCondition = state.receiveSelectedConditions[u.id] || u.condition || "New";
+              
+              // Disable condition if not checked
+              const isDisabled = !checked;
+
               return `
-                <label style="display:flex; gap:8px; align-items:center; padding:6px 4px; border-bottom:1px dashed #ddd; font-size:12px; cursor:pointer;">
-                  <input type="checkbox" ${checked ? "checked" : ""} style="width:auto;"
-                    onchange="onReceiveUnitToggle('${u.id}')">
-                  <span style="flex:1;">${u.tag}</span>
-                  <span style="font-size:11px; color:#888;">${u.condition || "New"}</span>
-                </label>
+                <div style="display:flex; gap:8px; align-items:center; padding:6px 4px; border-bottom:1px dashed #ddd; font-size:12px;">
+                  <label style="display:flex; gap:8px; align-items:center; cursor:pointer; flex:1;">
+                    <input type="checkbox" ${checked ? "checked" : ""} style="width:auto;"
+                      onchange="onReceiveUnitToggle('${u.id}')">
+                    <span style="flex:1;">${u.tag}</span>
+                  </label>
+                  
+                  <select 
+                    style="width:120px; padding:2px 4px; font-size:11px; ${isDisabled ? 'opacity:0.5;' : ''}"
+                    onchange="onReceiveUnitConditionChange('${u.id}', this.value)"
+                    ${isDisabled ? "disabled" : ""}>
+                    <option value="New" ${currentCondition === "New" ? "selected" : ""}>New</option>
+                    <option value="Used" ${currentCondition === "Used" ? "selected" : ""}>Used</option>
+                    <option value="Refurbished" ${currentCondition === "Refurbished" ? "selected" : ""}>Refurbished</option>
+                    <option value="Damaged" ${currentCondition === "Damaged" ? "selected" : ""}>Damaged</option>
+                    <option value="Returned" ${currentCondition === "Returned" ? "selected" : ""}>Returned</option>
+                  </select>
+                </div>
               `;
             })
             .join("")}
@@ -10047,7 +10066,7 @@ RECEIVE STOCK MODAL
       `;
     }
 
-
+   
     function renderDiscrepancyReceiptModal() {
       const transfer = TRANSFERS.find(
         (t) => t.id === state.receivingTransferId,
@@ -10158,6 +10177,11 @@ RECEIVE STOCK MODAL
         selected.push(unitId);
       }
       state.receiveSelectedUnits = selected;
+      render();
+    }
+
+        function onReceiveUnitConditionChange(unitId, newCondition) {
+      state.receiveSelectedConditions[unitId] = newCondition;
       render();
     }
 
@@ -11095,7 +11119,7 @@ Outstanding is always calculated from these two, never stored.
     }
 
 
-    function commitReceiveTransfer(recordDiscrepancy = false) {
+        function commitReceiveTransfer(recordDiscrepancy = false) {
       const transfer = TRANSFERS.find(
         (t) => t.id === state.receivingTransferId,
       );
@@ -11232,7 +11256,16 @@ Outstanding is always calculated from these two, never stored.
       } else {
         // Receive selected individual units at the destination.
         unitsToReceive.forEach((u) => {
-          u.status = "Available";
+          const newCondition = state.receiveSelectedConditions[u.id] || u.condition || "New";
+          
+          u.status = "Available"; 
+          u.condition = newCondition;
+          
+          // Apply Unsellable logic based on the received condition
+          if (newCondition === "Damaged" || newCondition === "Used") {
+            u.status = "Unsellable";
+          }
+
           u.locationId = transfer.toLocationId;
           u.inTransitTransferId = null;
           u.discrepancyTransferId = null;
@@ -11282,7 +11315,7 @@ Outstanding is always calculated from these two, never stored.
     }
 
 
-
+  
 
     function attachTransferStockHandlers() {
       document
@@ -13485,6 +13518,7 @@ MOVEMENT LOG PAGE
       state.receivingTransferId = null;
       state.receiveQty = "";
       state.receiveSelectedUnits = [];
+      state.receiveSelectedConditions = {}
       state.receiveDiscrepancyReason = "";
       state.activeModal = null;
       render();
