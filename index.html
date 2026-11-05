@@ -8754,7 +8754,7 @@ INVENTORY LIST PAGE
   `;
     }
 
-    function renderProductDetail(c, productId) {
+        function renderProductDetail(c, productId) {
       const p = getInvProduct(productId);
       if (!p) {
         c.innerHTML = '<div class="empty-state">Product not found.</div>';
@@ -8763,6 +8763,7 @@ INVENTORY LIST PAGE
 
       const s = getStockSummary(p.id);
       const status = getStockStatus(p.id);
+      const isActive = p.status === "Active" || !p.status; // Treat undefined as Active
 
       // Individual items: show unit table
       // Stock quantity: show per-location stock
@@ -8934,20 +8935,20 @@ INVENTORY LIST PAGE
               ${p.tagPrefix ? " · Tag prefix: " + p.tagPrefix : ""}
               ${p.minimumStock ? " · Min stock: " + p.minimumStock : ""}
             </div>
-            ${p.status === "Inactive" ? `<div style="font-size:11px; color:#991b1b; font-weight:bold; margin-top:6px;">⚠ This product is Inactive and cannot be sold.</div>` : ""}
+            ${!isActive ? `<div style="font-size:11px; color:#991b1b; font-weight:bold; margin-top:6px;">⚠ This product is Inactive and cannot be sold.</div>` : ""}
           </div>
         </div>
         <div style="text-align:right;">
           <div style="margin-bottom:8px;">
             <span class="badge ${getStockStatusBadge(status)}" style="margin-right:8px;">${status}</span>
-            <span class="badge ${p.status === "Active" ? "badge-paid" : "badge-cancelled"}">${p.status || "Active"}</span>
+            <span class="badge ${isActive ? "badge-paid" : "badge-cancelled"}">${isActive ? "Active" : "Inactive"}</span>
           </div>
           <div style="margin-top:8px;">
             <button class="btn-primary" onclick="state.activeModal='receive-stock'; render();">+ Check In</button>
             <button onclick="openTransferStockModal('${p.id}');">Transfer</button>
             <button onclick="state.activeModal='adjust-stock'; render();">Adjust</button>
             <button onclick="state.activeModal='edit-product'; render();" style="margin-left:8px;">Edit</button>
-            ${p.status === "Active"
+            ${isActive
           ? `<button class="btn-danger" onclick="deactivateProduct('${p.id}')">Deactivate</button>`
           : `<button onclick="activateProduct('${p.id}')">Re-activate</button>`
         }
@@ -9025,12 +9026,12 @@ INVENTORY LIST PAGE
             </div>
           `,
             )
-            .join("")
-        }
+            .join("")}
     </div>
   `;
     }
 
+   
     // ----- Transfer Stock Helpers -----
 
     // Get available stock at a location for a product.
