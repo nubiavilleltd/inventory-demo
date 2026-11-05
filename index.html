@@ -17064,7 +17064,6 @@ function renderBatchItemsCard(batch) {
         const experienceYears = parseInt(document.getElementById("drvExperience").value, 10) || 0;
         const status = document.getElementById("drvStatus").value;
         const defaultVehicleId = document.getElementById("drvVehicleId").value || null;
-        const imageUrl = document.getElementById("drvImageUrl").value.trim() || null;
 
         if (!name || !email || !phone || !licenseNumber || !licenseExpiry) {
           return alert("Please fill in all required fields.");
@@ -17098,7 +17097,6 @@ function renderBatchItemsCard(batch) {
             experienceYears,
             status,
             defaultVehicleId,
-            imageUrl
           };
 
           // If we just assigned a vehicle, update the vehicle's driver ID
@@ -17128,7 +17126,6 @@ function renderBatchItemsCard(batch) {
             d.experienceYears = experienceYears;
             d.status = status;
             d.defaultVehicleId = defaultVehicleId;
-            d.imageUrl = imageUrl;
 
             // Update the new vehicle's default driver
             if (defaultVehicleId) {
@@ -17142,6 +17139,8 @@ function renderBatchItemsCard(batch) {
       });
     }
 
+    
+    
     function renderAddVehicleModal() {
       return `
     <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
@@ -17389,7 +17388,6 @@ function renderBatchItemsCard(batch) {
         const insuranceExpiry = document.getElementById("vehInsurance").value || null;
         const roadworthinessExpiry = document.getElementById("vehRoadworthy").value || null;
         const defaultDriverId = document.getElementById("vehDriverId").value || null;
-        const imageUrl = document.getElementById("vehImageUrl").value.trim() || null;
 
         if (!name || !make || !model || !plateNumber) {
           return alert("Please fill in all required fields.");
@@ -17428,7 +17426,6 @@ function renderBatchItemsCard(batch) {
             insuranceExpiry,
             roadworthinessExpiry,
             defaultDriverId,
-            imageUrl
           };
 
           if (defaultDriverId) {
@@ -17463,7 +17460,6 @@ function renderBatchItemsCard(batch) {
             v.insuranceExpiry = insuranceExpiry;
             v.roadworthinessExpiry = roadworthinessExpiry;
             v.defaultDriverId = defaultDriverId;
-            v.imageUrl = imageUrl;
 
             // Update the new driver's default vehicle
             if (defaultDriverId) {
