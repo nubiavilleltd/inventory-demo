@@ -586,6 +586,8 @@
       { id: "p4", name: "Office Chair", price: 85000, stock: 15 },
     ];
 
+
+    const ORDERS = [];
     const INVOICES = [];
 
     const CUSTOMERS = [
@@ -3573,7 +3575,7 @@ DISPATCH DASHBOARD DEMO SEED
             if (!confirm(stockResult.message + "\n\nProceed anyway?")) return;
           }
 
-          if (o.state === "submitted") {
+                if (o.state === "submitted") {
             // Void the old invoice and generate a new one
             o.invoiceHistory = o.invoiceHistory || [];
             if (o.invoiceNumber) {
@@ -3583,6 +3585,12 @@ DISPATCH DASHBOARD DEMO SEED
                 voidedAt: new Date().toISOString(),
                 reason: "Order edited",
               });
+            }
+
+            // Update the global Orders array to reflect the edit
+            const idx = ORDERS.findIndex(ord => ord.orderNumber === o.orderNumber);
+            if (idx !== -1) {
+              ORDERS[idx] = JSON.parse(JSON.stringify(o));
             }
                     const oldNumber = o.invoiceNumber;
             
@@ -3903,7 +3911,7 @@ DISPATCH DASHBOARD DEMO SEED
         `Invoice ${o.invoiceNumber} generated (Due: ${formatDate(o.dueDate)})`,
       );
 
-      // Snapshot the invoice for the global Invoices list
+            // Snapshot the invoice for the global Invoices list
       const snapshot = {
         invoiceNumber: o.invoiceNumber,
         orderNumber: o.orderNumber,
@@ -3920,6 +3928,16 @@ DISPATCH DASHBOARD DEMO SEED
       // Avoid duplicates if re-submitting a draft
       if (!INVOICES.find(inv => inv.invoiceNumber === o.invoiceNumber)) {
         INVOICES.push(snapshot);
+      }
+
+      // Snapshot the order for the global Orders list
+      const orderSnapshot = JSON.parse(JSON.stringify(o));
+      if (!ORDERS.find(ord => ord.orderNumber === o.orderNumber)) {
+        ORDERS.push(orderSnapshot);
+      } else {
+        // Update existing snapshot if it's a re-submit
+        const idx = ORDERS.findIndex(ord => ord.orderNumber === o.orderNumber);
+        ORDERS[idx] = orderSnapshot;
       }
       const t = calcTotals(o);
 
@@ -5309,8 +5327,14 @@ DISPATCH DASHBOARD DEMO SEED
         ensureOrderInDispatchPool(o);
       }
 
-      // Sync the invoice status in the global list
+         // Sync the invoice status in the global list
       syncInvoiceStatus(o);
+
+      // Update the global Orders array
+      const ordIdx = ORDERS.findIndex(ord => ord.orderNumber === o.orderNumber);
+      if (ordIdx !== -1) {
+        ORDERS[ordIdx] = JSON.parse(JSON.stringify(o));
+      }
 
       state.activeModal = null;
 
@@ -5545,14 +5569,20 @@ DISPATCH DASHBOARD DEMO SEED
             releaseDeliveryReservation(o);
           }
 
-          // -------- 3. Move to Cancelled --------
+                 // -------- 3. Move to Cancelled --------
           o.state = "cancelled";
 
           // Cancelled orders leave the dispatch pool.
           removeOrderFromDispatchPool(o.orderNumber);
-
+          
           // Sync the invoice status to Voided
           syncInvoiceStatus(o);
+
+          // Update the global Orders array
+          const ordIdx = ORDERS.findIndex(ord => ord.orderNumber === o.orderNumber);
+          if (ordIdx !== -1) {
+            ORDERS[ordIdx] = JSON.parse(JSON.stringify(o));
+          }
 
           state.activeModal = null;
           render();
@@ -16038,7 +16068,61 @@ DELIVERY CONFIRMATION
         });
       });
 
-            // Seed a few historical invoices for the demo
+           // Seed a few historical orders for the demo
+      if (ORDERS.length === 0) {
+        ORDERS.push(
+          {
+            orderNumber: "ORD-20261001-001",
+            invoiceNumber: "INV-20261001-001",
+            customerId: "c1",
+            fulfillment: "Pickup",
+            scheduledDate: "2026-10-01",
+            items: [{ productId: "p1", qty: 1 }],
+            state: "completed",
+            invoiceDate: "2026-10-01",
+            dueDate: "2026-10-08",
+            payments: [{ date: "2026-10-01", amount: 200000, method: "Cash" }],
+            creditApplied: 0,
+            timeline: [],
+            fulfilmentLines: [{ productId: "p1", ordered: 1, fulfilled: 1 }],
+            fulfilmentStatus: "complete",
+          },
+          {
+            orderNumber: "ORD-20261002-002",
+            invoiceNumber: "INV-20261002-002",
+            customerId: "c2",
+            fulfillment: "Delivery",
+            scheduledDate: "2026-10-02",
+            items: [{ productId: "p2", qty: 5 }],
+            state: "confirmed",
+            invoiceDate: "2026-10-02",
+            dueDate: "2026-10-09",
+            payments: [],
+            creditApplied: 0,
+            timeline: [],
+            fulfilmentLines: [{ productId: "p2", ordered: 5, fulfilled: 5 }],
+            fulfilmentStatus: "complete",
+          },
+          {
+            orderNumber: "ORD-20261003-003",
+            invoiceNumber: "INV-20261003-003",
+            customerId: "c3",
+            fulfillment: "Pickup",
+            scheduledDate: "2026-10-03",
+            items: [{ productId: "p3", qty: 1 }],
+            state: "submitted",
+            invoiceDate: "2026-10-03",
+            dueDate: "2026-10-10",
+            payments: [],
+            creditApplied: 0,
+            timeline: [],
+            fulfilmentLines: [{ productId: "p3", ordered: 1, fulfilled: 1 }],
+            fulfilmentStatus: "complete",
+          }
+        );
+      }
+
+      // Seed a few historical invoices for the demo
       if (INVOICES.length === 0) {
         INVOICES.push(
           {
