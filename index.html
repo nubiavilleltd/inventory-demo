@@ -5339,8 +5339,15 @@ DISPATCH DASHBOARD DEMO SEED
         c.innerHTML = renderTagsDetailModal();
       } else if (state.activeModal === "receipt-success") {
         c.innerHTML = renderReceiptSuccessModal();
-      }
-    }
+      } else if (state.activeModal === "driver-details") {
+        c.innerHTML = renderDriverDetailsModal();
+      } else if (state.activeModal === "vehicle-details") {
+        c.innerHTML = renderVehicleDetailsModal();
+      } else if (state.activeModal === "assign-vehicle") {
+        c.innerHTML = renderAssignVehicleModal();
+      } else if (state.activeModal === "assign-driver") {
+        c.innerHTML = renderAssignDriverModal();
+      }    }
 
     function closeModal() {
       state.activeModal = null;
@@ -5366,6 +5373,8 @@ DISPATCH DASHBOARD DEMO SEED
       state.bulkFeeMethod = "Cash";
       state.bulkFeeReference = "";
       state.bulkFeeWaiveReason = "";
+        state.selectedDriverId = null;
+      state.selectedVehicleId = null;
       render();
     }
 
@@ -16183,6 +16192,92 @@ DELIVERY CONFIRMATION
   `;
     }
 
+            function renderDriverDetailsModal() {
+      const driver = DRIVERS.find(d => d.id === state.selectedDriverId);
+      if (!driver) return "";
+      
+      const vehicle = VEHICLES.find(v => v.id === driver.defaultVehicleId);
+      
+         // Determine which actions to show based on status
+        let actionButtons = `<button onclick="alert('Edit coming soon');">Edit</button>`;
+      
+      if (driver.status === "Suspended" || driver.status === "Inactive") {
+        actionButtons += `<button class="btn-primary" onclick="activateDriver('${driver.id}')">Activate</button>`;
+      } else {
+        actionButtons += `<button onclick="state.activeModal='assign-vehicle'; render();">Assign Vehicle</button>`;
+        
+        if (driver.status !== "In Transit") {
+          actionButtons += `<button class="btn-danger" onclick="suspendDriver('${driver.id}')">Suspend</button>`;
+          actionButtons += `<button class="btn-danger" onclick="deactivateDriver('${driver.id}')">Deactivate</button>`;
+        }
+      }
+
+      const statusClass = driver.status === "Available" ? "badge-paid" : driver.status === "Suspended" || driver.status === "Inactive" ? "badge-cancelled" : "badge-partial";
+
+      return `
+    <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+      <div class="modal" style="max-width: 600px;">
+        <div class="modal-header" style="display:block;">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+            <div>
+              <div style="font-size:18px; font-weight:bold;">${driver.name}</div>
+              <div style="font-size:12px; color:#555; margin-top:4px;">${driver.phone} · ${driver.licenseNumber}</div>
+            </div>
+            <button class="close-x" onclick="closeModal()">×</button>
+          </div>
+          <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
+            ${actionButtons}
+          </div>
+        </div>
+        <div class="modal-body">
+          <div class="card" style="background:#f9fafb;">
+            <div style="font-weight:bold; margin-bottom:8px; font-size:13px;">Driver Profile</div>
+            <div class="row" style="font-size:12px;">
+              <div class="col"><span style="color:#666;">Email:</span> ${driver.email}</div>
+              <div class="col"><span style="color:#666;">Status:</span> <span class="badge ${statusClass}">${driver.status}</span></div>
+            </div>
+            <div class="row mt-8" style="font-size:12px;">
+              <div class="col"><span style="color:#666;">License Expiry:</span> ${formatDate(driver.licenseExpiry)}</div>
+              <div class="col"><span style="color:#666;">Experience:</span> ${driver.experienceYears} years</div>
+            </div>
+            <div class="row mt-8" style="font-size:12px;">
+              <div class="col"><span style="color:#666;">Default Vehicle:</span> ${vehicle ? vehicle.name + " (" + vehicle.plateNumber + ")" : "—"}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+    }
+
+    function suspendDriver(id) {
+      if (!confirm("Suspend this driver? They will be removed from active dispatch.")) return;
+      const d = DRIVERS.find(x => x.id === id);
+      if (d) {
+        d.status = "Suspended";
+        closeModal();
+      }
+    }
+
+    function activateDriver(id) {
+      if (!confirm("Reinstate this driver?")) return;
+      const d = DRIVERS.find(x => x.id === id);
+      if (d) {
+        d.status = d.defaultVehicleId ? "Assigned" : "Available";
+        closeModal();
+      }
+    }
+
+    function deactivateDriver(id) {
+      if (!confirm("Deactivate this driver? They will be removed from the system.")) return;
+      const d = DRIVERS.find(x => x.id === id);
+      if (d) {
+        d.status = "Inactive";
+        closeModal();
+      }
+    }
+
+
         function renderFleetPage(c) {
       const filter = state.fleetFilter.toLowerCase();
       
@@ -16224,13 +16319,15 @@ DELIVERY CONFIRMATION
               <th>DRIVER</th>
               <th>PHONE</th>
               <th>LICENSE</th>
+              <th>ASSIGNED VEHICLE</th>
               <th>STATUS</th>
             </tr>
           </thead>
           <tbody>
-            ${filteredDrivers.length === 0 ? `<tr><td colspan="4" class="empty-state">No drivers found.</td></tr>` : ""}
+            ${filteredDrivers.length === 0 ? `<tr><td colspan="5" class="empty-state">No drivers found.</td></tr>` : ""}
             ${filteredDrivers.map(d => {
               const statusClass = d.status === "Available" ? "badge-paid" : d.status === "Suspended" || d.status === "Inactive" ? "badge-cancelled" : "badge-partial";
+              const vehicle = VEHICLES.find(v => v.id === d.defaultVehicleId);
               return `
                 <tr style="cursor:pointer;" onclick="state.selectedDriverId='${d.id}'; state.activeModal='driver-details'; render();">
                   <td>
@@ -16241,6 +16338,12 @@ DELIVERY CONFIRMATION
                   <td>
                     <div>${d.licenseNumber}</div>
                     <div style="font-size:11px; color:#888;">Exp: ${formatDate(d.licenseExpiry)}</div>
+                  </td>
+                  <td>
+                    ${vehicle 
+                      ? `<div style="font-weight:bold;">${vehicle.name}</div><div style="font-size:11px; color:#888;">${vehicle.plateNumber}</div>` 
+                      : `<span style="color:#888; font-style:italic;">Unassigned</span>`
+                    }
                   </td>
                   <td><span class="badge ${statusClass}">${d.status}</span></td>
                 </tr>
@@ -16256,13 +16359,15 @@ DELIVERY CONFIRMATION
               <th>PLATE NO.</th>
               <th>TYPE</th>
               <th>CAPACITY</th>
+              <th>ASSIGNED DRIVER</th>
               <th>STATUS</th>
             </tr>
           </thead>
           <tbody>
-            ${filteredVehicles.length === 0 ? `<tr><td colspan="5" class="empty-state">No vehicles found.</td></tr>` : ""}
+            ${filteredVehicles.length === 0 ? `<tr><td colspan="6" class="empty-state">No vehicles found.</td></tr>` : ""}
             ${filteredVehicles.map(v => {
               const statusClass = v.status === "Available" ? "badge-paid" : v.status === "Suspended" || v.status === "Inactive" || v.status === "Maintenance" ? "badge-cancelled" : "badge-partial";
+              const driver = DRIVERS.find(d => d.id === v.defaultDriverId);
               return `
                 <tr style="cursor:pointer;" onclick="state.selectedVehicleId='${v.id}'; state.activeModal='vehicle-details'; render();">
                   <td>
@@ -16272,6 +16377,12 @@ DELIVERY CONFIRMATION
                   <td>${v.plateNumber}</td>
                   <td>${v.type}</td>
                   <td>${v.capacity ? v.capacity.toLocaleString() + " kg" : "—"}</td>
+                  <td>
+                    ${driver 
+                      ? `<div style="font-weight:bold;">${driver.name}</div><div style="font-size:11px; color:#888;">${driver.phone}</div>` 
+                      : `<span style="color:#888; font-style:italic;">Unassigned</span>`
+                    }
+                  </td>
                   <td><span class="badge ${statusClass}">${v.status}</span></td>
                 </tr>
               `;
@@ -16281,6 +16392,263 @@ DELIVERY CONFIRMATION
       `}
     </div>
   `;
+    }
+
+    
+        
+    
+    function renderVehicleDetailsModal() {
+      const vehicle = VEHICLES.find(v => v.id === state.selectedVehicleId);
+      if (!vehicle) return "";
+      
+      const driver = DRIVERS.find(d => d.id === vehicle.defaultDriverId);
+      
+      // Determine which actions to show based on status
+      let actionButtons = `<button onclick="alert('Edit coming soon');">Edit</button>`;
+      
+      if (vehicle.status === "Suspended" || vehicle.status === "Inactive" || vehicle.status === "Maintenance") {
+        actionButtons += `<button class="btn-primary" onclick="activateVehicle('${vehicle.id}')">Reinstate</button>`;
+      } else {
+        actionButtons += `<button onclick="state.activeModal='assign-driver'; render();">Assign Driver</button>`;
+        
+        if (vehicle.status !== "In Transit") {
+          actionButtons += `<button class="btn-danger" onclick="suspendVehicle('${vehicle.id}')">Suspend</button>`;
+          actionButtons += `<button class="btn-danger" onclick="deactivateVehicle('${vehicle.id}')">Deactivate</button>`;
+        }
+      }
+
+      const statusClass = vehicle.status === "Available" ? "badge-paid" : vehicle.status === "Suspended" || vehicle.status === "Inactive" || vehicle.status === "Maintenance" ? "badge-cancelled" : "badge-partial";
+
+      return `
+    <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+      <div class="modal" style="max-width: 600px;">
+        <div class="modal-header" style="display:block;">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+            <div>
+              <div style="font-size:18px; font-weight:bold;">${vehicle.name}</div>
+              <div style="font-size:12px; color:#555; margin-top:4px;">${vehicle.plateNumber} · ${vehicle.type}</div>
+            </div>
+            <button class="close-x" onclick="closeModal()">×</button>
+          </div>
+          <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
+            ${actionButtons}
+          </div>
+        </div>
+        <div class="modal-body">
+          <div class="card" style="background:#f9fafb;">
+            <div style="font-weight:bold; margin-bottom:8px; font-size:13px;">Vehicle Summary</div>
+            <div class="row" style="font-size:12px;">
+              <div class="col"><span style="color:#666;">Make:</span> ${vehicle.make}</div>
+              <div class="col"><span style="color:#666;">Model:</span> ${vehicle.model} (${vehicle.year})</div>
+              <div class="col"><span style="color:#666;">Status:</span> <span class="badge ${statusClass}">${vehicle.status}</span></div>
+            </div>
+            <div class="row mt-8" style="font-size:12px;">
+              <div class="col"><span style="color:#666;">Fuel Type:</span> ${vehicle.fuelType}</div>
+              <div class="col"><span style="color:#666;">Capacity:</span> ${vehicle.capacity ? vehicle.capacity.toLocaleString() + " kg" : "—"}</div>
+            </div>
+            <div class="row mt-8" style="font-size:12px;">
+              <div class="col"><span style="color:#666;">Default Driver:</span> ${driver ? driver.name : "—"}</div>
+            </div>
+          </div>
+          
+          <div class="card" style="background:#f9fafb; margin-top:12px;">
+            <div style="font-weight:bold; margin-bottom:8px; font-size:13px;">Compliance & Maintenance</div>
+            <div class="row" style="font-size:12px;">
+              <div class="col"><span style="color:#666;">Last Service:</span> ${formatDate(vehicle.lastServiceDate)}</div>
+              <div class="col"><span style="color:#666;">Next Service:</span> ${formatDate(vehicle.nextServiceDate)}</div>
+            </div>
+            <div class="row mt-8" style="font-size:12px;">
+              <div class="col"><span style="color:#666;">Insurance Expiry:</span> ${formatDate(vehicle.insuranceExpiry)}</div>
+              <div class="col"><span style="color:#666;">Roadworthiness:</span> ${formatDate(vehicle.roadworthinessExpiry)}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+    }
+
+    function activateVehicle(id) {
+      if (!confirm("Reinstate this vehicle?")) return;
+      const v = VEHICLES.find(x => x.id === id);
+      if (v) {
+        v.status = v.defaultDriverId ? "Assigned" : "Available";
+        closeModal();
+      }
+    }
+
+    function deactivateVehicle(id) {
+      if (!confirm("Deactivate this vehicle? It will be removed from the system.")) return;
+      const v = VEHICLES.find(x => x.id === id);
+      if (v) {
+        v.status = "Inactive";
+        closeModal();
+      }
+    }
+
+        function renderAssignVehicleModal() {
+      const driver = DRIVERS.find(d => d.id === state.selectedDriverId);
+      if (!driver) return "";
+      
+      // Show all vehicles, but highlight available vs assigned
+      return `
+    <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+      <div class="modal">
+        <div class="modal-header">Assign Vehicle to ${driver.name} <button class="close-x" onclick="closeModal()">×</button></div>
+        <div class="modal-body">
+          <div style="font-size:12px; color:#555; margin-bottom:12px;">
+            Select a vehicle. Vehicles currently assigned to others will be swapped.
+          </div>
+          
+          <div style="max-height:300px; overflow-y:auto; border:2px solid #1a1a1a; border-radius:4px; padding:8px;">
+            ${VEHICLES.map(v => {
+              const isCurrent = driver.defaultVehicleId === v.id;
+              const isAssigned = v.defaultDriverId && v.defaultDriverId !== driver.id;
+              const assignedDriver = isAssigned ? DRIVERS.find(d => d.id === v.defaultDriverId) : null;
+              
+              return `
+                <label style="display:flex; gap:8px; align-items:flex-start; padding:8px 4px; border-bottom:1px dashed #ddd; font-size:12px; cursor:pointer;">
+                  <input type="radio" name="assignVehicle" value="${v.id}" ${isCurrent ? "checked" : ""} style="width:auto; margin-top:2px;">
+                  <div style="flex:1;">
+                    <div style="font-weight:bold;">${v.name} (${v.plateNumber})</div>
+                    ${isCurrent 
+                      ? `<div style="font-size:11px; color:#166534;">✓ Currently assigned to this driver</div>`
+                      : isAssigned 
+                        ? `<div style="font-size:11px; color:#92400e;">⚠ Assigned to ${assignedDriver.name}. Selecting this will swap.</div>`
+                        : `<div style="font-size:11px; color:#166534;">✓ Available</div>`
+                    }
+                  </div>
+                </label>
+              `;
+            }).join("")}
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button onclick="closeModal()">Cancel</button>
+          <button class="btn-primary" onclick="commitAssignVehicle()">Confirm Assign</button>
+        </div>
+      </div>
+    </div>
+  `;
+    }
+
+    function commitAssignVehicle() {
+      const selectedRadio = document.querySelector('input[name="assignVehicle"]:checked');
+      if (!selectedRadio) return alert("Select a vehicle.");
+      
+      const vehicleId = selectedRadio.value;
+      const driver = DRIVERS.find(d => d.id === state.selectedDriverId);
+      const vehicle = VEHICLES.find(v => v.id === vehicleId);
+      
+      if (!driver || !vehicle) return;
+      
+      // If the vehicle is currently assigned to someone else, unassign them
+      if (vehicle.defaultDriverId && vehicle.defaultDriverId !== driver.id) {
+        const oldDriver = DRIVERS.find(d => d.id === vehicle.defaultDriverId);
+        if (oldDriver) {
+          oldDriver.defaultVehicleId = null;
+          oldDriver.status = "Available";
+        }
+      }
+      
+      // If the driver already had a vehicle, free it up
+      if (driver.defaultVehicleId) {
+        const oldVehicle = VEHICLES.find(v => v.id === driver.defaultVehicleId);
+        if (oldVehicle) {
+          oldVehicle.defaultDriverId = null;
+          oldVehicle.status = "Available";
+        }
+      }
+      
+      // Set the new assignment
+      driver.defaultVehicleId = vehicleId;
+      driver.status = "Assigned";
+      vehicle.defaultDriverId = driver.id;
+      vehicle.status = "Assigned";
+      
+      closeModal();
+    }
+
+    function renderAssignDriverModal() {
+      const vehicle = VEHICLES.find(v => v.id === state.selectedVehicleId);
+      if (!vehicle) return "";
+      
+      return `
+    <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+      <div class="modal">
+        <div class="modal-header">Assign Driver to ${vehicle.name} <button class="close-x" onclick="closeModal()">×</button></div>
+        <div class="modal-body">
+          <div style="font-size:12px; color:#555; margin-bottom:12px;">
+            Select a driver. Drivers currently assigned to other vehicles will be swapped.
+          </div>
+          
+          <div style="max-height:300px; overflow-y:auto; border:2px solid #1a1a1a; border-radius:4px; padding:8px;">
+            ${DRIVERS.map(d => {
+              const isCurrent = vehicle.defaultDriverId === d.id;
+              const isAssigned = d.defaultVehicleId && d.defaultVehicleId !== vehicle.id;
+              const assignedVehicle = isAssigned ? VEHICLES.find(v => v.id === d.defaultVehicleId) : null;
+              
+              return `
+                <label style="display:flex; gap:8px; align-items:flex-start; padding:8px 4px; border-bottom:1px dashed #ddd; font-size:12px; cursor:pointer;">
+                  <input type="radio" name="assignDriver" value="${d.id}" ${isCurrent ? "checked" : ""} style="width:auto; margin-top:2px;">
+                  <div style="flex:1;">
+                    <div style="font-weight:bold;">${d.name}</div>
+                    ${isCurrent 
+                      ? `<div style="font-size:11px; color:#166534;">✓ Currently assigned to this vehicle</div>`
+                      : isAssigned 
+                        ? `<div style="font-size:11px; color:#92400e;">⚠ Assigned to ${assignedVehicle.name}. Selecting this will swap.</div>`
+                        : `<div style="font-size:11px; color:#166534;">✓ Available</div>`
+                    }
+                  </div>
+                </label>
+              `;
+            }).join("")}
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button onclick="closeModal()">Cancel</button>
+          <button class="btn-primary" onclick="commitAssignDriver()">Confirm Assign</button>
+        </div>
+      </div>
+    </div>
+  `;
+    }
+
+    function commitAssignDriver() {
+      const selectedRadio = document.querySelector('input[name="assignDriver"]:checked');
+      if (!selectedRadio) return alert("Select a driver.");
+      
+      const driverId = selectedRadio.value;
+      const vehicle = VEHICLES.find(v => v.id === state.selectedVehicleId);
+      const driver = DRIVERS.find(d => d.id === driverId);
+      
+      if (!driver || !vehicle) return;
+      
+      // If the driver is currently assigned to another vehicle, unassign them
+      if (driver.defaultVehicleId && driver.defaultVehicleId !== vehicle.id) {
+        const oldVehicle = VEHICLES.find(v => v.id === driver.defaultVehicleId);
+        if (oldVehicle) {
+          oldVehicle.defaultDriverId = null;
+          oldVehicle.status = "Available";
+        }
+      }
+      
+      // If the vehicle already had a driver, free them up
+      if (vehicle.defaultDriverId) {
+        const oldDriver = DRIVERS.find(d => d.id === vehicle.defaultDriverId);
+        if (oldDriver) {
+          oldDriver.defaultVehicleId = null;
+          oldDriver.status = "Available";
+        }
+      }
+      
+      // Set the new assignment
+      vehicle.defaultDriverId = driverId;
+      vehicle.status = "Assigned";
+      driver.defaultVehicleId = vehicle.id;
+      driver.status = "Assigned";
+      
+      closeModal();
     }
 
     function printInvoice(invoiceNumber) {
