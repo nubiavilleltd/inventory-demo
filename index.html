@@ -1677,6 +1677,36 @@
         return map[status] || "badge-draft";
       }
 
+          function addItemToTransferDraft() {
+      const productId = document.getElementById("transferProductSelect").value;
+      const qtyInput = document.getElementById("transferProductQty");
+      const qty = parseInt(qtyInput.value, 10);
+      const t = state.transferDraft;
+
+      if (!productId) {
+        alert("Please select a product.");
+        return;
+      }
+      if (!qty || qty < 1) {
+        alert("Please enter a valid quantity (1 or more).");
+        return;
+      }
+
+      // Check if the item is already in the list
+      const existingItem = t.items.find(i => i.productId === productId);
+      if (existingItem) {
+        existingItem.qty += qty;
+      } else {
+        t.items.push({ productId, qty, scannedUnitIds: [], scannedBatch: null });
+      }
+
+      // Clear the inputs
+      document.getElementById("transferProductSelect").value = "";
+      qtyInput.value = "";
+
+      render();
+    }
+
       // Log a movement
       function logMovement(
         productId,
@@ -1859,6 +1889,16 @@
         transferUnitSearch: "",
         transferNotes: "",
         transferChangingUnitsFor: false, // true while the drill-in is open
+
+        transferDraft: {
+          step: 1,
+          type: null, // 'push' | 'pull' | 'return'
+          fromLocationId: null,
+          toLocationId: null,
+          items: [], // { productId, qty, scannedUnitIds: [] }
+          notes: ""
+        },
+        transferScanInput: "",
 
         // Top-level tab
         activeTab: "orders-list", // 'orders' | 'orders-list' | 'inventory' | 'dispatch' | 'customer-portal' | 'invoices' | 'fleet'
@@ -5792,7 +5832,9 @@ DISPATCH DASHBOARD DEMO SEED
         } else if (state.activeModal === "edit-vehicle") {
           c.innerHTML = renderEditVehicleModal();
           attachVehicleFormHandlers();
-        }
+        }  else if (state.activeModal === 'create-transfer') {
+        document.getElementById("modalContainer").innerHTML = renderCreateTransferModal();
+      }
       }
 
       function closeModal() {
@@ -12427,7 +12469,8 @@ MOVEMENT LOG PAGE
   `;
       }
 
-      function renderTransfersInTransit(c) {
+
+            function renderTransfersInTransit(c) {
         const awaitingReceipt = TRANSFERS.filter(
           (t) => t.status === "In Transit",
         )
@@ -12462,13 +12505,21 @@ MOVEMENT LOG PAGE
     </div>
 
     <div class="card">
-      <div class="card-title">Stock Transfers</div>
-
-      <div style="font-size:12px; color:#555; margin-bottom:16px;">
-        Monitor transfers between locations and review recorded discrepancies.
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px;">
+        <div>
+          <div class="card-title" style="margin-bottom:4px;">Stock Transfers</div>
+          <div style="font-size:12px; color:#555;">
+            Monitor transfers between locations and review recorded discrepancies.
+          </div>
+        </div>
+        
+        <!-- NEW BUTTON -->
+      <button class="btn-primary" onclick="state.transferDraft = { step: 1, type: null, fromLocationId: null, toLocationId: null, items: [], notes: '' }; state.activeModal='create-transfer'; render();">
+  + Create Transfer
+</button>
       </div>
 
-      <div style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;">
+      <div style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap; margin-top:16px;">
         <button
           class="${selectedTab === "awaiting-receipt" ? "btn-primary" : ""}"
           onclick="state.inventoryTransferTab='awaiting-receipt'; render();"
@@ -12675,6 +12726,9 @@ MOVEMENT LOG PAGE
   `;
       }
 
+    
+      
+      
       function confirmTransferRecovery() {
         const transfer = TRANSFERS.find(
           (item) => item.id === state.recoveryTransferId,
@@ -13207,6 +13261,224 @@ MOVEMENT LOG PAGE
 
         render();
       }
+
+
+          function renderCreateTransferModal() {
+      const t = state.transferDraft;
+      
+      const fromLoc = t.fromLocationId || (t.type === 'push' ? 'loc2' : 'loc1'); 
+      const toLoc = t.toLocationId || (t.type === 'push' ? 'loc1' : 'loc2');
+
+      // Get available items for returns
+      let returnableUnits = [];
+      let returnableBatches = [];
+      if (t.type === 'return') {
+              // ONLY show items that were explicitly flagged for return during an incident
+        returnableUnits = UNITS.filter(u => u.locationId === fromLoc && u.status === "Return Pending");
+        
+        // (For Stock Quantities, we don't have a specific 'Return Pending' status yet, 
+        // so we'll leave this empty for now until we implement incident tracking for batches)
+        returnableBatches = []; 
+      }
+
+      return `
+        <div class="modal-overlay">
+          <div class="modal" style="max-width: 600px;">
+            <div class="modal-header">
+              <div>Create Transfer</div>
+              <button class="close-x" onclick="state.activeModal=null; render();">×</button>
+            </div>
+            <div class="modal-body">
+              
+              <!-- Transfer Type Dropdown -->
+              <div class="mt-8" style="margin-top:0;">
+                <label>Transfer Type *</label>
+                <select onchange="
+                  state.transferDraft.type=this.value; 
+                  state.transferDraft.fromLocationId=null; 
+                  state.transferDraft.toLocationId=null;
+                  state.transferDraft.items = []; // Reset items when type changes
+                  render();
+                ">
+                  <option value="" ${!t.type ? 'selected' : ''} disabled>-- Select Transfer Type --</option>
+                  <option value="push" ${t.type === 'push' ? 'selected' : ''}>Send Stock (Push to Store)</option>
+                  <option value="pull" ${t.type === 'pull' ? 'selected' : ''}>Request Stock (Pull from Warehouse)</option>
+                  <option value="return" ${t.type === 'return' ? 'selected' : ''}>Return Stock (Send back to Source)</option>
+                </select>
+                ${t.type === 'push' ? `<div style="font-size:11px; color:#555; margin-top:4px;">Move available inventory to another location immediately.</div>` : ''}
+                ${t.type === 'pull' ? `<div style="font-size:11px; color:#555; margin-top:4px;">Ask the warehouse for items. Requires their approval.</div>` : ''}
+                ${t.type === 'return' ? `<div style="font-size:11px; color:#555; margin-top:4px;">Send damaged, rejected, or excess items back to the warehouse.</div>` : ''}
+              </div>
+
+              <!-- Locations (Only show if type is selected) -->
+              ${t.type ? `
+                <div class="row mt-12">
+                  <div class="col">
+                    <label>
+                      ${t.type === 'push' ? 'From Location *' : t.type === 'pull' ? 'Requesting Location *' : 'Returning Location *'}
+                    </label>
+                    <select onchange="
+                      state.transferDraft.fromLocationId=this.value; 
+                      if (state.transferDraft.toLocationId === this.value) {
+                        state.transferDraft.toLocationId = null;
+                      }
+                      state.transferDraft.items = []; // Reset selected items on location change
+                      render();
+                    ">
+                      ${LOCATIONS.filter(l => l.id !== toLoc).map(l => `<option value="${l.id}" ${l.id === fromLoc ? 'selected' : ''}>${l.name}</option>`).join('')}
+                    </select>
+                  </div>
+                  <div class="col">
+                    <label>
+                      ${t.type === 'push' ? 'To Location *' : t.type === 'pull' ? 'Fulfilling Location *' : 'Return To *'}
+                    </label>
+                    <select onchange="state.transferDraft.toLocationId=this.value; render();">
+                      ${LOCATIONS.filter(l => l.id !== fromLoc).map(l => `<option value="${l.id}" ${l.id === toLoc ? 'selected' : ''}>${l.name}</option>`).join('')}
+                    </select>
+                  </div>
+                </div>
+
+                <!-- Items Selection -->
+                <div class="mt-12">
+                  <label>Items to ${t.type === 'pull' ? 'Request' : 'Send'} *</label>
+                  
+                  ${t.type === 'return' ? `
+                    <!-- RETURN SPECIFIC UI -->
+                    <div style="padding:12px; border:1px solid #ccc; border-radius:4px; background:#f9f9f9;">
+                      <div style="font-size:12px; color:#92400e; margin-bottom:8px;">
+                        💡 Select the items you are sending back from ${getLocation(fromLoc).name}.
+                      </div>
+                      
+                      <div style="max-height: 200px; overflow-y: auto; border: 1px solid #ccc; background: #fff; border-radius: 4px; padding: 8px;">
+                        ${returnableUnits.length === 0 && returnableBatches.length === 0 ? `
+                          <div class="empty-state" style="padding:12px; font-size:12px;">No items currently at this location to return.</div>
+                        ` : ''}
+
+                        <!-- Individual Items -->
+                        ${returnableUnits.map(u => {
+                           const p = getInvProduct(u.productId);
+                           const isSelected = t.items.find(i => i.unitId === u.id);
+                           return `
+                             <label style="display:flex; align-items:center; gap:8px; padding:4px 0; font-size:12px; cursor:pointer; border-bottom:1px dashed #eee;">
+                               <input type="checkbox" ${isSelected ? 'checked' : ''} onchange="toggleReturnItem('${u.id}', '${u.productId}')">
+                               <span>${p.name} (${u.tag}) - ${u.status}</span>
+                             </label>
+                           `;
+                        }).join('')}
+
+                        <!-- Stock Quantities -->
+                        ${returnableBatches.map(s => {
+                           const p = getInvProduct(s.productId);
+                           const b = getBatch(s.batchId);
+                           const isSelected = t.items.find(i => i.batchId === s.batchId);
+                           return `
+                             <label style="display:flex; align-items:center; gap:8px; padding:4px 0; font-size:12px; cursor:pointer; border-bottom:1px dashed #eee;">
+                               <input type="checkbox" ${isSelected ? 'checked' : ''} onchange="toggleReturnItem('${s.batchId}', '${s.productId}', true)">
+                               <span>${p.name} (${b?.batchNumber}) - ${s.onHand} Available</span>
+                             </label>
+                           `;
+                        }).join('')}
+                      </div>
+
+                      <div style="font-size:11px; color:#666; margin-top:8px;">
+                        Selected: ${t.items.length} item(s)
+                      </div>
+                    </div>
+                  ` : `
+                    <!-- STANDARD ITEM SELECTION UI (Push / Pull) -->
+                    <div style="padding:12px; border:1px solid #ccc; border-radius:4px; background:#f9f9f9;">
+                      <div class="row">
+                        <div class="col">
+                          <select id="transferProductSelect" style="font-size:12px;">
+                            <option value="">-- Select Product --</option>
+                            ${PRODUCTS_INV.map(p => `<option value="${p.id}">${p.name}</option>`).join('')}
+                          </select>
+                        </div>
+                        <div class="col" style="max-width:100px;">
+                          <input type="number" id="transferProductQty" min="1" placeholder="Qty" style="font-size:12px;">
+                        </div>
+                        <div style="display:flex; align-items:flex-end; padding-bottom:2px;">
+                          <button onclick="addItemToTransferDraft();" style="height:34px;">Add</button>
+                        </div>
+                      </div>
+                      
+                      ${t.items.length > 0 ? `
+                        <table style="margin-top:12px; background:#fff; border:1px solid #ccc; border-radius:4px;">
+                          <thead>
+                            <tr style="background:#f9f9f9;">
+                              <th style="padding-left:8px;">Product</th>
+                              <th>Qty</th>
+                              <th></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            ${t.items.map((item, idx) => {
+                              const p = getInvProduct(item.productId);
+                              return `
+                                <tr>
+                                  <td style="padding-left:8px; font-weight:bold;">${p.name}</td>
+                                  <td>${item.qty}</td>
+                                  <td style="text-align:right; padding-right:8px;">
+                                    <button onclick="state.transferDraft.items.splice(${idx}, 1); render();" style="padding:2px 8px; font-size:11px;">×</button>
+                                  </td>
+                                </tr>
+                              `;
+                            }).join("")}
+                          </tbody>
+                        </table>
+                      ` : `
+                        <div style="font-size:11px; color:#666; margin-top:8px; text-align:center;">
+                          No items added yet.
+                        </div>
+                      `}
+                    </div>
+                  `}
+                </div>
+
+                <!-- Notes -->
+                <div class="mt-12">
+                  <label>Notes / Reason (Optional)</label>
+                  <textarea placeholder="e.g., Running low on stock for weekend sale..." oninput="state.transferDraft.notes=this.value">${t.notes || ''}</textarea>
+                </div>
+              ` : ''}
+
+            </div>
+            <div class="modal-footer">
+              <button onclick="state.activeModal=null; render();">Cancel</button>
+              <button class="btn-primary" ${!t.type || t.items.length === 0 ? 'disabled' : ''} onclick="alert('Next step: ${t.type === 'return' ? 'Confirming Return' : 'Scanning & Dispatch'}');">
+                ${t.type === 'pull' ? 'Submit Request' : t.type === 'return' ? 'Confirm Return →' : 'Continue to Scanning →'}
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    // Helper function to toggle selections in the Return UI
+    function toggleReturnItem(id, productId, isBatch = false) {
+      const t = state.transferDraft;
+      if (isBatch) {
+        const idx = t.items.findIndex(i => i.batchId === id);
+        if (idx >= 0) {
+          t.items.splice(idx, 1);
+        } else {
+          // For demo, we return the full onHand qty of the batch
+          const stock = STOCK.find(s => s.batchId === id && s.locationId === t.fromLocationId);
+          t.items.push({ productId, qty: stock.onHand, batchId: id, isBatch: true });
+        }
+      } else {
+        const idx = t.items.findIndex(i => i.unitId === id);
+        if (idx >= 0) {
+          t.items.splice(idx, 1);
+        } else {
+          t.items.push({ productId, qty: 1, unitId: id, isBatch: false });
+        }
+      }
+      render();
+    }
+
+
+     
 
       function renderTransferWriteOffModal() {
         const transfer = TRANSFERS.find(
