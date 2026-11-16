@@ -1891,7 +1891,7 @@
         transferChangingUnitsFor: false, // true while the drill-in is open
 
         transferDraft: {
-          step: 1,
+          modalStep: 1,
           type: null, // 'push' | 'pull' | 'return'
           fromLocationId: null,
           toLocationId: null,
@@ -2723,6 +2723,18 @@ DISPATCH DASHBOARD DEMO SEED
           searchInput.focus();
           // Put cursor at the end of the text
           searchInput.setSelectionRange(searchInput.value.length, searchInput.value.length);
+        }
+
+                // Restore focus to scan input if on the scanning screen
+        if (state.activeModal === 'create-transfer' && state.transferDraft.modalStep === 2) {
+          // Find the first input that isn't disabled (meaning it needs scanning)
+          const scanInputs = document.querySelectorAll('input[id^="scanInput-"]');
+          for (let input of scanInputs) {
+            if (!input.disabled) {
+              input.focus();
+              break;
+            }
+          }
         }
       }
 
@@ -12514,7 +12526,7 @@ MOVEMENT LOG PAGE
         </div>
         
         <!-- NEW BUTTON -->
-      <button class="btn-primary" onclick="state.transferDraft = { step: 1, type: null, fromLocationId: null, toLocationId: null, items: [], notes: '' }; state.activeModal='create-transfer'; render();">
+      <button class="btn-primary" onclick="state.transferDraft = { modalStep: 1, type: null, fromLocationId: null, toLocationId: null, items: [], notes: '' }; state.activeModal='create-transfer'; render();">
   + Create Transfer
 </button>
       </div>
@@ -13266,19 +13278,114 @@ MOVEMENT LOG PAGE
           function renderCreateTransferModal() {
       const t = state.transferDraft;
       
+      // ==========================================
+      // STEP 2: SCANNING / CONFIRMATION
+      // ==========================================
+      if (t.modalStep === 2) {
+        return `
+          <div class="modal-overlay">
+            <div class="modal" style="max-width: 650px;">
+              <div class="modal-header">
+                <div>${t.type === 'return' ? 'Confirm Return Items' : 'Scan Items to Dispatch'}</div>
+                <button class="close-x" onclick="state.transferDraft.modalStep=1; render();">← Back</button>
+              </div>
+              <div class="modal-body">
+                <div style="font-size:13px; color:#555; margin-bottom:16px;">
+                  Transfer: <strong>${getLocation(t.fromLocationId || (t.type === 'push' ? 'loc2' : 'loc1')).name}</strong> 
+                  ➔ 
+                  <strong>${getLocation(t.toLocationId || (t.type === 'push' ? 'loc1' : 'loc2')).name}</strong>
+                </div>
+
+                ${t.type === 'return' ? `
+                  <!-- RETURN CONFIRMATION UI -->
+                  <div style="padding:12px; border:1px solid #ccc; border-radius:4px; background:#f9f9f9;">
+                    <div style="font-weight:bold; margin-bottom:8px;">Selected Items to Return:</div>
+                    ${t.items.map(item => {
+                      const p = getInvProduct(item.productId);
+                      const u = item.unitId ? UNITS.find(x => x.id === item.unitId) : null;
+                      return `
+                        <div style="padding:8px 0; border-bottom:1px dashed #ddd; display:flex; justify-content:space-between;">
+                          <div>
+                            <strong>${p.name}</strong>
+                            ${u ? `<div style="font-size:11px; color:#666;">Tag: ${u.tag} · Condition: ${u.condition}</div>` : ''}
+                          </div>
+                          <div style="font-weight:bold;">Qty: ${item.qty}</div>
+                        </div>
+                      `;
+                    }).join('')}
+                  </div>
+                  <div style="font-size:12px; color:#166534; margin-top:16px;">
+                    ✓ These items will be moved to <strong>In Transit</strong> and sent to ${getLocation(t.toLocationId || 'loc2').name}.
+                  </div>
+                ` : `
+                  <!-- SCANNING UI -->
+                  ${t.items.map((item, idx) => {
+                    const p = getInvProduct(item.productId);
+                    const isScanned = item.scannedUnitIds && item.scannedUnitIds.length > 0;
+                    const scanCount = item.scannedUnitIds ? item.scannedUnitIds.length : 0;
+                    const isComplete = scanCount >= item.qty;
+
+                    return `
+                      <div style="margin-bottom:16px; padding:12px; border:2px solid ${isComplete ? '#166534' : '#1a1a1a'}; border-radius:6px; background:${isComplete ? '#f0fdf4' : '#fff'};">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                          <div style="font-weight:bold;">${p.name}</div>
+                          <div style="font-size:12px; font-weight:bold; color:${isComplete ? '#166534' : '#b45309'};">
+                            Scanned: ${scanCount} / ${item.qty}
+                          </div>
+                        </div>
+                        
+                        ${!isComplete ? `
+                          <div style="display:flex; gap:8px; margin-bottom:8px;">
+                            <input type="text" id="scanInput-${idx}" placeholder="Scan Tag or Barcode..." style="flex:1; font-size:13px;" onkeydown="if(event.key==='Enter'){ handleScanSubmit(${idx}, this.value); }">
+                           <button onclick="handleScanSubmit(${idx}, document.getElementById('scanInput-${idx}').value)">Scan</button>
+                            <!-- DEMO HELPER -->
+                            <button onclick="simulateScan(${idx})" style="font-size:11px; background:#fef3c7;" title="Auto-scans a valid item for demo">Auto-Scan</button>
+                          </div>
+                        ` : `
+                          <div style="font-size:12px; color:#166534; font-weight:bold; display:flex; align-items:center; gap:4px;">
+                            ✓ Fully Scanned
+                          </div>
+                        `}
+
+                        ${scanCount > 0 ? `
+                          <div style="background:#f3f4f6; padding:8px; border-radius:4px; font-size:12px;">
+                            <div style="font-weight:bold; margin-bottom:4px;">Scanned Tags:</div>
+                            ${item.scannedUnitIds.map(uid => {
+                              const u = UNITS.find(x => x.id === uid);
+                              return `<div style="display:flex; justify-content:space-between; margin-bottom:2px;">
+                                <span>${u ? u.tag : uid}</span>
+                                <span style="color:#166534;">✓</span>
+                              </div>`;
+                            }).join('')}
+                          </div>
+                        ` : ''}
+                      </div>
+                    `;
+                  }).join('')}
+                `}
+              </div>
+              <div class="modal-footer">
+                <button onclick="state.transferDraft.modalStep=1; render();">← Back</button>
+                <button class="btn-primary" 
+                  ${t.type !== 'return' && t.items.some(i => (i.scannedUnitIds||[]).length < i.qty) ? 'disabled' : ''} 
+                  onclick="finalizeTransferDraft();">
+                  ${t.type === 'pull' ? 'Submit Request' : t.type === 'return' ? 'Confirm Return' : 'Confirm Dispatch'}
+                </button>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      // ==========================================
+      // STEP 1: SETUP (The code you already have)
+      // ==========================================
       const fromLoc = t.fromLocationId || (t.type === 'push' ? 'loc2' : 'loc1'); 
       const toLoc = t.toLocationId || (t.type === 'push' ? 'loc1' : 'loc2');
 
-      // Get available items for returns
       let returnableUnits = [];
-      let returnableBatches = [];
       if (t.type === 'return') {
-              // ONLY show items that were explicitly flagged for return during an incident
         returnableUnits = UNITS.filter(u => u.locationId === fromLoc && u.status === "Return Pending");
-        
-        // (For Stock Quantities, we don't have a specific 'Return Pending' status yet, 
-        // so we'll leave this empty for now until we implement incident tracking for batches)
-        returnableBatches = []; 
       }
 
       return `
@@ -13297,7 +13404,7 @@ MOVEMENT LOG PAGE
                   state.transferDraft.type=this.value; 
                   state.transferDraft.fromLocationId=null; 
                   state.transferDraft.toLocationId=null;
-                  state.transferDraft.items = []; // Reset items when type changes
+                  state.transferDraft.items = [];
                   render();
                 ">
                   <option value="" ${!t.type ? 'selected' : ''} disabled>-- Select Transfer Type --</option>
@@ -13310,28 +13417,22 @@ MOVEMENT LOG PAGE
                 ${t.type === 'return' ? `<div style="font-size:11px; color:#555; margin-top:4px;">Send damaged, rejected, or excess items back to the warehouse.</div>` : ''}
               </div>
 
-              <!-- Locations (Only show if type is selected) -->
+              <!-- Locations -->
               ${t.type ? `
                 <div class="row mt-12">
                   <div class="col">
-                    <label>
-                      ${t.type === 'push' ? 'From Location *' : t.type === 'pull' ? 'Requesting Location *' : 'Returning Location *'}
-                    </label>
+                    <label>${t.type === 'push' ? 'From Location *' : t.type === 'pull' ? 'Requesting Location *' : 'Returning Location *'}</label>
                     <select onchange="
                       state.transferDraft.fromLocationId=this.value; 
-                      if (state.transferDraft.toLocationId === this.value) {
-                        state.transferDraft.toLocationId = null;
-                      }
-                      state.transferDraft.items = []; // Reset selected items on location change
+                      if (state.transferDraft.toLocationId === this.value) state.transferDraft.toLocationId = null;
+                      state.transferDraft.items = [];
                       render();
                     ">
                       ${LOCATIONS.filter(l => l.id !== toLoc).map(l => `<option value="${l.id}" ${l.id === fromLoc ? 'selected' : ''}>${l.name}</option>`).join('')}
                     </select>
                   </div>
                   <div class="col">
-                    <label>
-                      ${t.type === 'push' ? 'To Location *' : t.type === 'pull' ? 'Fulfilling Location *' : 'Return To *'}
-                    </label>
+                    <label>${t.type === 'push' ? 'To Location *' : t.type === 'pull' ? 'Fulfilling Location *' : 'Return To *'}</label>
                     <select onchange="state.transferDraft.toLocationId=this.value; render();">
                       ${LOCATIONS.filter(l => l.id !== fromLoc).map(l => `<option value="${l.id}" ${l.id === toLoc ? 'selected' : ''}>${l.name}</option>`).join('')}
                     </select>
@@ -13343,49 +13444,29 @@ MOVEMENT LOG PAGE
                   <label>Items to ${t.type === 'pull' ? 'Request' : 'Send'} *</label>
                   
                   ${t.type === 'return' ? `
-                    <!-- RETURN SPECIFIC UI -->
                     <div style="padding:12px; border:1px solid #ccc; border-radius:4px; background:#f9f9f9;">
                       <div style="font-size:12px; color:#92400e; margin-bottom:8px;">
                         💡 Select the items you are sending back from ${getLocation(fromLoc).name}.
                       </div>
                       
                       <div style="max-height: 200px; overflow-y: auto; border: 1px solid #ccc; background: #fff; border-radius: 4px; padding: 8px;">
-                        ${returnableUnits.length === 0 && returnableBatches.length === 0 ? `
-                          <div class="empty-state" style="padding:12px; font-size:12px;">No items currently at this location to return.</div>
+                        ${returnableUnits.length === 0 ? `
+                          <div class="empty-state" style="padding:12px; font-size:12px;">No items currently flagged for return at this location.</div>
                         ` : ''}
-
-                        <!-- Individual Items -->
                         ${returnableUnits.map(u => {
                            const p = getInvProduct(u.productId);
                            const isSelected = t.items.find(i => i.unitId === u.id);
                            return `
-                             <label style="display:flex; align-items:center; gap:8px; padding:4px 0; font-size:12px; cursor:pointer; border-bottom:1px dashed #eee;">
-                               <input type="checkbox" ${isSelected ? 'checked' : ''} onchange="toggleReturnItem('${u.id}', '${u.productId}')">
+                             <label style="display:flex; align-items:center; justify-content:flex-start; gap:12px; padding:8px 4px; font-size:12px; cursor:pointer; border-bottom:1px dashed #eee; width: 100%;">
+                               <input type="checkbox" style="width:auto; margin:0;" ${isSelected ? 'checked' : ''} onchange="toggleReturnItem('${u.id}', '${u.productId}')">
                                <span>${p.name} (${u.tag}) - ${u.status}</span>
                              </label>
                            `;
                         }).join('')}
-
-                        <!-- Stock Quantities -->
-                        ${returnableBatches.map(s => {
-                           const p = getInvProduct(s.productId);
-                           const b = getBatch(s.batchId);
-                           const isSelected = t.items.find(i => i.batchId === s.batchId);
-                           return `
-                             <label style="display:flex; align-items:center; gap:8px; padding:4px 0; font-size:12px; cursor:pointer; border-bottom:1px dashed #eee;">
-                               <input type="checkbox" ${isSelected ? 'checked' : ''} onchange="toggleReturnItem('${s.batchId}', '${s.productId}', true)">
-                               <span>${p.name} (${b?.batchNumber}) - ${s.onHand} Available</span>
-                             </label>
-                           `;
-                        }).join('')}
                       </div>
-
-                      <div style="font-size:11px; color:#666; margin-top:8px;">
-                        Selected: ${t.items.length} item(s)
-                      </div>
+                      <div style="font-size:11px; color:#666; margin-top:8px;">Selected: ${t.items.length} item(s)</div>
                     </div>
                   ` : `
-                    <!-- STANDARD ITEM SELECTION UI (Push / Pull) -->
                     <div style="padding:12px; border:1px solid #ccc; border-radius:4px; background:#f9f9f9;">
                       <div class="row">
                         <div class="col">
@@ -13427,9 +13508,7 @@ MOVEMENT LOG PAGE
                           </tbody>
                         </table>
                       ` : `
-                        <div style="font-size:11px; color:#666; margin-top:8px; text-align:center;">
-                          No items added yet.
-                        </div>
+                        <div style="font-size:11px; color:#666; margin-top:8px; text-align:center;">No items added yet.</div>
                       `}
                     </div>
                   `}
@@ -13445,8 +13524,8 @@ MOVEMENT LOG PAGE
             </div>
             <div class="modal-footer">
               <button onclick="state.activeModal=null; render();">Cancel</button>
-              <button class="btn-primary" ${!t.type || t.items.length === 0 ? 'disabled' : ''} onclick="alert('Next step: ${t.type === 'return' ? 'Confirming Return' : 'Scanning & Dispatch'}');">
-                ${t.type === 'pull' ? 'Submit Request' : t.type === 'return' ? 'Confirm Return →' : 'Continue to Scanning →'}
+              <button class="btn-primary" ${!t.type || t.items.length === 0 ? 'disabled' : ''} onclick="state.transferDraft.modalStep=2; render();">
+                ${t.type === 'pull' ? 'Continue to Review →' : t.type === 'return' ? 'Continue to Confirm →' : 'Continue to Scanning →'}
               </button>
             </div>
           </div>
@@ -13454,6 +13533,9 @@ MOVEMENT LOG PAGE
       `;
     }
 
+
+   
+    
     // Helper function to toggle selections in the Return UI
     function toggleReturnItem(id, productId, isBatch = false) {
       const t = state.transferDraft;
@@ -13474,6 +13556,109 @@ MOVEMENT LOG PAGE
           t.items.push({ productId, qty: 1, unitId: id, isBatch: false });
         }
       }
+      render();
+    }
+
+
+        // 1. Handle the typing/scanner input
+    function handleScanSubmit(itemIndex, value) {
+      const tag = value.trim().toUpperCase();
+      if (!tag) return;
+
+      const t = state.transferDraft;
+      const item = t.items[itemIndex];
+      
+      // Find the unit in the database
+      const unit = UNITS.find(u => u.tag === tag);
+
+      if (!unit) {
+        alert(`Barcode "${tag}" not found in system.`);
+        return;
+      }
+
+      if (unit.productId !== item.productId) {
+        alert(`Error: "${tag}" is not a ${getInvProduct(item.productId).name}.`);
+        return;
+      }
+
+      if (!item.scannedUnitIds) item.scannedUnitIds = [];
+      if (item.scannedUnitIds.includes(unit.id)) {
+        alert(`Error: "${tag}" has already been scanned.`);
+        return;
+      }
+
+      // Good to go!
+      item.scannedUnitIds.push(unit.id);
+      render();
+      
+      // Refocus the input for the next scan
+      setTimeout(() => {
+        const nextInput = document.getElementById(`scanInput-${itemIndex}`);
+        if (nextInput) nextInput.focus();
+      }, 10);
+    }
+
+    // 2. Auto-Scan demo helper
+    function simulateScan(itemIndex) {
+      const t = state.transferDraft;
+      const item = t.items[itemIndex];
+      
+      // Find an available unit at the source location that hasn't been scanned yet
+      const sourceLoc = t.fromLocationId || (t.type === 'push' ? 'loc2' : 'loc1');
+      const availableUnit = UNITS.find(u => 
+        u.productId === item.productId && 
+        u.locationId === sourceLoc && 
+        u.status === 'Available' &&
+        !(item.scannedUnitIds || []).includes(u.id)
+      );
+
+      if (availableUnit) {
+        handleScanSubmit(itemIndex, availableUnit.tag);
+      } else {
+        alert("No more available units found in the database for this product at this location. (Simulation limit reached).");
+      }
+    }
+
+    // 3. Finalize the transfer (Saves to database and closes modal)
+    function finalizeTransferDraft() {
+      const t = state.transferDraft;
+      
+      // For this demo, we just create one transfer record per item
+      t.items.forEach(item => {
+        TRANSFERS.push({
+          id: genTransferNum(),
+          transferNumber: genTransferNum(),
+          type: t.type === 'push' ? 'Internal Push' : t.type === 'pull' ? 'Store Request' : 'Return',
+          status: t.type === 'pull' ? 'Pending Approval' : 'In Transit',
+          fromLocationId: t.fromLocationId || (t.type === 'push' ? 'loc2' : 'loc1'),
+          toLocationId: t.toLocationId || (t.type === 'push' ? 'loc1' : 'loc2'),
+          productId: item.productId,
+          qty: item.qty,
+          scannedUnitIds: item.scannedUnitIds || [],
+          sentAt: new Date().toISOString(),
+          notes: t.notes
+        });
+      });
+
+      // Update inventory statuses for dispatched items
+      if (t.type === 'push' || t.type === 'return') {
+        t.items.forEach(item => {
+          if (item.scannedUnitIds) {
+            item.scannedUnitIds.forEach(uid => {
+              const unit = UNITS.find(u => u.id === uid);
+              if (unit) {
+                unit.status = 'In Transit'; // or 'Reserved' depending on flow
+                // We'll leave location as is until received
+              }
+            });
+          }
+        });
+      }
+
+      // Reset and close
+      state.transferDraft = { modalStep: 1, type: null, fromLocationId: null, toLocationId: null, items: [], notes: "" };
+      state.activeModal = null;
+      state.inventoryTransferTab = "awaiting-receipt"; // Switch to the tab to see the result
       render();
     }
 
