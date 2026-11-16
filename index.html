@@ -13620,49 +13620,51 @@ MOVEMENT LOG PAGE
     }
 
     // 3. Finalize the transfer (Saves to database and closes modal)
-    function finalizeTransferDraft() {
+       function finalizeTransferDraft() {
       const t = state.transferDraft;
       
-      // For this demo, we just create one transfer record per item
+      const fromLoc = t.fromLocationId || (t.type === 'push' ? 'loc2' : 'loc1');
+      const toLoc = t.toLocationId || (t.type === 'push' ? 'loc1' : 'loc2');
+
+      // For each item in the draft, we create a transfer record
       t.items.forEach(item => {
+        // 1. Update the physical units in the database
+        if (item.scannedUnitIds) {
+          item.scannedUnitIds.forEach(uid => {
+            const unit = UNITS.find(u => u.id === uid);
+            if (unit) {
+              unit.status = 'In Transit'; // Change status so it disappears from available stock
+              // Note: We keep locationId as the source until the destination receives it
+            }
+          });
+        }
+
+        // 2. Create the Transfer record
         TRANSFERS.push({
           id: genTransferNum(),
           transferNumber: genTransferNum(),
           type: t.type === 'push' ? 'Internal Push' : t.type === 'pull' ? 'Store Request' : 'Return',
           status: t.type === 'pull' ? 'Pending Approval' : 'In Transit',
-          fromLocationId: t.fromLocationId || (t.type === 'push' ? 'loc2' : 'loc1'),
-          toLocationId: t.toLocationId || (t.type === 'push' ? 'loc1' : 'loc2'),
+          fromLocationId: fromLoc,
+          toLocationId: toLoc,
           productId: item.productId,
           qty: item.qty,
-          scannedUnitIds: item.scannedUnitIds || [],
+          unitIds: item.scannedUnitIds || [], // Store the specific tags being sent
           sentAt: new Date().toISOString(),
           notes: t.notes
         });
       });
 
-      // Update inventory statuses for dispatched items
-      if (t.type === 'push' || t.type === 'return') {
-        t.items.forEach(item => {
-          if (item.scannedUnitIds) {
-            item.scannedUnitIds.forEach(uid => {
-              const unit = UNITS.find(u => u.id === uid);
-              if (unit) {
-                unit.status = 'In Transit'; // or 'Reserved' depending on flow
-                // We'll leave location as is until received
-              }
-            });
-          }
-        });
-      }
-
-      // Reset and close
+      // 3. Reset the draft and close the modal
       state.transferDraft = { modalStep: 1, type: null, fromLocationId: null, toLocationId: null, items: [], notes: "" };
       state.activeModal = null;
-      state.inventoryTransferTab = "awaiting-receipt"; // Switch to the tab to see the result
+      
+      // 4. Switch to the Awaiting Receipt tab so the user sees their new transfer
+      state.inventoryTransferTab = "awaiting-receipt"; 
+      
+      // 5. Re-render the app
       render();
     }
-
-
      
 
       function renderTransferWriteOffModal() {
