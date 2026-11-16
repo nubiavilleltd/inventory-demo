@@ -10541,31 +10541,29 @@ RECEIVE STOCK MODAL
         }
       }
 
-      function openTransferStockModal(productId) {
+
+
+
+            function openTransferStockModal(productId) {
         state.inventoryProductId = productId;
         const product = getInvProduct(productId);
         if (!product) return;
 
-        // Pick a sensible default FROM: first location with stock, else first location.
         const locsWithStock = LOCATIONS.filter(
           (l) => getTransferableStock(productId, l.id) > 0,
         );
         const fromLoc = locsWithStock[0] || LOCATIONS[0];
-
-        // Pick a default TO: any location that isn't FROM.
         const toLoc = LOCATIONS.find((l) => l.id !== fromLoc.id);
 
         state.transferFromId = fromLoc.id;
         state.transferToId = toLoc ? toLoc.id : LOCATIONS[0].id;
-        state.transferQty = "";
-        state.transferSelectedUnits = [];
+        state.transferQty = ""; // Start empty
+        state.transferSelectedUnits = []; // Start empty
         state.transferUnitSearch = "";
         state.transferNotes = "";
 
-        // For Stock Quantity, seed the batch selection (FIFO default)
         if (product.trackingType === "StockQuantity") {
           const batches = getBatchesAtLocation(productId, fromLoc.id);
-          // Seed with the oldest batch (batches are sorted by receivedDate? let's do FIFO explicitly)
           const sortedBatches = batches.slice().sort((a, b) => {
             if (a.receivedDate !== b.receivedDate)
               return a.receivedDate < b.receivedDate ? -1 : 1;
@@ -10573,27 +10571,24 @@ RECEIVE STOCK MODAL
           });
           state.transferBatchId =
             sortedBatches.length > 0 ? sortedBatches[0].batchId : null;
+          
+          // Default to 1 for stock quantity so it's not empty
+          state.transferQty = "1"; 
         } else {
           state.transferBatchId = null;
         }
 
-        // Pre-seed the units for individual items (FIFO)
-        if (product.trackingType === "Individual") {
-          const available = getTransferableStock(productId, fromLoc.id);
-          if (available > 0) {
-            state.transferQty = String(Math.min(1, available));
-            state.transferSelectedUnits = getTransferCandidates(
-              productId,
-              fromLoc.id,
-              1,
-            );
-          }
-        }
+        // REMOVED the auto-selection block for Individual items
 
         state.activeModal = "transfer-stock";
         render();
       }
 
+
+
+     
+      
+      
       function closeTransferStockModal() {
         state.transferFromId = null;
         state.transferToId = null;
@@ -10848,45 +10843,68 @@ RECEIVE STOCK MODAL
         render();
       }
 
-      function renderTransferStockModal() {
-        // Drill-in view for Change Units
-        if (state.transferChangingUnitsFor) {
-          return renderTransferChangeUnitsView();
-        }
 
+            function renderTransferStockModal() {
         const productId = state.inventoryProductId;
         const product = getInvProduct(productId);
         if (!product) return "";
 
         const fromId = state.transferFromId;
         const toId = state.transferToId;
-        const qty = parseInt(state.transferQty, 10) || 0;
         const available = getTransferableStock(productId, fromId);
         const isIndividual = product.trackingType === "Individual";
         const selectedUnits = state.transferSelectedUnits || [];
 
         // Validation state
-        const isInvalidQty = qty <= 0 || qty > available;
         const isSameLocation = fromId === toId;
         const isZeroStock = available === 0;
-        const canConfirm = !isInvalidQty && !isSameLocation && !isZeroStock;
+        
+        let canConfirm = !isSameLocation && !isZeroStock;
+        
+        if (isIndividual) {
+          // For individual items, they MUST scan at least 1 item
+          canConfirm = canConfirm && selectedUnits.length > 0;
+        } else {
+          // For stock quantities, they must enter a valid quantity
+          const qty = parseInt(state.transferQty, 10) || 0;
+          canConfirm = canConfirm && qty > 0 && qty <= available;
+        }
 
-        // For individual items, show tag preview
-        let tagPreview = "";
-        if (isIndividual && selectedUnits.length > 0) {
-          const tags = selectedUnits
-            .map((uid) => UNITS.find((u) => u.id === uid)?.tag)
-            .filter(Boolean);
-          const summary =
-            tags.length <= 3
-              ? tags.join(", ")
-              : `${tags.slice(0, 3).join(", ")}, and ${tags.length - 3} more`;
-          tagPreview = `
-          <div style="margin-top:8px; padding:8px; border:1px dashed #ccc; border-radius:4px; font-size:11px; color:#555;">
-            <strong>Selected units (${tags.length}):</strong> ${summary}
-            <button onclick="openTransferChangeUnits();" style="margin-left:8px; font-size:11px; padding:2px 8px;">Change Units</button>
-          </div>
-        `;
+        // Determine dynamic text for the button
+        const btnText = isIndividual && selectedUnits.length > 0 
+          ? `Confirm Transfer (${selectedUnits.length} items)` 
+          : "Confirm Transfer";
+
+        let scanPreview = "";
+        if (isIndividual) {
+          scanPreview = `
+            <div style="margin-top:12px; padding:12px; border:2px solid #1a1a1a; border-radius:6px; background:#fff;">
+              <div style="font-weight:bold; font-size:12px; margin-bottom:8px;">Scan Units to Transfer</div>
+              
+              ${!isZeroStock ? `
+                <div style="display:flex; gap:8px; margin-bottom:8px;">
+                  <input type="text" id="transferScanInput" placeholder="Scan Tag or Barcode..." style="flex:1; font-size:13px;" onkeydown="if(event.key==='Enter'){ handleStockTransferScan(this.value); }">
+                  <button onclick="handleStockTransferScan(document.getElementById('transferScanInput').value)">Scan</button>
+                  <button onclick="simulateStockTransferScan()" style="font-size:11px; background:#fef3c7;">Auto-Scan</button>
+                </div>
+              ` : ''}
+
+              ${selectedUnits.length > 0 ? `
+                <div style="background:#f3f4f6; padding:8px; border-radius:4px; font-size:12px; margin-top:8px; max-height: 150px; overflow-y: auto;">
+                  <div style="font-weight:bold; margin-bottom:4px;">Scanned Units (${selectedUnits.length}):</div>
+                  ${selectedUnits.map(uid => {
+                    const u = UNITS.find(x => x.id === uid);
+                    return `<div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                      <span>${u ? u.tag : uid}</span>
+                      <button onclick="removeStockTransferScan('${uid}')" style="padding:0 6px; font-size:10px; color:#991b1b; border-color:#991b1b;">Remove</button>
+                    </div>`;
+                  }).join('')}
+                </div>
+              ` : `
+                <div style="font-size:11px; color:#666; margin-top:8px; text-align:center;">No units scanned yet. Scan a tag to begin.</div>
+              `}
+            </div>
+          `;
         }
 
         return `
@@ -10907,7 +10925,7 @@ RECEIVE STOCK MODAL
                 }).join("")}
               </select>
 
-                           <label class="mt-12">To Location *</label>
+              <label class="mt-12">To Location *</label>
               <select id="transferToSelect" onchange="onTransferToChange(this.value)">
                 ${LOCATIONS.filter((l) => l.id !== fromId)
                   .map((l) => {
@@ -10916,64 +10934,52 @@ RECEIVE STOCK MODAL
                   .join("")}
               </select>
 
-              ${(() => {
-                // For Stock Quantity, show a Batch selector
-                if (product.trackingType !== "StockQuantity") return "";
-                const batches = getBatchesAtLocation(productId, fromId);
-                if (batches.length === 0) {
+              ${!isIndividual ? `
+                <!-- STOCK QUANTITY SPECIFIC UI -->
+                ${(() => {
+                  const batches = getBatchesAtLocation(productId, fromId);
+                  if (batches.length === 0) {
+                    return `<label class="mt-12">Batch *</label><div style="padding:8px; border:1px dashed #991b1b; border-radius:4px; font-size:12px; color:#991b1b;">No batches available at this location.</div>`;
+                  }
+                  const sortedBatches = batches.slice().sort((a, b) => {
+                    if (a.receivedDate !== b.receivedDate) return a.receivedDate < b.receivedDate ? -1 : 1;
+                    return a.batchId < b.batchId ? -1 : 1;
+                  });
                   return `
                     <label class="mt-12">Batch *</label>
-                    <div style="padding:8px; border:1px dashed #991b1b; border-radius:4px; font-size:12px; color:#991b1b;">
-                      No batches available at this location.
-                    </div>
+                    <select onchange="onTransferBatchChange(this.value)">
+                      ${sortedBatches.map((b) => `
+                        <option value="${b.batchId}" ${state.transferBatchId === b.batchId ? "selected" : ""}>
+                          ${b.batchNumber} · ${b.supplier} (${b.available} available)
+                        </option>
+                      `).join("")}
+                    </select>
                   `;
-                }
-                const sortedBatches = batches.slice().sort((a, b) => {
-                  if (a.receivedDate !== b.receivedDate)
-                    return a.receivedDate < b.receivedDate ? -1 : 1;
-                  return a.batchId < b.batchId ? -1 : 1;
-                });
-                return `
-                  <label class="mt-12">Batch *</label>
-                  <select onchange="onTransferBatchChange(this.value)">
-                    ${sortedBatches
-                      .map(
-                        (b) => `
-                      <option value="${b.batchId}" ${state.transferBatchId === b.batchId ? "selected" : ""}>
-                        ${b.batchNumber} · ${b.supplier} (${b.available} available)
-                      </option>
-                    `,
-                      )
-                      .join("")}
-                  </select>
-                `;
-              })()}
-
-              <div style="margin-top:10px; padding:8px; border:1px dashed #999; border-radius:4px; font-size:12px;">
-                ${(() => {
-                  if (product.trackingType === "StockQuantity") {
-                    const selectedBatch = getBatchesAtLocation(
-                      productId,
-                      fromId,
-                    ).find((b) => b.batchId === state.transferBatchId);
-                    const batchAvail = selectedBatch
-                      ? selectedBatch.available
-                      : 0;
-                    return `Available in selected batch: <strong>${batchAvail}</strong>`;
-                  }
-                  return `Available to transfer: <strong>${available}</strong>`;
                 })()}
-                ${isZeroStock ? `<div style="color:#991b1b; margin-top:4px;">⚠ No stock available to transfer from this location.</div>` : ""}
-              </div>
 
-              <label class="mt-12">Quantity to transfer *</label>
-              <input type="number" id="transferQtyInput" min="1" max="${available}"
-                value="${state.transferQty || ""}"
-                oninput="onTransferQtyChange(this.value)"
-                ${isZeroStock ? "disabled" : ""}>
-              ${isInvalidQty && qty > available ? `<div style="color:#991b1b; font-size:11px; margin-top:4px;">⚠ Cannot exceed available stock (${available}).</div>` : ""}
+                <div style="margin-top:10px; padding:8px; border:1px dashed #999; border-radius:4px; font-size:12px;">
+                  ${(() => {
+                    const selectedBatch = getBatchesAtLocation(productId, fromId).find((b) => b.batchId === state.transferBatchId);
+                    const batchAvail = selectedBatch ? selectedBatch.available : 0;
+                    return `Available in selected batch: <strong>${batchAvail}</strong>`;
+                  })()}
+                  ${isZeroStock ? `<div style="color:#991b1b; margin-top:4px;">⚠ No stock available to transfer from this location.</div>` : ""}
+                </div>
 
-              ${tagPreview}
+                <label class="mt-12">Quantity to transfer *</label>
+                <input type="number" id="transferQtyInput" min="1" max="${available}"
+                  value="${state.transferQty || ""}"
+                  oninput="onTransferQtyChange(this.value)"
+                  ${isZeroStock ? "disabled" : ""}>
+              ` : `
+                <!-- INDIVIDUAL ITEMS UI (No Quantity Input) -->
+                <div style="margin-top:10px; padding:8px; border:1px dashed #999; border-radius:4px; font-size:12px;">
+                  Available to transfer: <strong>${available}</strong>
+                  ${isZeroStock ? `<div style="color:#991b1b; margin-top:4px;">⚠ No stock available to transfer from this location.</div>` : ""}
+                </div>
+              `}
+
+              ${scanPreview}
 
               <label class="mt-12">Notes (Optional)</label>
               <textarea id="transferNotesInput" oninput="state.transferNotes = this.value;" placeholder="e.g., Replenishing store front">${state.transferNotes || ""}</textarea>
@@ -10981,13 +10987,72 @@ RECEIVE STOCK MODAL
             </div>
             <div class="modal-footer">
               <button onclick="closeTransferStockModal()">Cancel</button>
-              <button class="btn-primary" id="confirmTransferBtn" ${!canConfirm ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ""}>Confirm Transfer</button>
+              <button class="btn-primary" id="confirmTransferBtn" ${!canConfirm ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ""}>${btnText}</button>
             </div>
           </div>
         </div>
       `;
       }
 
+            function removeStockTransferScan(unitId) {
+        state.transferSelectedUnits = state.transferSelectedUnits.filter(id => id !== unitId);
+        render();
+      }
+
+
+
+      
+
+
+            function handleStockTransferScan(value) {
+        const tag = value.trim().toUpperCase();
+        if (!tag) return;
+        
+        const unit = UNITS.find(u => u.tag === tag);
+        if (!unit) { alert("Tag not found."); return; }
+        
+        if (unit.productId !== state.inventoryProductId) {
+          alert("This tag does not match the product being transferred."); return;
+        }
+        if (unit.locationId !== state.transferFromId) {
+          alert("This item is not at the selected From location."); return;
+        }
+        
+        if (state.transferSelectedUnits.includes(unit.id)) {
+          alert("This tag has already been scanned.");
+          return;
+        }
+
+        // No more max quantity check! Just add it.
+        state.transferSelectedUnits.push(unit.id);
+        render();
+        
+        setTimeout(() => {
+          const input = document.getElementById("transferScanInput");
+          if (input) input.focus();
+        }, 10);
+      }
+
+     
+      
+      
+      
+      
+      function simulateStockTransferScan() {
+        const availableUnits = UNITS.filter(u => 
+          u.productId === state.inventoryProductId && 
+          u.locationId === state.transferFromId && 
+          u.status === "Available" &&
+          !state.transferSelectedUnits.includes(u.id)
+        );
+
+        if (availableUnits.length > 0) {
+          handleStockTransferScan(availableUnits[0].tag);
+        } else {
+          alert("No more available units to scan.");
+        }
+      }
+      
       // ----- Transfer Stock: Change Units drill-in -----
 
       function openTransferChangeUnits() {
@@ -12061,11 +12126,11 @@ Outstanding is always calculated from these two, never stored.
         render();
       }
 
+
       function commitTransferStock() {
         const productId = state.inventoryProductId;
         const fromId = state.transferFromId;
         const toId = state.transferToId;
-        const qty = parseInt(state.transferQty, 10) || 0;
         const notes = (state.transferNotes || "").trim();
 
         if (fromId === toId)
@@ -12073,39 +12138,49 @@ Outstanding is always calculated from these two, never stored.
 
         const product = getInvProduct(productId);
 
-        // Validate quantity — either against total available, or against batch available
+        let finalQty = 0;
+        let selectedUnitIds = [];
+
+        // Validate based on tracking type
         if (product.trackingType === "StockQuantity") {
+          finalQty = parseInt(state.transferQty, 10) || 0;
+          
           if (!state.transferBatchId)
             return alert("Select a batch to transfer from.");
+          
           const batches = getBatchesAtLocation(productId, fromId);
           const selectedBatch = batches.find(
             (b) => b.batchId === state.transferBatchId,
           );
+          
           if (!selectedBatch) return alert("Batch not found at this location.");
-          if (qty <= 0 || qty > selectedBatch.available) {
+          
+          if (finalQty <= 0 || finalQty > selectedBatch.available) {
             return alert(
               `Invalid quantity. Available in this batch: ${selectedBatch.available}.`,
             );
           }
         } else {
-          const available = getTransferableStock(productId, fromId);
-          if (qty <= 0 || qty > available) return alert("Invalid quantity.");
-          const selectedUnitIds = state.transferSelectedUnits || [];
-          if (selectedUnitIds.length !== qty) {
-            return alert(`Select exactly ${qty} units to transfer.`);
+          // Individual Items: The scanned units determine the quantity
+          selectedUnitIds = state.transferSelectedUnits || [];
+          finalQty = selectedUnitIds.length;
+
+          if (finalQty === 0) {
+            return alert("Please scan at least one unit to transfer.");
           }
+          
+          // Optional: Check against total available, but since they are scanning physical items, 
+          // it's technically impossible to scan more than what's actually there.
+          const available = getTransferableStock(productId, fromId);
+          if (finalQty > available) return alert("Invalid quantity.");
         }
 
-        const selectedUnitIds =
-          product.trackingType === "Individual"
-            ? state.transferSelectedUnits
-            : [];
-
+        // Execute the transfer
         executeTransfer(
           productId,
           fromId,
           toId,
-          qty,
+          finalQty,
           selectedUnitIds,
           notes,
           state.transferBatchId,
@@ -12113,6 +12188,8 @@ Outstanding is always calculated from these two, never stored.
 
         closeTransferStockModal();
       }
+  
+
 
       /* ============================================================
 MOVEMENT LOG PAGE
@@ -13547,7 +13624,7 @@ MOVEMENT LOG PAGE
                       `;
                       }
 
-                      // --- INDIVIDUAL ITEMS UI (Existing Code) ---
+                      // --- INDIVIDUAL ITEMS UI ---
                       const scanCount = item.scannedUnitIds
                         ? item.scannedUnitIds.length
                         : 0;
@@ -13581,14 +13658,17 @@ MOVEMENT LOG PAGE
                         ${
                           scanCount > 0
                             ? `
-                          <div style="background:#f3f4f6; padding:8px; border-radius:4px; font-size:12px;">
+                          <div style="background:#f3f4f6; padding:8px; border-radius:4px; font-size:12px; max-height: 150px; overflow-y: auto;">
                             <div style="font-weight:bold; margin-bottom:4px;">Scanned Tags:</div>
                             ${item.scannedUnitIds
                               .map((uid) => {
                                 const u = UNITS.find((x) => x.id === uid);
-                                return `<div style="display:flex; justify-content:space-between; margin-bottom:2px;">
+                                return `<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; border-bottom:1px dashed #ddd; padding-bottom:4px;">
                                 <span>${u ? u.tag : uid}</span>
-                                <span style="color:#166534;">✓</span>
+                                <div style="display:flex; align-items:center; gap:8px;">
+                                  <button onclick="removeScannedUnitFromDraft(${idx}, '${uid}');" style="padding:0 6px; font-size:10px; color:#991b1b; border-color:#991b1b;">Remove</button>
+                                  <span style="color:#166534;">✓</span>
+                                </div>
                               </div>`;
                               })
                               .join("")}
@@ -13630,7 +13710,7 @@ MOVEMENT LOG PAGE
         }
 
         // ==========================================
-        // STEP 1: SETUP (The code you already have)
+        // STEP 1: SETUP
         // ==========================================
         const fromLoc =
           t.fromLocationId || (t.type === "push" ? "loc2" : "loc1");
@@ -13822,6 +13902,19 @@ MOVEMENT LOG PAGE
 
 
 
+
+
+            function removeScannedUnitFromDraft(itemIndex, unitId) {
+        const item = state.transferDraft.items[itemIndex];
+        if (item && item.scannedUnitIds) {
+          item.scannedUnitIds = item.scannedUnitIds.filter(id => id !== unitId);
+          render();
+        }
+      }
+
+
+
+   
 
       
       // Helper function to toggle selections in the Return UI
