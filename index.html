@@ -1924,6 +1924,8 @@
         writeOffReason: "",
 
         inventoryFilter: { search: "", tracking: "", category: "", status: "" },
+        inventoryFilters: { search: "", condition: "All", location: "All", status: "All", supplier: "All" },
+        lastViewedProduct: null,
         // Dispatch Wizard state (single-order modal)
         dispatchWizard: {
           step: 1,
@@ -2619,7 +2621,8 @@ DISPATCH DASHBOARD DEMO SEED
           : "₦0";
       }
 
-      /* ============ MAIN RENDER ============ */
+
+          /* ============ MAIN RENDER ============ */
       function render() {
         const c = document.getElementById("mainContent");
         if (!c) return;
@@ -2673,8 +2676,17 @@ DISPATCH DASHBOARD DEMO SEED
         updateStatusBar();
         renderModal();
         syncPrintArea();
+
+        // Restore focus to search input if typing
+        const searchInput = document.getElementById("inventorySearchInput");
+        if (searchInput && state.inventoryFilters && state.inventoryFilters.search) {
+          searchInput.focus();
+          // Put cursor at the end of the text
+          searchInput.setSelectionRange(searchInput.value.length, searchInput.value.length);
+        }
       }
 
+  
       /* ============================================================
  CUSTOMER CREDIT PORTAL
  ============================================================ */
@@ -9150,291 +9162,346 @@ INVENTORY LIST PAGE
   `;
       }
 
-      function renderProductDetail(c, productId) {
-        const p = getInvProduct(productId);
-        if (!p) {
-          c.innerHTML = '<div class="empty-state">Product not found.</div>';
-          return;
-        }
 
-        const s = getStockSummary(p.id);
-        const status = getStockStatus(p.id);
-        const isActive = p.status === "Active" || !p.status; // Treat undefined as Active
 
-        // Individual items: show unit table
-        // Stock quantity: show per-location stock
-        let breakdownHtml = "";
-        if (p.trackingType === "Individual") {
-          const units = UNITS.filter((u) => u.productId === p.id);
-          // Sort: Available, Reserved, Sold, then Removed
-          const sortedUnits = units.slice().sort((a, b) => {
-            const order = {
-              Available: 0,
-              Reserved: 1,
-              Sold: 2,
-              "Unaccounted For": 3,
-              Removed: 4,
-            };
-            return (order[a.status] ?? 9) - (order[b.status] ?? 9);
-          });
-          breakdownHtml = `
-                  <div class="card" style="padding:0;">
-                    <div style="padding:12px; font-weight:bold;">Units (${units.length})</div>
-                    <table>
-                      <thead>
-                                              <tr>
-                          <th style="padding-left:12px;">Tag Number</th>
-                          <th>Batch</th>
-                          <th>Condition</th>
-                          <th>Status</th>
-                          <th>Location</th>
-                          <th>Received</th>
-                          <th>Notes</th>
-                          <th></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        ${sortedUnits
-                          .map((u) => {
-                            const isRemoved = u.status === "Removed";
-                            const statusClass =
-                              u.status === "Available"
-                                ? "badge-paid"
-                                : u.status === "Reserved"
-                                  ? "badge-partial"
-                                  : u.status === "Removed"
-                                    ? "badge-cancelled"
-                                    : u.status === "Unsellable"
-                                      ? "badge-unsellable"
-                                      : "badge-draft";
-                            const conditionClass =
-                              u.condition === "New"
-                                ? "badge-paid"
-                                : u.condition === "Used"
-                                  ? "badge-partial"
-                                  : u.condition === "Refurbished"
-                                    ? "badge-ready"
-                                    : u.condition === "Damaged"
-                                      ? "badge-cancelled"
-                                      : u.condition === "Returned"
-                                        ? "badge-unpaid"
-                                        : "badge-draft";
+          function renderProductDetail(c, productId) {
+      const p = getInvProduct(productId);
+      if (!p) {
+        c.innerHTML = '<div class="empty-state">Product not found.</div>';
+        return;
+      }
 
-                            const batch = u.batchId
-                              ? getBatch(u.batchId)
-                              : null;
-                            return `
-                                                        <tr style="${isRemoved ? "opacity:0.5;" : ""}">
-                              <td style="padding-left:12px; ${isRemoved ? "text-decoration:line-through;" : ""}">
-                                <a href="#" onclick="event.preventDefault(); state.inventoryView='unit'; state.inventoryUnitId='${u.id}'; render();" style="color:#1e40af; text-decoration:underline;">${u.tag}</a>
-                              </td>
-                              <td>${batch ? `<a href="#" onclick="event.preventDefault(); state.inventoryView='batch'; state.inventoryBatchId='${batch.id}'; render();" style="color:#1e40af; text-decoration:underline;">${batch.batchNumber}</a>` : "—"}</td>
-                              <td><span class="badge ${conditionClass}">${u.condition || "New"}</span></td>
-                              <td><span class="badge ${statusClass}">${u.status}</span></td>
-                              <td>${getLocation(u.locationId)?.name || "—"}</td>
-                              <td>${formatDate(u.receivedDate)}</td>
-                              <td style="font-size:11px; color:#666;">
-                                ${
-                                  isRemoved
-                                    ? `Removed ${formatDate(u.removedDate)} · ${u.removedReason || "—"} · Ref ${u.removalReference || "—"}`
-                                    : ""
-                                }
-                              </td>
-                                           <td style="white-space:nowrap;">
-                                ${
-                                  canReprintLabel(u)
-                                    ? `<button onclick="printUnitLabel('${u.id}')" style="font-size:11px; padding:2px 8px;">Print QR</button>`
-                                    : ""
-                                }
-                                ${
-                                  !isRemoved && u.status !== "Sold"
-                                    ? `<button onclick="state.activeModal='edit-unit-condition'; state.editingUnitId='${u.id}'; render();" style="font-size:11px; padding:2px 8px;">Edit</button>`
-                                    : ""
-                                }
-                              </td>
-                            </tr>
-                          `;
-                          })
-                          .join("")}
-                      </tbody>
-                    </table>
-                  </div>
-                `;
-        } else {
-          const rows = STOCK.filter((st) => st.productId === p.id);
-          breakdownHtml = `
-                  <div class="card" style="padding:0;">
-                    <div style="padding:12px; font-weight:bold;">Stock by Batch / Location</div>
-                    <table>
-                      <thead><tr><th style="padding-left:12px;">Batch</th><th>Supplier</th><th>Location</th><th>On Hand</th><th>Reserved</th><th>Available</th></tr></thead>
-                      <tbody>
-                        ${rows
-                          .map((st) => {
-                            const batch = st.batchId
-                              ? getBatch(st.batchId)
-                              : null;
-                            return `
-                                                    <tr>
-                            <td style="padding-left:12px; font-size:12px;">
-                              ${batch ? `<a href="#" onclick="event.preventDefault(); state.inventoryView='batch'; state.inventoryBatchId='${batch.id}'; render();" style="color:#1e40af; text-decoration:underline;">${batch.batchNumber}</a>` : "—"}
-                            </td>
-                            <td style="font-size:12px;">${batch ? batch.supplier : "—"}</td>
-                            <td>${getLocation(st.locationId)?.name || "—"}</td>
-                            <td>${st.onHand}</td>
-                            <td>${st.reserved}</td>
-                            <td>${st.onHand - st.reserved}</td>
-                          </tr>
-                        `;
-                          })
-                          .join("")}
-                      </tbody>
-                    </table>
-                  </div>
-                `;
-        }
+      // Reset filters if this is a newly opened product
+      if (state.lastViewedProduct !== productId) {
+        state.inventoryFilters = { search: "", condition: "All", location: "All", status: "All", supplier: "All" };
+        state.lastViewedProduct = productId;
+      }
 
-        c.innerHTML = `
-    <div style="margin-bottom:12px;">
-      <button onclick="state.inventoryView='list'; state.inventoryProductId=null; render();">← Back to Inventory</button>
-    </div>
+      const s = getStockSummary(p.id);
+      const status = getStockStatus(p.id);
+      const isActive = p.status === "Active" || !p.status; // Treat undefined as Active
 
-       <div class="card">
-      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px;">
-        <div style="display:flex; gap:16px;">
-          <!-- Image Gallery -->
-          <div style="flex-shrink:0;">
-            <div style="width:120px; height:120px; border:2px solid #1a1a1a; border-radius:6px; overflow:hidden; background:#f0f0f0; display:flex; align-items:center; justify-content:center;">
-              <img id="mainProductImage" src="${p.images && p.images.length > 0 ? p.images[0] : "https://placehold.co/150x150?text=No+Image"}" alt="${p.name}" style="width:100%; height:100%; object-fit:cover;">
+      let breakdownHtml = "";
+      
+      // ==========================================
+      // INDIVIDUAL ITEMS VIEW
+      // ==========================================
+      if (p.trackingType === "Individual") {
+        const allUnits = UNITS.filter((u) => u.productId === p.id);
+
+        // Apply filters
+        const filteredUnits = allUnits.filter((u) => {
+          const batch = getBatch(u.batchId);
+          
+          const searchLower = state.inventoryFilters.search.toLowerCase();
+          const matchSearch = !searchLower || 
+            (u.tag && u.tag.toLowerCase().includes(searchLower)) || 
+            (batch && batch.batchNumber && batch.batchNumber.toLowerCase().includes(searchLower));
+
+          const matchCondition = state.inventoryFilters.condition === "All" || u.condition === state.inventoryFilters.condition;
+          const matchLocation = state.inventoryFilters.location === "All" || u.locationId === state.inventoryFilters.location;
+          const matchStatus = state.inventoryFilters.status === "All" || u.status === state.inventoryFilters.status;
+          
+          return matchSearch && matchCondition && matchLocation && matchStatus;
+        });
+
+        // Sort: Available, Reserved, Sold, then Removed
+        const sortedUnits = filteredUnits.slice().sort((a, b) => {
+          const order = { Available: 0, Reserved: 1, Sold: 2, "Unaccounted For": 3, Removed: 4 };
+          return (order[a.status] ?? 9) - (order[b.status] ?? 9);
+        });
+
+        breakdownHtml = `
+          <div class="card" style="padding:0;">
+            <div style="padding:12px; font-weight:bold; border-bottom: 1px solid #ccc;">
+              Units (${sortedUnits.length} of ${allUnits.length})
             </div>
-            ${
-              p.images && p.images.length > 1
-                ? `
-              <div style="display:flex; gap:4px; margin-top:8px;">
-                ${p.images
-                  .map(
-                    (img, idx) => `
-                  <div style="width:32px; height:32px; border:1px solid #ccc; border-radius:4px; overflow:hidden; cursor:pointer;" onclick="document.getElementById('mainProductImage').src='${img}'">
-                    <img src="${img}" style="width:100%; height:100%; object-fit:cover;">
-                  </div>
-                `,
-                  )
-                  .join("")}
+            
+            <!-- Filter Bar (Individual) -->
+            <div class="row" style="margin: 12px; align-items: flex-end; background: #fdfdfd; padding: 8px; border: 2px solid #1a1a1a; border-radius: 6px; gap: 8px;">
+              <div class="col" style="flex: 2; min-width: 200px;">
+                <label>Search</label>
+                <input type="text" id="inventorySearchInput" placeholder="🔍 Tag or batch number..." value="${state.inventoryFilters.search}" oninput="state.inventoryFilters.search = this.value; render();">
               </div>
-            `
-                : ""
-            }
-          </div>
-
-          <div>
-            <h2 style="font-size:20px;">${p.name}</h2>
-            <div style="font-size:12px; color:#555; margin-top:4px;">
-              ${p.sku} · ${p.category} · ${p.trackingType === "Individual" ? "Individual Items" : "Stock Quantity"} · ${p.unitOfMeasure}
-            </div>
-               <div style="font-size:12px; color:#555; margin-top:2px;">
-              Default price: ${money(p.price)}
-              ${p.tagPrefix ? " · Tag prefix: " + p.tagPrefix : ""}
-              ${p.minimumStock ? " · Min stock: " + p.minimumStock : ""}
-            </div>
-            ${!isActive ? `<div style="font-size:11px; color:#991b1b; font-weight:bold; margin-top:6px;">⚠ This product is Inactive and cannot be sold.</div>` : ""}
-          </div>
-        </div>
-        <div style="text-align:right;">
-          <div style="margin-bottom:8px;">
-            <span class="badge ${getStockStatusBadge(status)}" style="margin-right:8px;">${status}</span>
-            <span class="badge ${isActive ? "badge-paid" : "badge-cancelled"}">${isActive ? "Active" : "Inactive"}</span>
-          </div>
-          <div style="margin-top:8px;">
-            <button class="btn-primary" onclick="state.activeModal='receive-stock'; render();">+ Check In</button>
-            <button onclick="openTransferStockModal('${p.id}');">Transfer</button>
-            <button onclick="state.activeModal='adjust-stock'; render();">Adjust</button>
-            <button onclick="state.activeModal='edit-product'; render();" style="margin-left:8px;">Edit</button>
-            ${
-              isActive
-                ? `<button class="btn-danger" onclick="deactivateProduct('${p.id}')">Deactivate</button>`
-                : `<button onclick="activateProduct('${p.id}')">Re-activate</button>`
-            }
-          </div>
-        </div>
-      </div>
-    </div>
-
-   <div class="row">
-  <div class="col">
-    <div class="card" style="text-align:center; padding:12px;">
-      <div style="font-size:11px; color:#555;">Total</div>
-      <div style="font-size:22px; font-weight:bold;">${s.total}</div>
-    </div>
-  </div>
-
-  <div class="col">
-    <div class="card" style="text-align:center; padding:12px;">
-      <div style="font-size:11px; color:#555;">Available</div>
-      <div style="font-size:22px; font-weight:bold; color:#166534;">${s.available}</div>
-    </div>
-  </div>
-
-  <div class="col">
-    <div class="card" style="text-align:center; padding:12px;">
-      <div style="font-size:11px; color:#555;">Reserved</div>
-      <div style="font-size:22px; font-weight:bold; color:#92400e;">${s.reserved}</div>
-    </div>
-  </div>
-
-  <div class="col">
-    <div class="card" style="text-align:center; padding:12px;">
-      <div style="font-size:11px; color:#555;">Sold</div>
-      <div style="font-size:22px; font-weight:bold; color:#1e40af;">${s.sold}</div>
-    </div>
-  </div>
-
-  ${
-    p.trackingType === "Individual"
-      ? `
-    <div class="col">
-      <div class="card" style="text-align:center; padding:12px;">
-        <div style="font-size:11px; color:#555;">Unaccounted For</div>
-        <div style="font-size:22px; font-weight:bold; color:#b45309;">
-          ${s.unaccountedFor}
-        </div>
-      </div>
-    </div>
-  `
-      : ""
-  }
-</div>
-
-       ${breakdownHtml}
-
-    <div class="card">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-        <div class="card-title" style="margin:0;">Recent Movements</div>
-      </div>
-      ${
-        MOVEMENTS.filter((m) => m.productId === p.id).length === 0
-          ? `<div class="empty-state" style="padding:12px;">No movements yet.</div>`
-          : MOVEMENTS.filter((m) => m.productId === p.id)
-              .slice()
-              .reverse()
-              .slice(0, 20)
-              .map(
-                (m) => `
-            <div class="timeline-item" style="padding:6px 0; display:flex; justify-content:space-between; gap:8px;">
+              <div class="col" style="flex: 1; min-width: 100px;">
+                <label>Condition</label>
+                <select onchange="state.inventoryFilters.condition = this.value; render();">
+                  <option value="All" ${state.inventoryFilters.condition === 'All' ? 'selected' : ''}>All</option>
+                  ${["New", "Used", "Refurbished", "Damaged", "Returned"].map(c => `<option value="${c}" ${state.inventoryFilters.condition === c ? 'selected' : ''}>${c}</option>`).join('')}
+                </select>
+              </div>
+              <div class="col" style="flex: 1; min-width: 100px;">
+                <label>Location</label>
+                <select onchange="state.inventoryFilters.location = this.value; render();">
+                  <option value="All" ${state.inventoryFilters.location === 'All' ? 'selected' : ''}>All</option>
+                  ${LOCATIONS.map(l => `<option value="${l.id}" ${state.inventoryFilters.location === l.id ? 'selected' : ''}>${l.name}</option>`).join('')}
+                </select>
+              </div>
+              <div class="col" style="flex: 1; min-width: 100px;">
+                <label>Status</label>
+                <select onchange="state.inventoryFilters.status = this.value; render();">
+                  <option value="All" ${state.inventoryFilters.status === 'All' ? 'selected' : ''}>All</option>
+                  ${["Available", "Reserved", "Sold", "Removed", "Unaccounted For"].map(st => `<option value="${st}" ${state.inventoryFilters.status === st ? 'selected' : ''}>${st}</option>`).join('')}
+                </select>
+              </div>
               <div>
-                <strong style="font-size:12px;">[${m.type.replace(/_/g, " ")}]</strong>
-                <span style="font-size:12px;">${m.quantity > 0 ? "+" : ""}${m.quantity}</span>
-                ${m.reference ? `<div style="font-size:11px; color:#666;">Ref: ${m.reference}</div>` : ""}
-                ${m.operator ? `<div style="font-size:11px; color:#888;">By ${m.operator}</div>` : ""}
+                <button onclick="state.inventoryFilters = { search: '', condition: 'All', location: 'All', status: 'All', supplier: 'All' }; render();" style="height: 34px; white-space: nowrap;">Clear</button>
               </div>
-              <div style="font-size:11px; color:#888; white-space:nowrap;">${formatDate(m.timestamp.split("T")[0])}</div>
             </div>
-          `,
-              )
-              .join("")
-      }
-    </div>
-  `;
+
+            <table>
+              <thead>
+                <tr>
+                  <th style="padding-left:12px;">Tag Number</th>
+                  <th>Batch</th>
+                  <th>Condition</th>
+                  <th>Status</th>
+                  <th>Location</th>
+                  <th>Received</th>
+                  <th>Notes</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                ${sortedUnits.map((u) => {
+                  const isRemoved = u.status === "Removed";
+                  const statusClass = u.status === "Available" ? "badge-paid" : u.status === "Reserved" ? "badge-partial" : u.status === "Removed" ? "badge-cancelled" : u.status === "Unsellable" ? "badge-unsellable" : "badge-draft";
+                  const conditionClass = u.condition === "New" ? "badge-paid" : u.condition === "Used" ? "badge-partial" : u.condition === "Refurbished" ? "badge-ready" : u.condition === "Damaged" ? "badge-cancelled" : u.condition === "Returned" ? "badge-unpaid" : "badge-draft";
+                  const batch = u.batchId ? getBatch(u.batchId) : null;
+                  
+                  return `
+                    <tr style="${isRemoved ? "opacity:0.5;" : ""}">
+                      <td style="padding-left:12px; ${isRemoved ? "text-decoration:line-through;" : ""}">
+                        <a href="#" onclick="event.preventDefault(); state.inventoryView='unit'; state.inventoryUnitId='${u.id}'; render();" style="color:#1e40af; text-decoration:underline;">${u.tag}</a>
+                      </td>
+                      <td>${batch ? `<a href="#" onclick="event.preventDefault(); state.inventoryView='batch'; state.inventoryBatchId='${batch.id}'; render();" style="color:#1e40af; text-decoration:underline;">${batch.batchNumber}</a>` : "—"}</td>
+                      <td><span class="badge ${conditionClass}">${u.condition || "New"}</span></td>
+                      <td><span class="badge ${statusClass}">${u.status}</span></td>
+                      <td>${getLocation(u.locationId)?.name || "—"}</td>
+                      <td>${formatDate(u.receivedDate)}</td>
+                      <td style="font-size:11px; color:#666;">
+                        ${isRemoved ? `Removed ${formatDate(u.removedDate)} · ${u.removedReason || "—"} · Ref ${u.removalReference || "—"}` : ""}
+                      </td>
+                      <td style="white-space:nowrap;">
+                        ${canReprintLabel(u) ? `<button onclick="printUnitLabel('${u.id}')" style="font-size:11px; padding:2px 8px;">Print QR</button>` : ""}
+                        ${!isRemoved && u.status !== "Sold" ? `<button onclick="state.activeModal='edit-unit-condition'; state.editingUnitId='${u.id}'; render();" style="font-size:11px; padding:2px 8px;">Edit</button>` : ""}
+                      </td>
+                    </tr>
+                  `;
+                }).join("")}
+              </tbody>
+            </table>
+          </div>
+        `;
+      
+      // ==========================================
+      // STOCK QUANTITY VIEW
+      // ==========================================
+      } else {
+        const allRows = STOCK.filter((st) => st.productId === p.id);
+        
+        // Extract unique suppliers for this product's batches
+        const uniqueSuppliers = [...new Set(allRows.map(st => {
+          const b = getBatch(st.batchId);
+          return b ? b.supplier : null;
+        }).filter(Boolean))].sort();
+
+        // Apply filters
+        const filteredRows = allRows.filter((st) => {
+          const batch = st.batchId ? getBatch(st.batchId) : null;
+          
+          const searchLower = state.inventoryFilters.search.toLowerCase();
+          const matchSearch = !searchLower || 
+            (batch && batch.batchNumber && batch.batchNumber.toLowerCase().includes(searchLower));
+
+          const matchSupplier = state.inventoryFilters.supplier === "All" || (batch && batch.supplier === state.inventoryFilters.supplier);
+          const matchLocation = state.inventoryFilters.location === "All" || st.locationId === state.inventoryFilters.location;
+          
+          return matchSearch && matchSupplier && matchLocation;
+        });
+
+        breakdownHtml = `
+          <div class="card" style="padding:0;">
+            <div style="padding:12px; font-weight:bold; border-bottom: 1px solid #ccc;">
+              Stock by Batch / Location (${filteredRows.length} of ${allRows.length})
+            </div>
+
+            <!-- Filter Bar (Stock Quantity) -->
+            <div class="row" style="margin: 12px; align-items: flex-end; background: #fdfdfd; padding: 8px; border: 2px solid #1a1a1a; border-radius: 6px; gap: 8px;">
+              <div class="col" style="flex: 2; min-width: 200px;">
+                <label>Search</label>
+                <input type="text" id="inventorySearchInput" placeholder="🔍 Batch number..." value="${state.inventoryFilters.search}" oninput="state.inventoryFilters.search = this.value; render();">
+              </div>
+              <div class="col" style="flex: 1; min-width: 120px;">
+                <label>Supplier</label>
+                <select onchange="state.inventoryFilters.supplier = this.value; render();">
+                  <option value="All" ${state.inventoryFilters.supplier === 'All' ? 'selected' : ''}>All Suppliers</option>
+                  ${uniqueSuppliers.map(sup => `<option value="${sup}" ${state.inventoryFilters.supplier === sup ? 'selected' : ''}>${sup}</option>`).join('')}
+                </select>
+              </div>
+              <div class="col" style="flex: 1; min-width: 100px;">
+                <label>Location</label>
+                <select onchange="state.inventoryFilters.location = this.value; render();">
+                  <option value="All" ${state.inventoryFilters.location === 'All' ? 'selected' : ''}>All Locations</option>
+                  ${LOCATIONS.map(l => `<option value="${l.id}" ${state.inventoryFilters.location === l.id ? 'selected' : ''}>${l.name}</option>`).join('')}
+                </select>
+              </div>
+              <div>
+                <button onclick="state.inventoryFilters = { search: '', condition: 'All', location: 'All', status: 'All', supplier: 'All' }; render();" style="height: 34px; white-space: nowrap;">Clear</button>
+              </div>
+            </div>
+
+            <table>
+              <thead>
+                <tr>
+                  <th style="padding-left:12px;">Batch</th>
+                  <th>Supplier</th>
+                  <th>Location</th>
+                  <th>On Hand</th>
+                  <th>Reserved</th>
+                  <th>Available</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${filteredRows.map((st) => {
+                  const batch = st.batchId ? getBatch(st.batchId) : null;
+                  return `
+                    <tr>
+                      <td style="padding-left:12px; font-size:12px;">
+                        ${batch ? `<a href="#" onclick="event.preventDefault(); state.inventoryView='batch'; state.inventoryBatchId='${batch.id}'; render();" style="color:#1e40af; text-decoration:underline;">${batch.batchNumber}</a>` : "—"}
+                      </td>
+                      <td style="font-size:12px;">${batch ? batch.supplier : "—"}</td>
+                      <td>${getLocation(st.locationId)?.name || "—"}</td>
+                      <td>${st.onHand}</td>
+                      <td>${st.reserved}</td>
+                      <td>${st.onHand - st.reserved}</td>
+                    </tr>
+                  `;
+                }).join("")}
+              </tbody>
+            </table>
+          </div>
+        `;
       }
 
+      c.innerHTML = `
+        <div style="margin-bottom:12px;">
+          <button onclick="state.inventoryView='list'; state.inventoryProductId=null; render();">← Back to Inventory</button>
+        </div>
+
+        <div class="card">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px;">
+            <div style="display:flex; gap:16px;">
+              <!-- Image Gallery -->
+              <div style="flex-shrink:0;">
+                <div style="width:120px; height:120px; border:2px solid #1a1a1a; border-radius:6px; overflow:hidden; background:#f0f0f0; display:flex; align-items:center; justify-content:center;">
+                  <img id="mainProductImage" src="${p.images && p.images.length > 0 ? p.images[0] : "https://placehold.co/150x150?text=No+Image"}" alt="${p.name}" style="width:100%; height:100%; object-fit:cover;">
+                </div>
+                ${p.images && p.images.length > 1 ? `
+                  <div style="display:flex; gap:4px; margin-top:8px;">
+                    ${p.images.map((img, idx) => `
+                      <div style="width:32px; height:32px; border:1px solid #ccc; border-radius:4px; overflow:hidden; cursor:pointer;" onclick="document.getElementById('mainProductImage').src='${img}'">
+                        <img src="${img}" style="width:100%; height:100%; object-fit:cover;">
+                      </div>
+                    `).join("")}
+                  </div>
+                ` : ""}
+              </div>
+
+              <div>
+                <h2 style="font-size:20px;">${p.name}</h2>
+                <div style="font-size:12px; color:#555; margin-top:4px;">
+                  ${p.sku} · ${p.category} · ${p.trackingType === "Individual" ? "Individual Items" : "Stock Quantity"} · ${p.unitOfMeasure}
+                </div>
+                <div style="font-size:12px; color:#555; margin-top:2px;">
+                  Default price: ${money(p.price)}
+                  ${p.tagPrefix ? " · Tag prefix: " + p.tagPrefix : ""}
+                  ${p.minimumStock ? " · Min stock: " + p.minimumStock : ""}
+                </div>
+                ${!isActive ? `<div style="font-size:11px; color:#991b1b; font-weight:bold; margin-top:6px;">⚠ This product is Inactive and cannot be sold.</div>` : ""}
+              </div>
+            </div>
+            <div style="text-align:right;">
+              <div style="margin-bottom:8px;">
+                <span class="badge ${getStockStatusBadge(status)}" style="margin-right:8px;">${status}</span>
+                <span class="badge ${isActive ? "badge-paid" : "badge-cancelled"}">${isActive ? "Active" : "Inactive"}</span>
+              </div>
+              <div style="margin-top:8px;">
+                <button class="btn-primary" onclick="state.activeModal='receive-stock'; render();">+ Check In</button>
+                <button onclick="openTransferStockModal('${p.id}');">Transfer</button>
+                <button onclick="state.activeModal='adjust-stock'; render();">Adjust</button>
+                <button onclick="state.activeModal='edit-product'; render();" style="margin-left:8px;">Edit</button>
+                ${isActive ? `<button class="btn-danger" onclick="deactivateProduct('${p.id}')">Deactivate</button>` : `<button onclick="activateProduct('${p.id}')">Re-activate</button>`}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="col">
+            <div class="card" style="text-align:center; padding:12px;">
+              <div style="font-size:11px; color:#555;">Total</div>
+              <div style="font-size:22px; font-weight:bold;">${s.total}</div>
+            </div>
+          </div>
+          <div class="col">
+            <div class="card" style="text-align:center; padding:12px;">
+              <div style="font-size:11px; color:#555;">Available</div>
+              <div style="font-size:22px; font-weight:bold; color:#166534;">${s.available}</div>
+            </div>
+          </div>
+          <div class="col">
+            <div class="card" style="text-align:center; padding:12px;">
+              <div style="font-size:11px; color:#555;">Reserved</div>
+              <div style="font-size:22px; font-weight:bold; color:#92400e;">${s.reserved}</div>
+            </div>
+          </div>
+          <div class="col">
+            <div class="card" style="text-align:center; padding:12px;">
+              <div style="font-size:11px; color:#555;">Sold</div>
+              <div style="font-size:22px; font-weight:bold; color:#1e40af;">${s.sold}</div>
+            </div>
+          </div>
+          ${p.trackingType === "Individual" ? `
+            <div class="col">
+              <div class="card" style="text-align:center; padding:12px;">
+                <div style="font-size:11px; color:#555;">Unaccounted For</div>
+                <div style="font-size:22px; font-weight:bold; color:#b45309;">${s.unaccountedFor}</div>
+              </div>
+            </div>
+          ` : ""}
+        </div>
+
+        ${breakdownHtml}
+
+        <div class="card">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <div class="card-title" style="margin:0;">Recent Movements</div>
+          </div>
+          ${MOVEMENTS.filter((m) => m.productId === p.id).length === 0
+            ? `<div class="empty-state" style="padding:12px;">No movements yet.</div>`
+            : MOVEMENTS.filter((m) => m.productId === p.id)
+                .slice()
+                .reverse()
+                .slice(0, 20)
+                .map((m) => `
+                  <div class="timeline-item" style="padding:6px 0; display:flex; justify-content:space-between; gap:8px;">
+                    <div>
+                      <strong style="font-size:12px;">[${m.type.replace(/_/g, " ")}]</strong>
+                      <span style="font-size:12px;">${m.quantity > 0 ? "+" : ""}${m.quantity}</span>
+                      ${m.reference ? `<div style="font-size:11px; color:#666;">Ref: ${m.reference}</div>` : ""}
+                      ${m.operator ? `<div style="font-size:11px; color:#888;">By ${m.operator}</div>` : ""}
+                    </div>
+                    <div style="font-size:11px; color:#888; white-space:nowrap;">${formatDate(m.timestamp.split("T")[0])}</div>
+                  </div>
+                `).join("")}
+        </div>
+      `;
+    }
+
+     
+
+        
       // ----- Transfer Stock Helpers -----
 
       // Get available stock at a location for a product.
