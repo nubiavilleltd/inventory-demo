@@ -1821,9 +1821,9 @@
           startingState: "draft",
         },
         multiunit: {
-          title: "Multi-Unit Individual Items — Change Units",
+          title: "Multi-Unit Individual Items — Dispatch Scanning",
           description:
-            "Restaurant ABC orders 4 MacBooks for delivery. Dispatch wizard exercises the Change Units drill-in.",
+            "Restaurant ABC orders 4 MacBooks for delivery. Dispatch wizard exercises scanning individual units.",
           customerId: "c2",
           fulfillment: "Delivery",
           timing: "Scheduled",
@@ -2005,7 +2005,6 @@
           dispatchDate: null,
           dispatchNotes: "",
           dispatchLocationId: null,
-          changingUnitsFor: null,
           unitScanInputs: {},
           unitSelections: {},
         },
@@ -2309,24 +2308,25 @@
       /* ============ DISPATCH POOL MEMBERSHIP ============ */
 
       // True if the order should appear on the Dispatch Dashboard.
-      //   - Fresh confirmed Delivery orders (nothing fulfilled yet)
-      //   - Partially-fulfilled Delivery orders whose handling = Delivery
+      //   - Confirmed Delivery orders with outstanding items, whether fresh or partial
+      //   - Partially-fulfilled orders explicitly routed to Delivery
       function belongsInDispatchPool(order) {
         if (!order) return false;
+        const hasOutstandingItems = calcOutstandingLines(order).length > 0;
+        if (!hasOutstandingItems) return false;
 
-        // Fresh Delivery orders enter the pool once confirmed.
-        // Their fulfillment is Delivery by construction.
+        // Original Delivery orders already have their outstanding items
+        // routed to delivery, including orders flagged partial at submission.
         if (
           order.fulfillment === "Delivery" &&
           order.state === "confirmed" &&
-          order.fulfilmentStatus === "pending"
+          ["pending", "partial"].includes(order.fulfilmentStatus)
         ) {
           return true;
         }
 
-        // Partially-fulfilled orders enter the pool when the operator has
-        // routed the outstanding remainder to Delivery — regardless of what
-        // the original order's fulfillment was (it may have been Pickup).
+        // Orders whose original fulfillment may have been Pickup enter only
+        // after the operator explicitly routes the outstanding remainder to Delivery.
         if (
           order.fulfilmentStatus === "partial" &&
           order.fulfilmentHandling === "Delivery" &&
@@ -8072,13 +8072,7 @@ DISPATCH WIZARD (3-STEP)
 ============================================================ */
 
       function renderDispatchWizard() {
-        const o = state.order;
         const w = state.dispatchWizard;
-
-        // If we're in Change Units mode, render that instead
-        if (w.changingUnitsFor) {
-          return renderChangeUnitsView();
-        }
 
         switch (w.step) {
           case 1:
@@ -8286,6 +8280,12 @@ DISPATCH WIZARD (3-STEP)
                 const qty = line.outstanding;
                 const isIndividual = p.trackingType === "Individual";
                 const selectedUnits = w.unitSelections[line.productId] || [];
+                const eligibleUnits = isIndividual
+                  ? getDispatchEligibleUnits(line.productId)
+                  : [];
+                const reservedForOrderCount = eligibleUnits.filter(
+                  (unit) => unit.softReservedFor === o.orderNumber,
+                ).length;
                 const isReady = isIndividual
                   ? selectedUnits.length === qty
                   : true;
@@ -8304,13 +8304,10 @@ DISPATCH WIZARD (3-STEP)
                           ${
                             selectedUnits.length === qty
                               ? `<span class="green">✓ ${selectedUnits.length} of ${qty} units scanned</span>`
-                              : `<span class="red">⚠ ${selectedUnits.length} of ${qty} units scanned — ${getStockSummary(line.productId, w.dispatchLocationId).available} available at ${getLocation(w.dispatchLocationId)?.name}</span>`
+                              : `<span class="red">⚠ ${selectedUnits.length} of ${qty} units scanned — ${eligibleUnits.length} eligible at ${getLocation(w.dispatchLocationId)?.name} (${reservedForOrderCount} reserved for this order)</span>`
                           }
                         </div>
-                        ${renderDispatchUnitScanner(line.productId, qty, selectedUnits)}
-                        <div style="margin-top:6px;">
-                          <button onclick="openChangeUnits('${line.productId}')" style="font-size:12px;">Change Units</button>
-                        </div>
+                        ${renderDispatchUnitScanner(line.productId, qty, selectedUnits, eligibleUnits)}
                       </div>
                     `;
                 } else {
@@ -8350,67 +8347,6 @@ DISPATCH WIZARD (3-STEP)
         <div class="modal-footer">
           <button onclick="dispatchWizardBack()">← Back</button>
           <button class="btn-primary" onclick="dispatchWizardNext()" ${progressDone < progressTotal ? "disabled" : ""}>Next: Review →</button>
-        </div>
-      </div>
-    </div>
-  `;
-      }
-
-      /* ---------- Step 2b: Change Units (body swap) ---------- */
-      function renderChangeUnitsView() {
-        const o = state.order;
-        const w = state.dispatchWizard;
-        const productId = w.changingUnitsFor;
-        const product = getInvProduct(productId);
-        const line = calcOutstandingLines(o).find(
-          (l) => l.productId === productId,
-        );
-        if (!product || !line) return "";
-
-        const qty = line.outstanding;
-        const selected = w.unitSelections[productId] || [];
-
-        // Get all units for this product at the dispatch location
-        const unitsAtLocation = UNITS.filter(
-          (u) =>
-            u.productId === productId &&
-            u.locationId === w.dispatchLocationId &&
-            u.status === "Available" &&
-            (!u.softReservedFor || u.softReservedFor === o.orderNumber),
-        ).sort((a, b) => {
-          if (a.receivedDate !== b.receivedDate)
-            return a.receivedDate < b.receivedDate ? -1 : 1;
-          return a.tag < b.tag ? -1 : 1;
-        });
-
-        return `
-    <div class="modal-overlay" onclick="if(event.target===this)closeDispatchWizard()">
-      <div class="modal">
-        <div class="modal-header">Change Units <button class="close-x" onclick="closeDispatchWizard()">×</button></div>
-        <div class="modal-body">
-          ${renderStepIndicator(2)}
-
-                   <p style="font-size:13px; margin-top:8px;">
-            <strong>${product.name}</strong> · Scan exactly ${qty} units from ${getLocation(w.dispatchLocationId)?.name}
-          </p>
-
-          <p style="font-size:12px; color:#666; margin-top:4px;">
-            ${unitsAtLocation.length} unit${unitsAtLocation.length === 1 ? "" : "s"} available at this location.
-          </p>
-
-          ${renderDispatchUnitScanner(productId, qty, selected, unitsAtLocation)}
-
-          <div style="margin-top:8px; font-size:12px;">
-                   ${
-                     selected.length === qty
-                        ? `<span class="green">✓ ${selected.length} of ${qty} scanned</span>`
-                        : `<span class="red">Scan exactly ${qty}. Currently: ${selected.length}</span>`
-                   }
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button onclick="closeChangeUnits()">← Back</button>
-                    <button class="btn-primary" onclick="confirmChangeUnits()" ${selected.length !== qty ? "disabled" : ""}>Done</button>
         </div>
       </div>
     </div>
@@ -8499,7 +8435,6 @@ DISPATCH WIZARD HANDLERS
 
       function closeDispatchWizard() {
         state.activeModal = null;
-        state.dispatchWizard.changingUnitsFor = null;
         state.dispatchReturnTo = "order-details";
         render();
       }
@@ -8565,7 +8500,6 @@ DISPATCH WIZARD HANDLERS
       function dispatchWizardBack() {
         const w = state.dispatchWizard;
         if (w.step > 1) w.step--;
-        if (w.changingUnitsFor) w.changingUnitsFor = null;
         render();
       }
 
@@ -8589,20 +8523,10 @@ DISPATCH WIZARD HANDLERS
         render();
       }
 
-      function openChangeUnits(productId) {
-        state.dispatchWizard.changingUnitsFor = productId;
-        render();
-      }
-
-      function closeChangeUnits() {
-        state.dispatchWizard.changingUnitsFor = null;
-        render();
-      }
-
-      function renderDispatchUnitScanner(productId, maxQty, selected, eligibleUnits = null) {
+      function getDispatchEligibleUnits(productId) {
         const w = state.dispatchWizard;
         const order = state.order;
-        const units = eligibleUnits || UNITS.filter(
+        return UNITS.filter(
           (unit) =>
             unit.productId === productId &&
             unit.locationId === w.dispatchLocationId &&
@@ -8613,10 +8537,20 @@ DISPATCH WIZARD HANDLERS
             return a.receivedDate < b.receivedDate ? -1 : 1;
           return a.tag < b.tag ? -1 : 1;
         });
+      }
+
+      function renderDispatchUnitScanner(productId, maxQty, selected, eligibleUnits = null) {
+        const w = state.dispatchWizard;
+        const order = state.order;
+        const units = eligibleUnits || getDispatchEligibleUnits(productId);
         const scannedUnits = selected
           .map((unitId) => UNITS.find((unit) => unit.id === unitId))
           .filter(Boolean);
         const inputId = `dispatchScan-${productId}`;
+        const reservedForOrderCount = units.filter(
+          (unit) => unit.softReservedFor === order?.orderNumber,
+        ).length;
+        const unreservedCount = units.length - reservedForOrderCount;
 
         return `
           <div style="border:1px solid #ddd;border-radius:4px;padding:8px;margin-top:8px;">
@@ -8631,7 +8565,7 @@ DISPATCH WIZARD HANDLERS
               <button onclick="handleDispatchUnitScan('${productId}',document.getElementById('${inputId}').value,${maxQty})">Scan</button>
               <button style="background:#fef3c7;" onclick="simulateDispatchUnitScan('${productId}',${maxQty})">Auto-Scan</button>
             </div>
-            <div style="font-size:12px;margin-top:6px;">${units.length} eligible unit${units.length === 1 ? "" : "s"} available.</div>
+            <div style="font-size:12px;margin-top:6px;">${units.length} eligible at this location: ${unreservedCount} unreserved, ${reservedForOrderCount} reserved for this order.</div>
             <div style="background:#f3f4f6;padding:8px;border-radius:4px;font-size:12px;max-height:140px;overflow-y:auto;margin-top:6px;">
               ${scannedUnits.length === 0
                 ? `<div class="empty-state">No units scanned yet. Scan a tag to begin.</div>`
@@ -8688,21 +8622,6 @@ DISPATCH WIZARD HANDLERS
       function removeDispatchUnitScan(productId, unitId) {
         const w = state.dispatchWizard;
         w.unitSelections[productId] = (w.unitSelections[productId] || []).filter((id) => id !== unitId);
-        render();
-      }
-
-      function confirmChangeUnits() {
-        const productId = state.dispatchWizard.changingUnitsFor;
-        const line = calcOutstandingLines(state.order).find(
-          (l) => l.productId === productId,
-        );
-        if (!line) return;
-        const qty = line.outstanding;
-        const selected = state.dispatchWizard.unitSelections[productId] || [];
-        if (selected.length !== qty) {
-          return alert(`Scan exactly ${qty} units.`);
-        }
-        state.dispatchWizard.changingUnitsFor = null;
         render();
       }
 
@@ -8854,7 +8773,6 @@ DISPATCH WIZARD HANDLERS
           dispatchDate: null,
           dispatchNotes: "",
           dispatchLocationId: null,
-          changingUnitsFor: null,
           unitScanInputs: {},
           unitSelections: {},
         };
@@ -15446,7 +15364,6 @@ DISPATCH WIZARD HELPERS
           dispatchNotes: "",
           dispatchLocationId:
             LOCATIONS.find((l) => l.isDefaultDispatch)?.id || LOCATIONS[0].id,
-          changingUnitsFor: null,
           unitScanInputs: {},
           unitSelections: {},
         };
