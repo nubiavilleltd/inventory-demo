@@ -1613,12 +1613,13 @@
 
         const onHand = rows.reduce((a, r) => a + r.onHand, 0);
         const reserved = rows.reduce((a, r) => a + r.reserved, 0);
-
         return {
           total: onHand,
           available: onHand - reserved,
           reserved,
           sold: 0,
+          // Quantity discrepancies are recorded against transfer incidents,
+          // not as stock-unit statuses. This metric applies to Individual only.
           unaccountedFor: 0,
         };
       }
@@ -1947,6 +1948,8 @@
         inventoryTransferTab: "awaiting-receipt",
         discrepancyFilter: "all", // 'all' | 'outstanding' | 'resolved'
         selectedTransferDiscrepancyId: null,
+        selectedStockRequestId: null,
+        stockRequestDecisionNote: "",
         inventoryProductId: null,
         inventoryUnitId: null,
         inventoryBatchId: null,
@@ -1996,6 +1999,9 @@
         receiveUnitActions: {}, 
         receiveUnlistedUnits: [], 
         showExcessSection: false,
+        receiveExcessBatchId: null,
+        receiveExcessQuantity: "",
+        receiveExcessQuantities: [],
         
         // Inventory Page State
         lastViewedProduct: null,
@@ -2715,6 +2721,8 @@ DISPATCH DASHBOARD DEMO SEED
             renderTransfersInTransit(c);
           } else if (state.inventoryView === "discrepancy-details") {
             renderTransferDiscrepancyDetailsPage(c);
+          } else if (state.inventoryView === "stock-request-details") {
+            renderStockRequestDetailsPage(c);
           } else {
             renderInventoryList(c);
           }
@@ -10705,11 +10713,14 @@ RECEIVE STOCK MODAL
 
         const grouped = new Map();
         items.forEach((item) => {
-          const existing = grouped.get(item.productId) || { ...item, qty: 0, unitIds: [], batchId: null, scannedQty: 0 };
+          const key = transfer.type === "Return"
+            ? `${item.productId}:${item.batchId || ""}:${item.excessQuantityId || "unit"}`
+            : item.productId;
+          const existing = grouped.get(key) || { ...item, qty: 0, unitIds: [], scannedQty: 0 };
           existing.qty += Number(item.qty || (item.unitIds || []).length || 0);
           existing.scannedQty += Number(item.scannedQty || item.qty || (item.unitIds || []).length || 0);
           existing.unitIds.push(...(item.unitIds || []));
-          grouped.set(item.productId, existing);
+          grouped.set(key, existing);
         });
         return [...grouped.values()];
       }
@@ -10736,26 +10747,23 @@ RECEIVE STOCK MODAL
 
           if (isStockQty) {
             const expected = item.qty;
-            const received = parseInt(state.receiveQuantities[item.productId], 10) || 0;
+            const received = Math.min(expected, parseInt(state.receiveQuantities[index], 10) || 0);
             const missing = Math.max(0, expected - received);
-            const excess = Math.max(0, received - expected);
 
             bodyHtml += `
-              <label>Confirm quantity received *</label>
-              <input type="number" min="0" step="1"
-                value="${state.receiveQuantities[item.productId] ?? expected}"
-                oninput="state.receiveQuantities['${item.productId}'] = this.value; updateReceiveQuantityPreview(${index}, ${expected}, '${escapeTransferDetailText(product.unitOfMeasure || "unit")}');">
-              <div id="receiveQtyPreview-${index}" style="font-size:11px; color:${missing || excess ? "#b45309" : "#666"}; margin-top:4px;">
+              <label>Confirm quantity received against manifest *</label>
+              <input type="number" min="0" max="${expected}" step="1"
+                value="${state.receiveQuantities[index] ?? expected}"
+                oninput="this.value=String(Math.min(${expected},Math.max(0,Math.floor(Number(this.value)||0)))); state.receiveQuantities['${index}']=this.value; updateReceiveQuantityPreview(${index}, ${expected}, '${escapeTransferDetailText(product.unitOfMeasure || "unit")}');">
+              <div id="receiveQtyPreview-${index}" style="font-size:11px; color:${missing ? "#b45309" : "#666"}; margin-top:4px;">
                 Expected: <strong>${expected}</strong> ${escapeTransferDetailText(product.unitOfMeasure || "unit")}(s).
                 ${missing > 0 ? `<span style="font-weight:bold; margin-left:8px;">⚠ ${missing} missing</span>` : ''}
-                ${excess > 0 ? `<span style="font-weight:bold; margin-left:8px;">⚠ ${excess} excess pending review</span>` : ''}
               </div>
             `;
           } else {
             // INDIVIDUAL ITEMS SCANNING UI
             const manifestUnitIds = item.unitIds || [];
             const scannedUnits = state.receiveScannedUnits || [];
-            const unlistedUnits = state.receiveUnlistedUnits || [];
             
             // Find missing units (in manifest but not scanned)
             const missingUnits = manifestUnitIds.filter(id => !scannedUnits.includes(id));
@@ -10808,53 +10816,48 @@ RECEIVE STOCK MODAL
                 </div>
               ` : ''}
 
-                   <!-- Unlisted/Excess Items Section -->
-              ${!state.showExcessSection ? `
-                <div style="margin-top:16px;">
-                  <button onclick="state.showExcessSection = true; render();" style="font-size:12px; padding:8px 12px; background:#fff; border:1px dashed #b45309; color:#92400e; display:flex; flex-direction:column; align-items:flex-start; width:100%; text-align:left; cursor:pointer;">
-                    <strong>+ Scan Excess Items</strong>
-                    <span style="font-size:11px; font-weight:normal; margin-top:4px;">Use this if the driver delivered more items than what was on the manifest (over-delivery).</span>
-                  </button>
-                </div>
-              ` : `
-                <div style="margin-top:16px; padding:12px; border:2px dashed #b45309; border-radius:6px; background:#fef3c7;">
-                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                    <div style="font-weight:bold; color:#92400e; font-size:13px;">
-                      Excess / Unlisted Items
-                    </div>
-                    <button onclick="state.showExcessSection = false; render();" style="padding:0 6px; font-size:11px; background:transparent; border:none; color:#92400e; cursor:pointer;">
-                      ✕ Hide
-                    </button>
-                  </div>
-                  
-                  <div style="display:flex; gap:8px; margin-bottom:8px;">
-                    <input type="text" id="unlistedScanInput-${index}" placeholder="Scan Excess Tag..." style="flex:1; font-size:12px; border-color:#b45309;" onkeydown="if(event.key==='Enter'){ handleUnlistedScan(this.value, ${index}); }">
-                    <button onclick="handleUnlistedScan(document.getElementById('unlistedScanInput-${index}').value, ${index})" style="font-size:11px; border-color:#b45309; color:#92400e;">Add</button>
-                    <button onclick="simulateUnlistedScan(${index})" style="font-size:11px; background:#fff; border-color:#b45309; color:#92400e;">Auto-Scan</button>
-                  </div>
-                  
-                  ${unlistedUnits.length > 0 ? `
-                    <div style="margin-top:8px; font-size:12px;">
-                      ${unlistedUnits.map(uid => {
-                        const u = UNITS.find(x => x.id === uid);
-                        return u ? `
-                          <div style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px dashed #fcd34d;">
-                            <span>⚠ ${u.tag} (Not on manifest)</span>
-                            <button onclick="state.receiveUnlistedUnits = state.receiveUnlistedUnits.filter(id => id !== '${uid}'); render();" style="padding:0 4px; font-size:10px; border-color:#b45309; color:#92400e;">Remove</button>
-                          </div>
-                        ` : '';
-                      }).join('')}
-                    </div>
-                  ` : `
-                    <div style="font-size:11px; color:#92400e;">No excess items scanned.</div>
-                  `}
-                </div>
-              `}
             `;
           }
 
           bodyHtml += `</div>`;
         });
+
+        const excessUnits = (state.receiveUnlistedUnits || []).map((id) => UNITS.find((unit) => unit.id === id)).filter(Boolean);
+        const excessQuantities = state.receiveExcessQuantities || [];
+        const excessBatch = state.receiveExcessBatchId ? getBatch(state.receiveExcessBatchId) : null;
+        bodyHtml += state.showExcessSection ? `
+          <div style="margin-top:16px; padding:12px; border:2px dashed #b45309; border-radius:6px; background:#fffbeb;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+              <div><strong style="color:#92400e;">Excess / Unlisted Items</strong><div style="font-size:12px;color:#78350f;">Record anything received beyond the transfer manifest.</div></div>
+              <button onclick="state.showExcessSection=false; render();" style="padding:0 6px;">Hide</button>
+            </div>
+            <div style="padding:8px; background:#fff; border-radius:4px; margin-bottom:10px;">
+              <strong>Individual items</strong>
+              <div style="display:flex; gap:8px; margin-top:6px;">
+                <input type="text" id="unlistedScanInput" placeholder="Scan extra item tag..." style="flex:1;" onkeydown="if(event.key==='Enter'){handleUnlistedScan(this.value)}">
+                <button onclick="handleUnlistedScan(document.getElementById('unlistedScanInput').value)">Add Tag</button>
+                <button style="background:#fef3c7;" onclick="simulateUnlistedScan()">Auto-Scan</button>
+              </div>
+              ${excessUnits.length ? excessUnits.map((unit) => `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px dashed #fcd34d;">⚠ ${escapeTransferDetailText(getInvProduct(unit.productId)?.name || "Item")} · ${escapeTransferDetailText(unit.tag)} <button onclick="state.receiveUnlistedUnits=state.receiveUnlistedUnits.filter(id=>id!=='${escapeTransferDetailText(unit.id)}');render();" style="padding:0 6px;color:#991b1b;">Remove</button></div>`).join("") : `<div style="font-size:12px;color:#777;margin-top:6px;">No extra tagged items added.</div>`}
+            </div>
+            <div style="padding:8px; background:#fff; border-radius:4px;">
+              <strong>Stock Quantity items</strong>
+              <div style="font-size:12px;color:#666;margin:3px 0 6px;">Scan a known batch barcode, then enter the extra quantity received.</div>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <input type="text" id="excessBatchScanInput" placeholder="Scan batch barcode..." style="flex:1;min-width:180px;" onkeydown="if(event.key==='Enter'){handleReceiveExcessBatchScan(this.value)}">
+                <button onclick="handleReceiveExcessBatchScan(document.getElementById('excessBatchScanInput').value)">Scan Batch</button>
+                <span style="font-size:12px;color:#166534;">${excessBatch ? `Batch: ${escapeTransferDetailText(excessBatch.batchNumber)} · ${escapeTransferDetailText(getInvProduct(excessBatch.productId)?.name || "Stock item")}` : "No batch scanned"}</span>
+                <input type="number" min="1" step="1" id="excessBatchQty" placeholder="Extra qty" value="${escapeTransferDetailText(state.receiveExcessQuantity || "")}" style="width:110px;" oninput="state.receiveExcessQuantity=this.value;">
+                <button ${excessBatch ? "" : "disabled"} onclick="addReceiveExcessQuantity()">Add Quantity</button>
+              </div>
+              ${excessQuantities.length ? excessQuantities.map((entry, index) => `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px dashed #fcd34d;">⚠ ${escapeTransferDetailText(getInvProduct(entry.productId)?.name || "Stock item")} · ${escapeTransferDetailText(getBatch(entry.batchId)?.batchNumber || "Batch")} · ${Number(entry.qty)} ${escapeTransferDetailText(getInvProduct(entry.productId)?.unitOfMeasure || "unit")}(s) <button onclick="state.receiveExcessQuantities.splice(${index},1);render();" style="padding:0 6px;color:#991b1b;">Remove</button></div>`).join("") : `<div style="font-size:12px;color:#777;margin-top:6px;">No extra quantities added.</div>`}
+            </div>
+          </div>
+        ` : `
+          <button onclick="state.showExcessSection=true;render();" style="margin-top:16px;width:100%;text-align:left;background:#fff;border:1px dashed #b45309;color:#92400e;">
+            <strong>+ Record Excess / Unlisted Items</strong><div style="font-size:12px;font-weight:normal;margin-top:4px;">Add extra tagged items or batch quantities received beyond the manifest.</div>
+          </button>
+        `;
 
         return `
         <div class="modal-overlay" onclick="if(event.target===this)closeReceiveTransferModal()">
@@ -10882,37 +10885,34 @@ RECEIVE STOCK MODAL
       }
 
 
-      function getEligibleUnlistedUnits(transfer, itemIndex) {
-        const items = transfer.items || [{ productId: transfer.productId, unitIds: transfer.unitIds || [] }];
-        const currentItem = items[itemIndex];
-        if (!currentItem) return [];
-        const manifestUnitIds = currentItem.unitIds || [];
-
+      function getEligibleUnlistedUnits(transfer) {
+        const items = getTransferReceiveItems(transfer);
+        const manifestUnitIds = new Set(items.flatMap((item) => item.unitIds || []));
         return UNITS.filter(unit =>
-          unit.productId === currentItem.productId &&
+          getInvProduct(unit.productId)?.trackingType === "Individual" &&
           unit.locationId === transfer.fromLocationId &&
           unit.status === "Available" &&
           !unit.softReservedFor &&
           !unit.inTransitTransferId &&
-          !manifestUnitIds.includes(unit.id) &&
+          !manifestUnitIds.has(unit.id) &&
           !state.receiveUnlistedUnits.includes(unit.id)
         );
       }
 
-      function handleUnlistedScan(value, itemIndex) {
+      function handleUnlistedScan(value) {
         const tag = value.trim().toUpperCase();
         if (!tag) return;
 
         const transfer = TRANSFERS.find(t => t.id === state.receivingTransferId);
         if (!transfer) return;
 
-        const items = transfer.items || [{ productId: transfer.productId, unitIds: transfer.unitIds || [] }];
-        const currentItem = items[itemIndex];
+        const items = getTransferReceiveItems(transfer);
+        const manifestUnitIds = new Set(items.flatMap((item) => item.unitIds || []));
 
         const unit = UNITS.find(u => u.tag.toUpperCase() === tag);
         if (!unit) return alert("Tag not found.");
-        if (unit.productId !== currentItem.productId) return alert("Wrong product scanned.");
-        if ((currentItem.unitIds || []).includes(unit.id)) return alert("This item is already on the manifest.");
+        if (getInvProduct(unit.productId)?.trackingType !== "Individual") return alert("This tag belongs to a Stock Quantity product. Scan its batch barcode and enter the excess quantity instead.");
+        if (manifestUnitIds.has(unit.id)) return alert("This item is already on the manifest.");
         if (state.receiveUnlistedUnits.includes(unit.id)) return alert("Already scanned as unlisted.");
         if (unit.locationId !== transfer.fromLocationId) return alert("This item is not at the transfer's source location.");
         if (unit.status !== "Available") return alert("This item is not available to receive.");
@@ -10921,23 +10921,45 @@ RECEIVE STOCK MODAL
 
         state.receiveUnlistedUnits.push(unit.id);
         render();
-        setTimeout(() => document.getElementById(`unlistedScanInput-${itemIndex}`)?.focus(), 10);
+        setTimeout(() => document.getElementById("unlistedScanInput")?.focus(), 10);
       }
 
-      function simulateUnlistedScan(itemIndex) {
+      function simulateUnlistedScan() {
         const transfer = TRANSFERS.find(t => t.id === state.receivingTransferId);
         if (!transfer) return;
 
-        const items = transfer.items || [{ productId: transfer.productId, unitIds: transfer.unitIds || [] }];
-        const currentItem = items[itemIndex];
-
-        const extraUnit = getEligibleUnlistedUnits(transfer, itemIndex)[0];
+        const extraUnit = getEligibleUnlistedUnits(transfer)[0];
 
         if (extraUnit) {
-          handleUnlistedScan(extraUnit.tag, itemIndex);
+          handleUnlistedScan(extraUnit.tag);
         } else {
           alert("No eligible excess units are available at the transfer's source location.");
         }
+      }
+
+      function handleReceiveExcessBatchScan(value) {
+        const code = String(value || "").trim().toUpperCase();
+        if (!code) return;
+        const batch = BATCHES.find((candidate) => String(candidate.batchNumber || "").trim().toUpperCase() === code);
+        if (!batch) return alert("Batch barcode not found. Only a known batch can be recorded as quantity-tracked excess.");
+        if (getInvProduct(batch.productId)?.trackingType !== "StockQuantity") return alert("This batch belongs to an individually tracked product. Scan its unit tags instead.");
+        state.receiveExcessBatchId = batch.id;
+        state.receiveExcessQuantity = "";
+        render();
+        setTimeout(() => document.getElementById("excessBatchQty")?.focus(), 10);
+      }
+
+      function addReceiveExcessQuantity() {
+        const batch = BATCHES.find((candidate) => candidate.id === state.receiveExcessBatchId);
+        const qty = Number(state.receiveExcessQuantity);
+        if (!batch || getInvProduct(batch.productId)?.trackingType !== "StockQuantity") return alert("Scan a valid Stock Quantity batch first.");
+        if (!Number.isInteger(qty) || qty < 1) return alert("Enter a whole number greater than zero.");
+        const existing = state.receiveExcessQuantities.find((entry) => entry.batchId === batch.id);
+        if (existing) existing.qty += qty;
+        else state.receiveExcessQuantities.push({ productId: batch.productId, batchId: batch.id, qty });
+        state.receiveExcessBatchId = null;
+        state.receiveExcessQuantity = "";
+        render();
       }
 
 
@@ -12073,13 +12095,12 @@ ADJUST STOCK MODAL
         const preview = document.getElementById(`receiveQtyPreview-${itemIndex}`);
         const input = preview?.previousElementSibling;
         if (!preview || !input) return;
-        const received = Math.max(0, parseInt(input.value, 10) || 0);
+        const received = Math.min(expected, Math.max(0, Math.floor(Number(input.value) || 0)));
         const missing = Math.max(0, expected - received);
-        const excess = Math.max(0, received - expected);
         preview.textContent = `Expected: ${expected} ${unitName}(s). Received: ${received}.` +
           (missing ? ` ${missing} missing.` : "") +
-          (excess ? ` ${excess} excess pending review.` : "");
-        preview.style.color = missing || excess ? "#b45309" : "#666";
+          " Add over-delivery in the Excess / Unlisted Items section below.";
+        preview.style.color = missing ? "#b45309" : "#666";
       }
 
       function attachDiscrepancyReceiptHandlers() {
@@ -12166,6 +12187,16 @@ Outstanding is always calculated from these two, never stored.
           .filter((unit) => unit.status === "Return Pending" && unit.locationId === transfer.toLocationId);
       }
 
+      function getReturnableRejectedQuantities(transfer) {
+        return (transfer?.excessQuantities || []).filter((item) => Number(item.returnPendingQty || 0) > 0);
+      }
+
+      function hasRejectedQuantityReturnOutstanding(transfer) {
+        return (transfer?.excessQuantities || []).some((item) =>
+          Number(item.returnPendingQty || 0) > 0 || Number(item.returnInTransitQty || 0) > 0,
+        );
+      }
+
       function hasTransferIncident(transfer) {
         return getTransferDiscrepancyQty(transfer) > 0 ||
           (transfer?.excessUnitIds || []).length > 0 ||
@@ -12177,7 +12208,8 @@ Outstanding is always calculated from these two, never stored.
         return getTransferOutstanding(transfer) === 0 &&
           getPendingTransferExcessUnits(transfer).length === 0 &&
           getPendingTransferExcessQuantities(transfer).length === 0 &&
-          getPendingTransferRejectedUnits(transfer).length === 0;
+          getPendingTransferRejectedUnits(transfer).length === 0 &&
+          !hasRejectedQuantityReturnOutstanding(transfer);
       }
 
       // The ONE place that sets a transfer's status after it has been
@@ -12190,6 +12222,70 @@ Outstanding is always calculated from these two, never stored.
           getTransferOutstanding(transfer) > 0
             ? "Partially Received"
             : "Received";
+      }
+
+      function approveStockRequest(transferId) {
+        const request = TRANSFERS.find((transfer) => transfer.id === transferId && transfer.type === "Store Request");
+        if (!request || request.status !== "Pending Approval") return;
+        request.status = "Approved";
+        request.approvedAt = new Date().toISOString();
+        request.decisionNote = String(state.stockRequestDecisionNote || "").trim();
+        state.stockRequestDecisionNote = "";
+        render();
+      }
+
+      function rejectStockRequest(transferId) {
+        const request = TRANSFERS.find((transfer) => transfer.id === transferId && transfer.type === "Store Request");
+        if (!request || request.status !== "Pending Approval") return;
+        const decisionNote = String(state.stockRequestDecisionNote || "").trim();
+        if (!decisionNote) return alert("Add a reason before rejecting this request.");
+        request.status = "Rejected";
+        request.rejectedAt = new Date().toISOString();
+        request.decisionNote = decisionNote;
+        state.stockRequestDecisionNote = "";
+        render();
+      }
+
+      function openStockRequestDetails(transferId) {
+        const request = TRANSFERS.find((transfer) => transfer.id === transferId && transfer.type === "Store Request");
+        if (!request) return;
+        state.selectedStockRequestId = request.id;
+        state.stockRequestDecisionNote = "";
+        state.activeTab = "inventory";
+        state.inventoryView = "stock-request-details";
+        state.inventoryTransferTab = "requests";
+        state.activeModal = null;
+        render();
+      }
+
+      function closeStockRequestDetails() {
+        state.selectedStockRequestId = null;
+        state.stockRequestDecisionNote = "";
+        state.inventoryView = "transfers-in-transit";
+        state.inventoryTransferTab = "requests";
+        render();
+      }
+
+      function startStockRequestFulfillment(transferId) {
+        const request = TRANSFERS.find((transfer) => transfer.id === transferId && transfer.type === "Store Request");
+        if (!request || !["Approved", "Partially Fulfilled"].includes(request.status)) return;
+        state.transferDraft = {
+          modalStep: 2,
+          type: "push",
+          fulfillingRequestId: request.id,
+          fromLocationId: request.toLocationId,
+          toLocationId: request.fromLocationId,
+          items: (request.items || []).map((item) => ({
+            ...item,
+            qty: Math.max(0, Number(item.qty || 0) - Number(item.fulfilledQty || 0)),
+            scannedUnitIds: [],
+            scannedBatchId: null,
+            scannedQty: 0,
+          })).filter((item) => item.qty > 0),
+          notes: request.notes || "",
+        };
+        state.activeModal = "create-transfer";
+        render();
       }
 
 
@@ -12219,11 +12315,11 @@ Outstanding is always calculated from these two, never stored.
 
         // 1. Calculate Discrepancies
         let hasMissingOrShortage = false;
-        items.forEach(item => {
+        items.forEach((item, index) => {
           const product = getInvProduct(item.productId);
           if (product.trackingType === "StockQuantity") {
             const expected = item.qty;
-            const received = parseInt(state.receiveQuantities[item.productId], 10) || 0;
+            const received = parseInt(state.receiveQuantities[index], 10) || 0;
             if (received < expected) hasMissingOrShortage = true;
           } else {
             const missing = (item.unitIds || []).filter(id => !state.receiveScannedUnits.includes(id));
@@ -12232,13 +12328,7 @@ Outstanding is always calculated from these two, never stored.
         });
 
         // 2. Warning Prompt
-        const excessQuantitySummary = items.map(item => {
-          const product = getInvProduct(item.productId);
-          if (product?.trackingType !== "StockQuantity") return null;
-          const received = parseInt(state.receiveQuantities[item.productId], 10) || 0;
-          const excessQty = Math.max(0, received - Number(item.qty || 0));
-          return excessQty ? { productId: item.productId, batchId: item.batchId, qty: excessQty, productName: product.name } : null;
-        }).filter(Boolean);
+        const excessQuantitySummary = (state.receiveExcessQuantities || []).filter((item) => Number(item.qty) > 0);
         const hasExcessItems = state.receiveUnlistedUnits.length > 0 || excessQuantitySummary.length > 0;
         const rejectedUnits = state.receiveScannedUnits
           .filter(id => state.receiveUnitActions[id]?.action === "Reject")
@@ -12247,14 +12337,14 @@ Outstanding is always calculated from these two, never stored.
         const hasRejectedItems = rejectedUnits.length > 0;
         const hasIncident = hasMissingOrShortage || hasExcessItems || hasRejectedItems;
         if (hasIncident && !recordDiscrepancy) {
-          const missingCount = items.reduce((sum, item) => {
+          const missingCount = items.reduce((sum, item, index) => {
             const product = getInvProduct(item.productId);
             if (product?.trackingType === "StockQuantity") {
-              return sum + Math.max(0, Number(item.qty || 0) - (parseInt(state.receiveQuantities[item.productId], 10) || 0));
+              return sum + Math.max(0, Number(item.qty || 0) - (parseInt(state.receiveQuantities[index], 10) || 0));
             }
             return sum + (item.unitIds || []).filter(id => !state.receiveScannedUnits.includes(id)).length;
           }, 0);
-          const excessCount = state.receiveUnlistedUnits.length + excessQuantitySummary.reduce((sum, item) => sum + item.qty, 0);
+          const excessCount = state.receiveUnlistedUnits.length + excessQuantitySummary.reduce((sum, item) => sum + Number(item.qty), 0);
           const summary = [
             ...(missingCount ? [`Missing: ${missingCount} item(s)`] : []),
             ...(excessCount ? [`Excess: ${excessCount} item(s)`] : []),
@@ -12268,14 +12358,13 @@ Outstanding is always calculated from these two, never stored.
         }
 
         // 3. Process the items
-        items.forEach(item => {
+        items.forEach((item, index) => {
           const product = getInvProduct(item.productId);
 
           if (product.trackingType === "StockQuantity") {
-            const received = parseInt(state.receiveQuantities[item.productId], 10) || 0;
+            const received = Math.min(Number(item.qty || 0), parseInt(state.receiveQuantities[index], 10) || 0);
             const expected = Number(item.qty || 0);
             const receivedAgainstManifest = Math.min(received, expected);
-            const excessQty = Math.max(0, received - expected);
             // Add to destination stock
             if (receivedAgainstManifest > 0) {
               let toRow = STOCK.find(s => s.productId === item.productId && s.locationId === transfer.toLocationId && s.batchId === item.batchId);
@@ -12285,17 +12374,27 @@ Outstanding is always calculated from these two, never stored.
               logMovement(item.productId, transfer.toLocationId, "transfer_in", receivedAgainstManifest, transfer.transferNumber, null, item.batchId);
             }
             transfer.discrepancyQty = (transfer.discrepancyQty || 0) + Math.max(0, expected - received);
-            if (excessQty > 0) {
-              if (!Array.isArray(transfer.excessQuantities)) transfer.excessQuantities = [];
-              transfer.excessQuantities.push({
-                id: `EXQ-${Date.now()}-${item.productId}`,
-                productId: item.productId,
-                batchId: item.batchId,
-                qty: excessQty,
-                pendingQty: excessQty,
-                acceptedQty: 0,
-                returnPendingQty: 0,
-              });
+            if (transfer.type === "Return" && item.excessQuantityId) {
+              const incident = TRANSFERS.find((entry) => entry.id === item.incidentTransferId);
+              const excess = incident?.excessQuantities?.find((entry) => entry.id === item.excessQuantityId);
+              const shortQty = Math.max(0, expected - received);
+              if (excess) {
+                excess.returnInTransitQty = Math.max(0, Number(excess.returnInTransitQty || 0) - expected);
+                excess.returnPendingQty = Number(excess.returnPendingQty || 0) + shortQty;
+                if (received > 0) {
+                  incident.resolutions = incident.resolutions || [];
+                  incident.resolutions.push({
+                    id: `RES-${Date.now()}-${excess.id}`,
+                    type: "Rejected Quantity Returned",
+                    qty: received,
+                    locationId: transfer.toLocationId,
+                    quantityLines: [{ productId: item.productId, batchId: item.batchId, qty: received }],
+                    note: `Returned on transfer ${transfer.transferNumber || transfer.id}.`,
+                    at: new Date().toISOString(),
+                    by: "You",
+                  });
+                }
+              }
             }
           } else {
             // Process Scanned Units
@@ -12368,11 +12467,26 @@ Outstanding is always calculated from these two, never stored.
             unit.incidentTransferId = transfer.id;
           }
         });
+        if (excessQuantitySummary.length) {
+          if (!Array.isArray(transfer.excessQuantities)) transfer.excessQuantities = [];
+          excessQuantitySummary.forEach((entry, index) => {
+            const qty = Number(entry.qty);
+            transfer.excessQuantities.push({
+              id: `EXQ-${Date.now()}-${index}-${entry.productId}-${entry.batchId}`,
+              productId: entry.productId,
+              batchId: entry.batchId,
+              qty,
+              pendingQty: qty,
+              acceptedQty: 0,
+              returnPendingQty: 0,
+            });
+          });
+        }
 
         // 5. Finalize
         transfer.receivedAt = new Date().toISOString();
         transfer.receivedBy = "You";
-        transfer.qtyReceived = items.reduce((sum, i) => sum + (getInvProduct(i.productId).trackingType === "StockQuantity" ? (parseInt(state.receiveQuantities[i.productId]) || 0) : i.unitIds.filter(id => state.receiveScannedUnits.includes(id)).length), 0);
+        transfer.qtyReceived = items.reduce((sum, item, index) => sum + (getInvProduct(item.productId).trackingType === "StockQuantity" ? Math.min(Number(item.qty || 0), parseInt(state.receiveQuantities[index]) || 0) : item.unitIds.filter(id => state.receiveScannedUnits.includes(id)).length), 0) + excessQuantitySummary.reduce((sum, item) => sum + Number(item.qty || 0), 0) + state.receiveUnlistedUnits.length;
         transfer.discrepancyReason = [
           hasMissingOrShortage ? "Items missing or shorted during receipt." : "",
           hasExcessItems ? "Unlisted items were received and require incident review." : "",
@@ -12630,7 +12744,8 @@ MOVEMENT LOG PAGE
         const incident = TRANSFERS.find((transfer) => transfer.id === transferId);
         if (!incident) return;
         const returnUnits = getReturnableRejectedUnits(incident);
-        if (!returnUnits.length) return alert("There are no rejected items awaiting return for this incident.");
+        const returnQuantities = getReturnableRejectedQuantities(incident);
+        if (!returnUnits.length && !returnQuantities.length) return alert("There are no rejected items awaiting return for this incident.");
 
         state.transferDraft = {
           modalStep: 1,
@@ -12641,6 +12756,9 @@ MOVEMENT LOG PAGE
           notes: `Return rejected items for ${incident.transferNumber || incident.id}`,
           returnIncidentTransferId: incident.id,
           returnUnitIds: returnUnits.map((unit) => unit.id),
+          returnQuantityIds: returnQuantities.map((item) => item.id),
+          returnBatchId: "",
+          returnQty: "",
         };
         state.activeModal = "create-transfer";
         render();
@@ -13021,14 +13139,16 @@ MOVEMENT LOG PAGE
         const rejectedUnits = (transfer.rejectedUnitIds || [])
           .map((unitId) => UNITS.find((unitRecord) => unitRecord.id === unitId))
           .filter(Boolean);
-        if (!rejectedUnits.length) return "";
+        const rejectedQuantities = (transfer.excessQuantities || []).filter((item) => Number(item.returnPendingQty || 0) > 0 || Number(item.returnInTransitQty || 0) > 0);
+        if (!rejectedUnits.length && !rejectedQuantities.length) return "";
         const pendingRejected = getPendingTransferRejectedUnits(transfer);
         const returnableRejected = getReturnableRejectedUnits(transfer);
+        const returnableQuantities = getReturnableRejectedQuantities(transfer);
         return `
           <div style="border:1px solid #f2dfb3; border-radius:8px; background:#fffcf5; padding:14px; margin:16px 0 20px;">
             <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:4px;">
-              <div style="font-weight:bold;">Rejected Manifest Items (${pendingRejected.length} unresolved)</div>
-              ${returnableRejected.length ? `<button class="btn-primary" onclick="openReturnTransferForIncident('${escapeTransferDetailText(transfer.id)}')">Create Return Transfer</button>` : ""}
+              <div style="font-weight:bold;">Rejected Items (${pendingRejected.length + rejectedQuantities.reduce((sum, item) => sum + Number(item.returnPendingQty || 0) + Number(item.returnInTransitQty || 0), 0)} unresolved or in transit)</div>
+              ${returnableRejected.length || returnableQuantities.length ? `<button class="btn-primary" onclick="openReturnTransferForIncident('${escapeTransferDetailText(transfer.id)}')">Create Return Transfer</button>` : ""}
             </div>
             <div style="font-size:12px; color:#666; margin-bottom:10px;">Rejected items remain unresolved until they are sent back to the source and received there.</div>
             <table style="width:100%; border-collapse:collapse; font-size:13px;">
@@ -13045,9 +13165,15 @@ MOVEMENT LOG PAGE
                   <td style="padding:8px; border-bottom:1px solid #eee;">${escapeTransferDetailText(transfer.rejectedUnitReasons?.[rejectedUnit.id] || "—")}</td>
                   <td style="padding:8px; border-bottom:1px solid #eee;"><span class="badge ${getPendingTransferRejectedUnits(transfer).includes(rejectedUnit) ? "badge-partial" : ""}">${escapeTransferDetailText(rejectedUnit.status === "Available" ? "Returned to source" : rejectedUnit.status)}</span></td>
                 </tr>
-              `).join("")}</tbody>
+              `).join("")}${rejectedQuantities.map((item) => {
+                const product = getInvProduct(item.productId);
+                const batch = getBatch(item.batchId);
+                const isInTransit = Number(item.returnInTransitQty || 0) > 0;
+                const status = Number(item.returnPendingQty || 0) > 0 ? `Return Pending (${Number(item.returnPendingQty)})` : `In Transit (${Number(item.returnInTransitQty)})`;
+                return `<tr><td style="padding:8px; border-bottom:1px solid #eee;">${escapeTransferDetailText(product?.name || "Stock item")} · ${escapeTransferDetailText(batch?.batchNumber || item.batchId)}</td><td style="padding:8px; border-bottom:1px solid #eee;">Stock quantity</td><td style="padding:8px; border-bottom:1px solid #eee;">Rejected excess</td><td style="padding:8px; border-bottom:1px solid #eee;"><span class="badge ${isInTransit ? "badge-partial" : ""}">${escapeTransferDetailText(status)}</span></td></tr>`;
+              }).join("")}</tbody>
             </table>
-            ${returnableRejected.length ? `<div style="font-size:12px; color:#666; margin-top:10px;">Create a Return Stock transfer from ${escapeTransferDetailText(toLoc?.name || "the destination")} to ${escapeTransferDetailText(fromLoc?.name || "the source")}, then scan the tags being sent.</div>` : pendingRejected.length ? `<div style="font-size:12px; color:#666; margin-top:10px;">Return transfer is in transit. The incident will update when the source receives the items.</div>` : ""}
+            ${returnableRejected.length || returnableQuantities.length ? `<div style="font-size:12px; color:#666; margin-top:10px;">Create a Return Stock transfer from ${escapeTransferDetailText(toLoc?.name || "the destination")} to ${escapeTransferDetailText(fromLoc?.name || "the source")} for the items or quantities being sent.</div>` : pendingRejected.length || rejectedQuantities.some((item) => Number(item.returnInTransitQty || 0) > 0) ? `<div style="font-size:12px; color:#666; margin-top:10px;">Return transfer is in transit. The incident will update when the source receives the items.</div>` : ""}
           </div>
         `;
       })()}
@@ -13145,6 +13271,62 @@ MOVEMENT LOG PAGE
 
 
 
+      function renderStockRequestDetailsPage(c) {
+        const request = TRANSFERS.find((transfer) => transfer.id === state.selectedStockRequestId && transfer.type === "Store Request");
+        if (!request) {
+          c.innerHTML = `<div class="card"><div class="empty-state">This stock request could not be found.</div><button onclick="closeStockRequestDetails()">Back to Requests</button></div>`;
+          return;
+        }
+        const requestingLocation = getLocation(request.fromLocationId);
+        const fulfillingLocation = getLocation(request.toLocationId);
+        const items = request.items || [];
+        const totalUnits = items.reduce((sum, item) => sum + Number(item.qty || 0), 0);
+        const isPending = request.status === "Pending Approval";
+
+        c.innerHTML = `
+          <div style="margin-bottom:12px;"><button onclick="closeStockRequestDetails()">← Back to Requests</button></div>
+          <div class="card">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; margin-bottom:16px;">
+              <div>
+                <div class="card-title" style="margin-bottom:4px;">Stock Request</div>
+                <div style="font-size:13px; color:#666;">${escapeTransferDetailText(request.transferNumber || request.id)} · Submitted ${escapeTransferDetailText(formatTransferDetailDate(request.sentAt))}</div>
+              </div>
+              <span class="badge ${isPending ? "badge-partial" : ""}">${escapeTransferDetailText(request.status)}</span>
+            </div>
+
+            <div class="row" style="margin-bottom:18px;">
+              <div class="col"><div style="font-size:12px;color:#666;">Requesting Location</div><strong>${escapeTransferDetailText(requestingLocation?.name || "—")}</strong></div>
+              <div class="col"><div style="font-size:12px;color:#666;">Fulfilling Location</div><strong>${escapeTransferDetailText(fulfillingLocation?.name || "—")}</strong></div>
+            </div>
+
+            <div style="font-weight:bold; margin-bottom:8px;">Requested Items (${items.length} lines · ${totalUnits} units)</div>
+            <table style="margin-bottom:18px;">
+              <thead><tr><th>Product</th><th>Tracking</th><th>Requested</th>${["Approved", "Partially Fulfilled", "Fulfilled"].includes(request.status) ? "<th>Dispatched</th><th>Remaining</th>" : ""}</tr></thead>
+              <tbody>${items.map((item) => {
+                const product = getInvProduct(item.productId);
+                const requestedQty = Number(item.qty || 0);
+                const dispatchedQty = Number(item.fulfilledQty || 0);
+                return `<tr><td>${escapeTransferDetailText(product?.name || "Unknown product")}</td><td>${escapeTransferDetailText(product?.trackingType === "Individual" ? "Tagged units" : "Batch tracked")}</td><td>${requestedQty}</td>${["Approved", "Partially Fulfilled", "Fulfilled"].includes(request.status) ? `<td>${dispatchedQty}</td><td>${Math.max(0, requestedQty - dispatchedQty)}</td>` : ""}</tr>`;
+              }).join("")}</tbody>
+            </table>
+
+            ${request.notes ? `<div style="padding:12px; background:#f9fafb; border-radius:6px; margin-bottom:16px;"><strong>Requester Notes</strong><div style="margin-top:4px; white-space:pre-wrap;">${escapeTransferDetailText(request.notes)}</div></div>` : ""}
+            ${request.decisionNote ? `<div style="padding:12px; background:#f9fafb; border-radius:6px; margin-bottom:16px;"><strong>${request.status === "Rejected" ? "Rejection Reason" : "Approval Note"}</strong><div style="margin-top:4px; white-space:pre-wrap;">${escapeTransferDetailText(request.decisionNote)}</div></div>` : ""}
+
+            ${isPending ? `
+              <label for="stockRequestDecisionNote">Decision note <span style="font-size:12px;color:#666;">(optional for approval; required to reject)</span></label>
+              <textarea id="stockRequestDecisionNote" placeholder="Add an approval note or explain why the request is rejected..." oninput="state.stockRequestDecisionNote=this.value">${escapeTransferDetailText(state.stockRequestDecisionNote || "")}</textarea>
+              <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:16px; flex-wrap:wrap;">
+                <button onclick="rejectStockRequest('${escapeTransferDetailText(request.id)}')">Reject Request</button>
+                <button class="btn-primary" onclick="approveStockRequest('${escapeTransferDetailText(request.id)}')">Approve Request</button>
+              </div>
+            ` : ["Approved", "Partially Fulfilled", "Fulfilled"].includes(request.status) ? `
+              ${request.status !== "Fulfilled" ? `<div style="display:flex; justify-content:flex-end; margin-top:16px;"><button class="btn-primary" onclick="startStockRequestFulfillment('${escapeTransferDetailText(request.id)}')">${request.status === "Partially Fulfilled" ? "Dispatch Remaining" : "Pick & Dispatch"}</button></div>` : ""}
+            ` : ""}
+          </div>
+        `;
+      }
+
             function renderTransfersInTransit(c) {
         const awaitingReceipt = TRANSFERS.filter(
           (t) => t.status === "In Transit",
@@ -13159,6 +13341,10 @@ MOVEMENT LOG PAGE
         )
           .slice()
           .reverse();
+
+        const stockRequests = TRANSFERS.filter(
+          (t) => t.type === "Store Request" && ["Pending Approval", "Approved", "Partially Fulfilled", "Fulfilled", "Rejected"].includes(t.status),
+        ).slice().reverse();
 
         const selectedTab = state.inventoryTransferTab || "awaiting-receipt";
         const selectedFilter = state.discrepancyFilter || "all";
@@ -13200,6 +13386,13 @@ MOVEMENT LOG PAGE
           onclick="state.inventoryTransferTab='awaiting-receipt'; render();"
         >
           Awaiting Receipt (${awaitingReceipt.length})
+        </button>
+
+        <button
+          class="${selectedTab === "requests" ? "btn-primary" : ""}"
+          onclick="state.inventoryTransferTab='requests'; render();"
+        >
+          Requests (${stockRequests.length})
         </button>
 
         <button
@@ -13312,6 +13505,30 @@ MOVEMENT LOG PAGE
                   </table>
                 `
             }
+          `
+          : selectedTab === "requests"
+          ? `
+            <div style="font-size:12px; color:#555; margin-bottom:12px;">
+              Review store requests. Approval does not move stock; the fulfilling location scans items when picking and dispatching them.
+            </div>
+            ${stockRequests.length === 0 ? `<div class="empty-state">No stock requests.</div>` : `
+              <table>
+                <thead><tr><th>Request</th><th>Requesting Location</th><th>Fulfilling Location</th><th>Items</th><th>Status</th><th>Action</th></tr></thead>
+                <tbody>${stockRequests.map((request) => {
+                  const requestedAt = formatTransferDetailDate(request.sentAt);
+                  const itemLines = (request.items || []).length;
+                  const totalUnits = (request.items || []).reduce((sum, item) => sum + Number(item.qty || 0), 0);
+                  return `<tr>
+                    <td><strong>${escapeTransferDetailText(request.transferNumber || request.id)}</strong><div style="font-size:11px;color:#666;">${escapeTransferDetailText(requestedAt)}</div></td>
+                    <td>${escapeTransferDetailText(getLocation(request.fromLocationId)?.name || "—")}</td>
+                    <td>${escapeTransferDetailText(getLocation(request.toLocationId)?.name || "—")}</td>
+                    <td>${itemLines} item line${itemLines === 1 ? "" : "s"}<div style="font-size:11px;color:#666;">${totalUnits} unit${totalUnits === 1 ? "" : "s"}</div></td>
+                    <td><span class="badge ${request.status === "Pending Approval" ? "badge-partial" : ""}">${escapeTransferDetailText(request.status)}</span></td>
+                    <td><button class="btn-primary" onclick="openStockRequestDetails('${escapeTransferDetailText(request.id)}')">View</button></td>
+                  </tr>`;
+                }).join("")}</tbody>
+              </table>
+            `}
           `
           : `
             <div style="font-size:12px; color:#555; margin-bottom:12px;">
@@ -14309,8 +14526,7 @@ MOVEMENT LOG PAGE
                       // --- STOCK QUANTITY UI ---
                       if (p.trackingType === "StockQuantity") {
                         const isScanned = item.scannedBatchId;
-                        const isComplete =
-                          isScanned && item.scannedQty >= item.qty;
+                        const isComplete = isScanned && Number(item.scannedQty || 0) > 0;
 
                         // If scanned, find the batch details to show
                         const batch = isScanned
@@ -14333,12 +14549,12 @@ MOVEMENT LOG PAGE
                           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
                             <div style="font-weight:bold;">${p.name} (Stock Qty)</div>
                             <div style="font-size:12px; font-weight:bold; color:${isComplete ? "#166534" : "#b45309"};">
-                              Scanned: ${item.scannedQty || 0} / ${item.qty}
+                              Picked: ${item.scannedQty || 0} / ${item.qty}
                             </div>
                           </div>
                           
                           ${
-                            !isComplete
+                            !isScanned
                               ? `
                             <!-- Scan the Batch Barcode -->
                             <div style="display:flex; gap:8px; margin-bottom:8px;">
@@ -14349,7 +14565,12 @@ MOVEMENT LOG PAGE
                           `
                               : `
                             <div style="font-size:12px; color:#166534; font-weight:bold; display:flex; align-items:center; gap:4px;">
-                              ✓ Batch Scanned: ${batch?.batchNumber} (Qty: ${item.scannedQty})
+                              ✓ Batch identified: ${batch?.batchNumber}${stockRow ? ` · Available: ${stockRow.onHand}` : ""}
+                            </div>
+                            <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
+                              <label for="batchQty-${idx}" style="margin:0;">Quantity to dispatch</label>
+                              <input type="number" id="batchQty-${idx}" min="1" max="${Math.min(item.qty, stockRow?.onHand || 0)}" value="${item.scannedQty || ""}" placeholder="Up to ${Math.min(item.qty, stockRow?.onHand || 0)}" style="width:130px;" oninput="state.transferDraft.items[${idx}].scannedQty=Math.max(0, Math.min(Number(this.value)||0, ${item.qty}, ${stockRow?.onHand || 0})); updateTransferDispatchButton();">
+                              <span style="font-size:12px;color:#666;">Requested remaining: ${item.qty}</span>
                             </div>
                             <div style="margin-top:8px;">
                               <button onclick="state.transferDraft.items[${idx}].scannedBatchId=null; state.transferDraft.items[${idx}].scannedQty=0; render();" style="font-size:11px;">Undo</button>
@@ -14423,16 +14644,9 @@ MOVEMENT LOG PAGE
               </div>
               <div class="modal-footer">
                 <button onclick="state.transferDraft.modalStep=1; render();">← Back</button>
-                <button class="btn-primary" 
+                <button id="transferDispatchButton" class="btn-primary" 
   ${
-    t.type !== "return" &&
-    t.items.some((i) => {
-      const p = getInvProduct(i.productId);
-      if (p.trackingType === "StockQuantity") {
-        return !i.scannedQty || i.scannedQty < i.qty;
-      }
-      return (i.scannedUnitIds || []).length < i.qty;
-    })
+    !isTransferDraftReady(t)
       ? "disabled"
       : ""
   } 
@@ -14563,7 +14777,27 @@ MOVEMENT LOG PAGE
                               return `<div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 4px; border-bottom:1px dashed #eee; font-size:12px;"><span>✓ ${escapeTransferDetailText(itemProduct?.name || "Stock item")} (${escapeTransferDetailText(unit.tag)}) · ${escapeTransferDetailText(unit.condition || "—")}</span><button onclick="removeReturnUnitFromDraft('${escapeTransferDetailText(unit.id)}')" style="padding:0 6px; font-size:10px; color:#991b1b; border-color:#991b1b;">Remove</button></div>`;
                             }).join("")}
                       </div>
-                      <div style="font-size:11px; color:#666; margin-top:8px;">Scanned: ${t.items.length} of ${Array.isArray(t.returnUnitIds) ? t.returnUnitIds.length : returnableUnits.length} ${Array.isArray(t.returnUnitIds) ? "rejected item(s)" : "Return Pending item(s)"}</div>
+                      <div style="font-size:11px; color:#666; margin-top:8px;">Tags scanned: ${t.items.filter((item) => item.unitId).length} of ${Array.isArray(t.returnUnitIds) ? t.returnUnitIds.length : returnableUnits.length}${Array.isArray(t.returnQuantityIds) ? ` · Quantity selected: ${t.items.filter((item) => item.excessQuantityId).reduce((sum, item) => sum + Number(item.qty || 0), 0)}` : ""}</div>
+                      ${Array.isArray(t.returnQuantityIds) ? `
+                        <div style="margin-top:12px; padding:10px; border:1px solid #ddd; border-radius:4px; background:#fff;">
+                          <strong style="font-size:12px;">Rejected stock quantities available for return</strong>
+                          <div style="display:flex; gap:8px; margin-top:8px; align-items:center;">
+                            <input type="text" id="returnBatchScanInput" placeholder="Scan Batch Barcode..." value="${escapeTransferDetailText(t.returnBatchId || "")}" style="flex:1; font-size:13px;" oninput="state.transferDraft.returnBatchId=this.value" onkeydown="if(event.key==='Enter'){event.preventDefault();handleReturnBatchScan(this.value)}">
+                            <button onclick="handleReturnBatchScan(document.getElementById('returnBatchScanInput').value)">Scan Batch</button>
+                            <input type="number" min="1" id="returnQuantityInput" placeholder="Qty" value="${escapeTransferDetailText(t.returnQty || "")}" style="width:85px; font-size:13px;" oninput="state.transferDraft.returnQty=this.value">
+                            <button onclick="addReturnQuantityToDraft()">Add</button>
+                          </div>
+                          ${(t.returnQuantityIds || []).map((quantityId) => {
+                            const incident = TRANSFERS.find((transfer) => transfer.id === t.returnIncidentTransferId);
+                            const excess = incident?.excessQuantities?.find((entry) => entry.id === quantityId);
+                            if (!excess) return "";
+                            const product = getInvProduct(excess.productId);
+                            const batch = getBatch(excess.batchId);
+                            const draftQty = t.items.filter((entry) => entry.excessQuantityId === quantityId).reduce((sum, entry) => sum + Number(entry.qty || 0), 0);
+                            return `<div style="display:flex; justify-content:space-between; padding:7px 2px; border-bottom:1px dashed #eee; font-size:12px;"><span>${escapeTransferDetailText(product?.name || "Stock item")} · ${escapeTransferDetailText(batch?.batchNumber || excess.batchId)} · ${Math.max(0, Number(excess.returnPendingQty || 0) - draftQty)} available</span><span>${draftQty ? `<button onclick="removeReturnQuantityFromDraft('${escapeTransferDetailText(quantityId)}')" style="padding:2px 6px; font-size:10px; color:#b91c1c; border-color:#b91c1c;">Remove ${draftQty}</button>` : ""}</span></div>`;
+                          }).join("")}
+                        </div>
+                      ` : ""}
                     </div>
                   `
                       : `
@@ -14633,8 +14867,8 @@ MOVEMENT LOG PAGE
             </div>
             <div class="modal-footer">
               <button onclick="state.activeModal=null; render();">Cancel</button>
-              <button class="btn-primary" ${!t.type || t.items.length === 0 ? "disabled" : ""} onclick="${t.type === "return" ? "finalizeTransferDraft()" : "state.transferDraft.modalStep=2; render();"}">
-                ${t.type === "pull" ? "Continue to Review →" : t.type === "return" ? "Create Return Transfer" : "Continue to Scanning →"}
+              <button class="btn-primary" ${!t.type || t.items.length === 0 ? "disabled" : ""} onclick="${t.type === "return" || t.type === "pull" ? "finalizeTransferDraft()" : "state.transferDraft.modalStep=2; render();"}">
+                ${t.type === "pull" ? "Submit Request" : t.type === "return" ? "Create Return Transfer" : "Continue to Scanning →"}
               </button>
             </div>
           </div>
@@ -14678,6 +14912,44 @@ MOVEMENT LOG PAGE
         }
 
         t.items.push({ productId: unit.productId, qty: 1, unitId: unit.id, isBatch: false });
+        render();
+      }
+
+      function handleReturnBatchScan(value) {
+        const t = state.transferDraft;
+        const batchCode = String(value || "").trim().toUpperCase();
+        if (!t || t.type !== "return" || !batchCode) return;
+        const batch = BATCHES.find((entry) => String(entry.batchNumber || entry.id || "").trim().toUpperCase() === batchCode);
+        if (!batch) return alert(`Batch "${batchCode}" was not found.`);
+        const incident = TRANSFERS.find((entry) => entry.id === t.returnIncidentTransferId);
+        const quantity = incident?.excessQuantities?.find((entry) =>
+          entry.batchId === batch.id && (t.returnQuantityIds || []).includes(entry.id) && Number(entry.returnPendingQty || 0) > 0,
+        );
+        if (!quantity) return alert("This batch has no rejected stock quantity available for return on this incident.");
+        t.returnBatchId = batch.id;
+        t.returnQty = "";
+        render();
+        setTimeout(() => document.getElementById("returnQuantityInput")?.focus(), 0);
+      }
+
+      function addReturnQuantityToDraft() {
+        const t = state.transferDraft;
+        if (!t || t.type !== "return" || !t.returnBatchId) return alert("Scan a batch barcode first.");
+        const incident = TRANSFERS.find((entry) => entry.id === t.returnIncidentTransferId);
+        const excess = incident?.excessQuantities?.find((entry) => entry.batchId === t.returnBatchId && (t.returnQuantityIds || []).includes(entry.id));
+        const qty = Number(t.returnQty);
+        if (!excess || !Number.isInteger(qty) || qty < 1) return alert("Enter a whole quantity greater than zero.");
+        const alreadyDrafted = t.items.filter((entry) => entry.excessQuantityId === excess.id).reduce((sum, entry) => sum + Number(entry.qty || 0), 0);
+        if (qty + alreadyDrafted > Number(excess.returnPendingQty || 0)) return alert("The return quantity exceeds the amount still pending at this location.");
+        t.items.push({ productId: excess.productId, qty, scannedQty: qty, batchId: excess.batchId, isBatch: true, excessQuantityId: excess.id, incidentTransferId: incident.id });
+        t.returnBatchId = "";
+        t.returnQty = "";
+        render();
+      }
+
+      function removeReturnQuantityFromDraft(quantityId) {
+        const t = state.transferDraft;
+        t.items = t.items.filter((item) => item.excessQuantityId !== quantityId);
         render();
       }
 
@@ -14728,14 +15000,11 @@ MOVEMENT LOG PAGE
         return;
       }
 
-      // UX IMPROVEMENT: Automatically assume they are dispatching the full requested amount
+      // Scanning identifies the batch only; the picker enters the quantity separately.
       item.scannedBatchId = batch.id;
-      item.scannedQty = item.qty; // Auto-fill to requested amount
-      
-      // Log the movement immediately
-      logMovement(item.productId, sourceLoc, "Batch Scanned", -item.qty, genTransferNum(), null, batch.id);
+      item.scannedQty = 0;
 
-      render(); // Re-render to show the green "Fully Scanned" state
+      render(); // Re-render to show the picked-quantity field.
     }
 
      
@@ -14778,7 +15047,7 @@ MOVEMENT LOG PAGE
           return;
         }
 
-        if (qty < item.qty) {
+        if (!t.fulfillingRequestId && qty < item.qty) {
           alert(
             `You must dispatch the full requested quantity (${item.qty}) in this demo.`,
           );
@@ -14786,13 +15055,13 @@ MOVEMENT LOG PAGE
         }
 
         // Check max available
-        const stockRow = STOCK.find(
+          const stockRow = STOCK.find(
           (s) =>
             s.productId === item.productId &&
             s.batchId === item.scannedBatchId &&
             s.locationId === (t.fromLocationId || "loc2"),
         );
-        if (qty > stockRow.onHand) {
+        if (!stockRow || qty > stockRow.onHand) {
           alert(
             `Cannot dispatch more than available stock (${stockRow.onHand}).`,
           );
@@ -14801,6 +15070,29 @@ MOVEMENT LOG PAGE
 
         item.scannedQty = qty;
         render();
+      }
+
+      function isTransferDraftReady(t) {
+        if (!t) return false;
+        if (t.fulfillingRequestId) {
+          return t.items.some((item) => {
+            const product = getInvProduct(item.productId);
+            if (product?.trackingType === "StockQuantity") {
+              return item.scannedBatchId && Number(item.scannedQty || 0) > 0 && Number(item.scannedQty) <= Number(item.qty || 0);
+            }
+            return (item.scannedUnitIds || []).length > 0;
+          });
+        }
+        return t.type === "return" || !t.items.some((item) => {
+          const product = getInvProduct(item.productId);
+          if (product?.trackingType === "StockQuantity") return !item.scannedQty || item.scannedQty < item.qty;
+          return (item.scannedUnitIds || []).length < item.qty;
+        });
+      }
+
+      function updateTransferDispatchButton() {
+        const button = document.getElementById("transferDispatchButton");
+        if (button) button.disabled = !isTransferDraftReady(state.transferDraft);
       }
 
       // 1. Handle the typing/scanner input
@@ -14870,6 +15162,13 @@ MOVEMENT LOG PAGE
 
           function finalizeTransferDraft() {
       const t = state.transferDraft;
+      const requestToFulfill = t.fulfillingRequestId
+        ? TRANSFERS.find((transfer) => transfer.id === t.fulfillingRequestId && transfer.type === "Store Request" && ["Approved", "Partially Fulfilled"].includes(transfer.status))
+        : null;
+      if (t.fulfillingRequestId && !requestToFulfill) {
+        alert("This stock request is no longer approved for fulfillment.");
+        return;
+      }
       
       const fromLoc = t.fromLocationId || (t.type === 'push' ? 'loc2' : 'loc1');
       const toLoc = t.toLocationId || (t.type === 'push' ? 'loc1' : 'loc2');
@@ -14877,19 +15176,61 @@ MOVEMENT LOG PAGE
       const returningUnits = t.type === "return"
         ? t.items.map((item) => UNITS.find((unit) => unit.id === item.unitId))
         : [];
-      if (t.type === "return" && (!t.items.length || returningUnits.some((unit) =>
-        !unit || unit.status !== "Return Pending" || unit.locationId !== fromLoc ||
-        (unit.incidentTransferId && TRANSFERS.find((incident) => incident.id === unit.incidentTransferId)?.fromLocationId !== toLoc)
-      ))) {
+      const returningQuantities = t.type === "return" ? t.items.filter((item) => item.excessQuantityId) : [];
+      const invalidReturningUnits = t.items.some((item) => {
+        if (item.excessQuantityId) return false;
+        const unit = UNITS.find((candidate) => candidate.id === item.unitId);
+        return !unit || unit.status !== "Return Pending" || unit.locationId !== fromLoc ||
+          (unit.incidentTransferId && TRANSFERS.find((incident) => incident.id === unit.incidentTransferId)?.fromLocationId !== toLoc);
+      });
+      const invalidReturningQuantities = returningQuantities.some((item) => {
+        const incident = TRANSFERS.find((entry) => entry.id === item.incidentTransferId);
+        const excess = incident?.excessQuantities?.find((entry) => entry.id === item.excessQuantityId);
+        const draftQty = t.items.filter((entry) => entry.excessQuantityId === item.excessQuantityId).reduce((sum, entry) => sum + Number(entry.qty || 0), 0);
+        return !excess || incident.fromLocationId !== toLoc || incident.toLocationId !== fromLoc || draftQty > Number(excess.returnPendingQty || 0);
+      });
+      if (t.type === "return" && (!t.items.length || invalidReturningUnits || invalidReturningQuantities)) {
         alert("One or more selected items are no longer eligible for this return transfer. Return incident-linked items to their original source location, then try again.");
         return;
       }
 
       const transferId = genTransferNum();
-      const transferNumber = genTransferNum();
+      const transferNumber = transferId;
+
+      if (requestToFulfill && !isTransferDraftReady(t)) {
+        alert("Scan or select at least one item to dispatch, and enter a valid picked quantity.");
+        return;
+      }
+      if (requestToFulfill && t.items.some((item) => item.scannedBatchId && Number(item.scannedQty || 0) > Number(item.qty || 0))) {
+        alert("A picked quantity cannot exceed the remaining requested quantity.");
+        return;
+      }
+      if (requestToFulfill) {
+        const invalidItem = t.items.find((item) => {
+          const product = getInvProduct(item.productId);
+          if (product?.trackingType === "StockQuantity") {
+            const stockRow = STOCK.find((row) => row.productId === item.productId && row.batchId === item.scannedBatchId && row.locationId === fromLoc);
+            return item.scannedBatchId && Number(item.scannedQty || 0) > Number(stockRow?.onHand || 0);
+          }
+          return (item.scannedUnitIds || []).length > Number(item.qty || 0);
+        });
+        if (invalidItem) {
+          alert("The picked quantity or scanned units exceed the available stock or remaining request quantity. Review the item and try again.");
+          return;
+        }
+      }
 
       // 1. Update physical inventory statuses
       t.items.forEach(item => {
+        if (t.type === "return" && item.excessQuantityId) {
+          const incident = TRANSFERS.find((entry) => entry.id === item.incidentTransferId);
+          const excess = incident?.excessQuantities?.find((entry) => entry.id === item.excessQuantityId);
+          if (excess) {
+            excess.returnPendingQty = Math.max(0, Number(excess.returnPendingQty || 0) - Number(item.qty || 0));
+            excess.returnInTransitQty = Number(excess.returnInTransitQty || 0) + Number(item.qty || 0);
+          }
+          return;
+        }
         const unitIds = t.type === "return"
           ? [item.unitId]
           : (item.scannedUnitIds || []);
@@ -14898,9 +15239,9 @@ MOVEMENT LOG PAGE
             const unit = UNITS.find(u => u.id === uid);
             if (unit) {
               unit.status = 'In Transit';
-              if (t.type === "return") {
+              if (t.type === "return" || requestToFulfill) {
                 unit.inTransitTransferId = transferId;
-                logMovement(unit.productId, fromLoc, "transfer_return_out", -1, transferNumber, unit.id, unit.batchId);
+                logMovement(unit.productId, fromLoc, t.type === "return" ? "transfer_return_out" : "transfer_out", -1, transferNumber, unit.id, unit.batchId);
               }
             }
           });
@@ -14916,9 +15257,18 @@ MOVEMENT LOG PAGE
       // 2. Create ONE Transfer record containing all items
       const returnTransferItems = t.type === "return"
         ? [...t.items.reduce((grouped, draftItem) => {
+            if (draftItem.excessQuantityId) {
+              const key = `quantity:${draftItem.excessQuantityId}`;
+              const existing = grouped.get(key) || { productId: draftItem.productId, qty: 0, unitIds: [], batchId: draftItem.batchId, scannedQty: 0, excessQuantityId: draftItem.excessQuantityId, incidentTransferId: draftItem.incidentTransferId };
+              existing.qty += Number(draftItem.qty || 0);
+              existing.scannedQty += Number(draftItem.qty || 0);
+              grouped.set(key, existing);
+              return grouped;
+            }
             const unit = UNITS.find((candidate) => candidate.id === draftItem.unitId);
             if (!unit) return grouped;
-            const existing = grouped.get(unit.productId) || {
+            const key = `unit:${unit.productId}`;
+            const existing = grouped.get(key) || {
               productId: unit.productId,
               qty: 0,
               unitIds: [],
@@ -14928,32 +15278,67 @@ MOVEMENT LOG PAGE
             existing.qty += 1;
             existing.scannedQty += 1;
             existing.unitIds.push(unit.id);
-            grouped.set(unit.productId, existing);
+            grouped.set(key, existing);
             return grouped;
           }, new Map()).values()]
         : null;
-      TRANSFERS.push({
-        id: transferId,
-        transferNumber,
-        type: t.type === 'push' ? 'Internal Push' : t.type === 'pull' ? 'Store Request' : 'Return',
-        status: t.type === 'pull' ? 'Pending Approval' : 'In Transit',
-        fromLocationId: fromLoc,
-        toLocationId: toLoc,
-        items: returnTransferItems || t.items.map(i => ({
-           productId: i.productId,
-           qty: i.qty,
-           unitIds: t.type === "return" ? [i.unitId] : (i.scannedUnitIds || []),
-           batchId: i.scannedBatchId || null,
-           scannedQty: i.scannedQty || i.qty
-        })),
-        sentAt: new Date().toISOString(),
-        notes: t.notes
-      });
+      const transferItems = returnTransferItems || t.items.map(i => {
+           const dispatchedQty = getInvProduct(i.productId)?.trackingType === "StockQuantity"
+             ? Number(i.scannedQty || 0)
+             : (i.scannedUnitIds || []).length;
+           return {
+             productId: i.productId,
+             qty: t.fulfillingRequestId ? dispatchedQty : i.qty,
+             unitIds: t.type === "return" ? [i.unitId] : (i.scannedUnitIds || []),
+             batchId: i.scannedBatchId || null,
+             scannedQty: t.fulfillingRequestId ? dispatchedQty : (i.scannedQty || i.qty),
+           };
+         }).filter((item) => Number(item.qty || 0) > 0);
+      if (requestToFulfill) {
+        requestToFulfill.items.forEach((requestedItem) => {
+          const shippedItem = transferItems.find((item) => item.productId === requestedItem.productId);
+          if (shippedItem) requestedItem.fulfilledQty = Number(requestedItem.fulfilledQty || 0) + Number(shippedItem.qty || 0);
+        });
+        const allFulfilled = requestToFulfill.items.every((item) => Number(item.fulfilledQty || 0) >= Number(item.qty || 0));
+        requestToFulfill.status = allFulfilled ? "Fulfilled" : "Partially Fulfilled";
+        const dispatchedAt = new Date().toISOString();
+        TRANSFERS.push({
+          id: transferId,
+          transferNumber,
+          type: "Request Fulfillment",
+          status: "In Transit",
+          fromLocationId: fromLoc,
+          toLocationId: toLoc,
+          items: transferItems,
+          sentAt: dispatchedAt,
+          dispatchedAt,
+          notes: t.notes,
+          requestId: requestToFulfill.id,
+        });
+      } else {
+        TRANSFERS.push({
+          id: transferId,
+          transferNumber,
+          type: t.type === 'push' ? 'Internal Push' : t.type === 'pull' ? 'Store Request' : 'Return',
+          status: t.type === 'pull' ? 'Pending Approval' : 'In Transit',
+          fromLocationId: fromLoc,
+          toLocationId: toLoc,
+          items: transferItems,
+          sentAt: new Date().toISOString(),
+          notes: t.notes
+        });
+      }
 
       // 3. Reset and close
       state.transferDraft = { modalStep: 1, type: null, fromLocationId: null, toLocationId: null, items: [], notes: "" };
       state.activeModal = null;
-      state.inventoryTransferTab = "awaiting-receipt"; 
+      if (requestToFulfill) {
+        state.selectedStockRequestId = null;
+        state.inventoryView = "transfers-in-transit";
+        state.inventoryTransferTab = "awaiting-receipt";
+      } else {
+        state.inventoryTransferTab = t.type === "pull" ? "requests" : "awaiting-receipt";
+      }
       render();
     }
 
@@ -15770,6 +16155,9 @@ MOVEMENT LOG PAGE
         state.receiveUnitActions = {}; // { unitId: { action: 'Accept'|'Reject', reason: '' } }
         state.receiveQuantities = {}; // { productId: qty }
         state.receiveUnlistedUnits = []; // Array of extra unit IDs scanned
+        state.receiveExcessBatchId = null;
+        state.receiveExcessQuantity = "";
+        state.receiveExcessQuantities = [];
 
         // Determine items array
         const items = transfer.items || [{
@@ -15780,10 +16168,10 @@ MOVEMENT LOG PAGE
           scannedQty: transfer.qty
         }];
 
-        items.forEach(item => {
+        items.forEach((item, index) => {
           const product = getInvProduct(item.productId);
           if (product?.trackingType === "StockQuantity") {
-            state.receiveQuantities[item.productId] = String(item.qty);
+            state.receiveQuantities[index] = String(item.qty);
           }
           // We no longer auto-select units. The operator MUST scan them.
         });
