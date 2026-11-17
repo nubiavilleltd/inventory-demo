@@ -2782,6 +2782,15 @@ DISPATCH DASHBOARD DEMO SEED
           }
         }
 
+        if (
+          state.activeModal === "create-transfer" &&
+          state.transferDraft.modalStep === 1 &&
+          state.transferDraft.type === "return"
+        ) {
+          const returnScanInput = document.getElementById("returnUnitScanInput");
+          if (returnScanInput) returnScanInput.focus();
+        }
+
         if (state.activeModal === "incident-excess-resolution") {
           const excessResolutionScanInput = document.getElementById("excessResolutionScanInput");
           if (excessResolutionScanInput) excessResolutionScanInput.focus();
@@ -12276,6 +12285,7 @@ Outstanding is always calculated from these two, never stored.
               if (actionData.action === 'Accept') {
                 u.status = "Available";
                 u.locationId = transfer.toLocationId;
+                if (transfer.type === "Return") u.incidentTransferId = null;
                 logMovement(u.productId, transfer.toLocationId, "transfer_in", 1, transfer.transferNumber, u.id, u.batchId);
               } else if (actionData.action === 'Reject') {
                 u.status = "Return Pending";
@@ -14113,7 +14123,7 @@ MOVEMENT LOG PAGE
                 ${units.length ? `<div style="border:1px solid #ddd; border-radius:6px; padding:8px; max-height:200px; overflow:auto;">
                   ${selected.size ? [...selected].map((unitId) => {
                     const unit = units.find((candidate) => candidate.id === unitId);
-                    return unit ? `<div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px; border-bottom:1px solid #eee;"><span>✓ ${escapeTransferDetailText(unit.tag)} <small style="color:#666;">(${escapeTransferDetailText(unit.condition || "—")})</small></span><button class="btn-secondary" onclick="removeExcessResolutionUnit('${escapeTransferDetailText(unit.id)}')">Remove</button></div>` : "";
+                    return unit ? `<div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px; border-bottom:1px solid #eee;"><span>✓ ${escapeTransferDetailText(unit.tag)} <small style="color:#666;">(${escapeTransferDetailText(unit.condition || "—")})</small></span><button onclick="removeExcessResolutionUnit('${escapeTransferDetailText(unit.id)}')" style="padding:0 6px; font-size:10px; color:#991b1b; border-color:#991b1b;">Remove</button></div>` : "";
                   }).join("") : `<div style="padding:18px; text-align:center; color:#777;">No items scanned yet. Scan a tag to begin.</div>`}
                 </div><div style="font-size:12px; color:#666; margin-top:6px;">${selected.size} tagged item(s) scanned; ${units.length} awaiting resolution.</div>` : ""}
                 ${excessQuantities.length ? `<div style="margin-top:12px; padding:10px; border:1px solid #ddd; border-radius:6px;"><strong>Quantity-tracked excess</strong><div style="font-size:12px; color:#666; margin:4px 0 8px;">Scan the batch barcode, then enter the verified quantity.</div>
@@ -14418,33 +14428,24 @@ MOVEMENT LOG PAGE
                       ? `
                     <div style="padding:12px; border:1px solid #ccc; border-radius:4px; background:#f9f9f9;">
                       <div style="font-size:12px; color:#92400e; margin-bottom:8px;">
-                        💡 Select the items you are sending back from ${getLocation(fromLoc).name}.
+                        💡 Scan the Return Pending items you are physically sending back from ${getLocation(fromLoc).name}.
                       </div>
-                      
-                      <div style="max-height: 200px; overflow-y: auto; border: 1px solid #ccc; background: #fff; border-radius: 4px; padding: 8px;">
-                        ${
-                          returnableUnits.length === 0
-                            ? `
-                          <div class="empty-state" style="padding:12px; font-size:12px;">No items currently flagged for return at this location.</div>
-                        `
-                            : ""
-                        }
-                        ${returnableUnits
-                          .map((u) => {
-                            const p = getInvProduct(u.productId);
-                            const isSelected = t.items.find(
-                              (i) => i.unitId === u.id,
-                            );
-                            return `
-                             <label style="display:flex; align-items:center; justify-content:flex-start; gap:12px; padding:8px 4px; font-size:12px; cursor:pointer; border-bottom:1px dashed #eee; width: 100%;">
-                               <input type="checkbox" style="width:auto; margin:0;" ${isSelected ? "checked" : ""} onchange="toggleReturnItem('${u.id}', '${u.productId}')">
-                               <span>${p.name} (${u.tag}) - ${u.status}</span>
-                             </label>
-                           `;
-                          })
-                          .join("")}
+                      <div style="display:flex; gap:8px; margin-bottom:8px;">
+                        <input type="text" id="returnUnitScanInput" placeholder="Scan Tag or Barcode..." style="flex:1; font-size:13px;" onkeydown="if(event.key==='Enter'){event.preventDefault();handleReturnUnitScan(this.value)}">
+                        <button onclick="handleReturnUnitScan(document.getElementById('returnUnitScanInput').value)">Scan</button>
+                        <button onclick="simulateReturnUnitScan()" style="font-size:11px; background:#fef3c7;">Auto-Scan</button>
                       </div>
-                      <div style="font-size:11px; color:#666; margin-top:8px;">Selected: ${t.items.length} item(s)</div>
+                      <div style="max-height:200px; overflow-y:auto; border:1px solid #ccc; background:#fff; border-radius:4px; padding:8px;">
+                        ${t.items.length === 0
+                          ? `<div class="empty-state" style="padding:12px; font-size:12px;">${returnableUnits.length ? "No items scanned yet. Scan a Return Pending tag to begin." : "No items currently flagged for return at this location."}</div>`
+                          : t.items.map((item) => {
+                              const unit = UNITS.find((candidate) => candidate.id === item.unitId);
+                              const itemProduct = getInvProduct(item.productId);
+                              if (!unit) return "";
+                              return `<div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 4px; border-bottom:1px dashed #eee; font-size:12px;"><span>✓ ${escapeTransferDetailText(itemProduct?.name || "Stock item")} (${escapeTransferDetailText(unit.tag)}) · ${escapeTransferDetailText(unit.condition || "—")}</span><button onclick="removeReturnUnitFromDraft('${escapeTransferDetailText(unit.id)}')" style="padding:0 6px; font-size:10px; color:#991b1b; border-color:#991b1b;">Remove</button></div>`;
+                            }).join("")}
+                      </div>
+                      <div style="font-size:11px; color:#666; margin-top:8px;">Scanned: ${t.items.length} of ${returnableUnits.length} Return Pending item(s)</div>
                     </div>
                   `
                       : `
@@ -14540,33 +14541,40 @@ MOVEMENT LOG PAGE
    
 
       
-      // Helper function to toggle selections in the Return UI
-      function toggleReturnItem(id, productId, isBatch = false) {
+      function handleReturnUnitScan(value) {
         const t = state.transferDraft;
-        if (isBatch) {
-          const idx = t.items.findIndex((i) => i.batchId === id);
-          if (idx >= 0) {
-            t.items.splice(idx, 1);
-          } else {
-            // For demo, we return the full onHand qty of the batch
-            const stock = STOCK.find(
-              (s) => s.batchId === id && s.locationId === t.fromLocationId,
-            );
-            t.items.push({
-              productId,
-              qty: stock.onHand,
-              batchId: id,
-              isBatch: true,
-            });
-          }
-        } else {
-          const idx = t.items.findIndex((i) => i.unitId === id);
-          if (idx >= 0) {
-            t.items.splice(idx, 1);
-          } else {
-            t.items.push({ productId, qty: 1, unitId: id, isBatch: false });
-          }
+        const tag = String(value || "").trim().toUpperCase();
+        if (!tag || t.type !== "return") return;
+
+        const fromLoc = t.fromLocationId || "loc1";
+        const unit = UNITS.find((candidate) => String(candidate.tag || "").trim().toUpperCase() === tag);
+        if (!unit) return alert(`Tag "${tag}" was not found.`);
+        if (unit.locationId !== fromLoc || unit.status !== "Return Pending") {
+          return alert("This item is not flagged as Return Pending at the selected location.");
         }
+        if (t.items.some((item) => item.unitId === unit.id)) {
+          return alert("This return item has already been scanned.");
+        }
+
+        t.items.push({ productId: unit.productId, qty: 1, unitId: unit.id, isBatch: false });
+        render();
+      }
+
+      function simulateReturnUnitScan() {
+        const t = state.transferDraft;
+        if (t.type !== "return") return;
+        const fromLoc = t.fromLocationId || "loc1";
+        const selectedIds = new Set(t.items.map((item) => item.unitId));
+        const nextUnit = UNITS.find((unit) =>
+          unit.locationId === fromLoc && unit.status === "Return Pending" && !selectedIds.has(unit.id),
+        );
+        if (nextUnit) return handleReturnUnitScan(nextUnit.tag);
+        alert("No more Return Pending items are available at this location.");
+      }
+
+      function removeReturnUnitFromDraft(unitId) {
+        const t = state.transferDraft;
+        t.items = t.items.filter((item) => item.unitId !== unitId);
         render();
       }
 
@@ -14744,26 +14752,48 @@ MOVEMENT LOG PAGE
       const fromLoc = t.fromLocationId || (t.type === 'push' ? 'loc2' : 'loc1');
       const toLoc = t.toLocationId || (t.type === 'push' ? 'loc1' : 'loc2');
 
+      const returningUnits = t.type === "return"
+        ? t.items.map((item) => UNITS.find((unit) => unit.id === item.unitId))
+        : [];
+      if (t.type === "return" && (!t.items.length || returningUnits.some((unit) =>
+        !unit || unit.status !== "Return Pending" || unit.locationId !== fromLoc
+      ))) {
+        alert("One or more selected items are no longer flagged for return at this location. Refresh the selection and try again.");
+        return;
+      }
+
+      const transferId = genTransferNum();
+      const transferNumber = genTransferNum();
+
       // 1. Update physical inventory statuses
       t.items.forEach(item => {
-        if (item.scannedUnitIds && item.scannedUnitIds.length > 0) {
-          item.scannedUnitIds.forEach(uid => {
+        const unitIds = t.type === "return"
+          ? [item.unitId]
+          : (item.scannedUnitIds || []);
+        if (unitIds.length > 0) {
+          unitIds.forEach(uid => {
             const unit = UNITS.find(u => u.id === uid);
-            if (unit) unit.status = 'In Transit';
+            if (unit) {
+              unit.status = 'In Transit';
+              if (t.type === "return") {
+                unit.inTransitTransferId = transferId;
+                logMovement(unit.productId, fromLoc, "transfer_return_out", -1, transferNumber, unit.id, unit.batchId);
+              }
+            }
           });
         } else if (item.scannedBatchId) {
           const stockRow = STOCK.find(s => s.productId === item.productId && s.batchId === item.scannedBatchId && s.locationId === fromLoc);
           if (stockRow) {
             stockRow.onHand -= item.scannedQty;
-            logMovement(item.productId, fromLoc, "Dispatch Transfer", -item.scannedQty, genTransferNum(), null, item.scannedBatchId);
+            logMovement(item.productId, fromLoc, "Dispatch Transfer", -item.scannedQty, transferNumber, null, item.scannedBatchId);
           }
         }
       });
 
       // 2. Create ONE Transfer record containing all items
       TRANSFERS.push({
-        id: genTransferNum(),
-        transferNumber: genTransferNum(),
+        id: transferId,
+        transferNumber,
         type: t.type === 'push' ? 'Internal Push' : t.type === 'pull' ? 'Store Request' : 'Return',
         status: t.type === 'pull' ? 'Pending Approval' : 'In Transit',
         fromLocationId: fromLoc,
@@ -14771,7 +14801,7 @@ MOVEMENT LOG PAGE
         items: t.items.map(i => ({
            productId: i.productId,
            qty: i.qty,
-           unitIds: i.scannedUnitIds || [],
+           unitIds: t.type === "return" ? [i.unitId] : (i.scannedUnitIds || []),
            batchId: i.scannedBatchId || null,
            scannedQty: i.scannedQty || i.qty
         })),
