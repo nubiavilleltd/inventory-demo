@@ -1867,6 +1867,7 @@
 
         // Collection modal working state: { [productId]: [unitIds] }
         collectionSelections: {},
+        collectionScanInputs: {},
         // StockQuantity handover quantities: { [productId]: number }
         collectionQuantities: {},
         collectionUnitSearch: "",
@@ -1953,7 +1954,7 @@
         // Discrepancy recovery modal state
 
         recoverySelectedUnits: [],
-        recoveryUnitSearch: "",
+        recoveryScanInput: "",
         recoveryTransferId: null,
         recoveryLocationId: null,
         recoveryQty: "",
@@ -1967,7 +1968,7 @@
         writeOffTransferId: null,
         writeOffQty: "",
         writeOffSelectedUnits: [],
-        writeOffUnitSearch: "",
+        writeOffScanInput: "",
         writeOffReason: "",
 
         inventoryFilter: { search: "", tracking: "", category: "", status: "" },
@@ -2774,6 +2775,27 @@ DISPATCH DASHBOARD DEMO SEED
               break;
             }
           }
+        }
+
+        if (state.activeModal === "transfer-recovery") {
+          const recoveryScanInput = document.getElementById(
+            "recoveryScanInput",
+          );
+          if (recoveryScanInput) recoveryScanInput.focus();
+        }
+
+        if (state.activeModal === "transfer-write-off") {
+          const writeOffScanInput = document.getElementById(
+            "writeOffScanInput",
+          );
+          if (writeOffScanInput) writeOffScanInput.focus();
+        }
+
+        if (state.activeModal === "picked-up-by") {
+          const pickupScanInput = document.querySelector(
+            'input[id^="pickupScan-"]:not(:disabled)',
+          );
+          if (pickupScanInput) pickupScanInput.focus();
         }
       }
 
@@ -4469,6 +4491,7 @@ DISPATCH DASHBOARD DEMO SEED
           .getElementById("markCollectedBtn")
           ?.addEventListener("click", () => {
             state.collectionSelections = {};
+            state.collectionScanInputs = {};
             state.collectionUnitSearch = "";
             state.collectionChangingUnitsFor = null;
             state.deferAllItems = false;
@@ -4836,6 +4859,7 @@ DISPATCH DASHBOARD DEMO SEED
 
         // Reset pickup working state
         state.collectionSelections = {};
+        state.collectionScanInputs = {};
         state.collectionQuantities = {};
         state.collectionUnitSearch = "";
         state.collectionChangingUnitsFor = null;
@@ -4967,6 +4991,7 @@ DISPATCH DASHBOARD DEMO SEED
           state.routingUrgency = "Standard";
           state.routingRecordNow = false;
           state.collectionSelections = {};
+          state.collectionScanInputs = {};
           state.collectionQuantities = {};
           state.collectionUnitSearch = "";
           state.collectionChangingUnitsFor = null;
@@ -5891,6 +5916,7 @@ DISPATCH DASHBOARD DEMO SEED
       function closeModal() {
         state.activeModal = null;
         state.collectionSelections = {};
+        state.collectionScanInputs = {};
         state.collectionQuantities = {};
         state.collectionUnitSearch = "";
         state.collectionChangingUnitsFor = null;
@@ -6088,6 +6114,7 @@ DISPATCH DASHBOARD DEMO SEED
           // Instead of auto-completing, open the collection modal so the
           // operator confirms which units are being handed over.
           state.collectionSelections = {};
+          state.collectionScanInputs = {};
           state.collectionUnitSearch = "";
           state.collectionChangingUnitsFor = null;
           state.deferAllItems = false; // <-- Add it right here
@@ -6942,52 +6969,15 @@ DISPATCH DASHBOARD DEMO SEED
           })
           .filter((line) => line && line.handoverCap > 0);
 
-        // ----- Auto-select everything available on first open -----
-        // Individual lines: fill the selection array with the reserved or
-        // available units at the pickup location.
-        // StockQuantity lines: seed the quantity to the cap.
-        if (
-          Object.keys(state.collectionSelections).length === 0 &&
-          Object.keys(state.collectionQuantities).length === 0
-        ) {
+        // StockQuantity lines retain their default handover quantity.
+        // Individual units are added only when their tags are scanned.
+        if (Object.keys(state.collectionQuantities).length === 0) {
           handoverLines.forEach((line) => {
             const product = getInvProduct(line.productId);
-            if (!product) return;
-            if (product.trackingType === "Individual") {
-              const cap = line.handoverCap;
-
-              let candidates = UNITS.filter(
-                (u) =>
-                  u.productId === line.productId &&
-                  u.locationId === pickupLoc &&
-                  u.status === "Reserved" &&
-                  u.reservedForOrder === o.orderNumber,
-              );
-              if (candidates.length === 0) {
-                candidates = UNITS.filter(
-                  (u) =>
-                    u.productId === line.productId &&
-                    u.locationId === pickupLoc &&
-                    u.status === "Available",
-                );
-              }
-              candidates.sort((a, b) => {
-                if (a.receivedDate !== b.receivedDate)
-                  return a.receivedDate < b.receivedDate ? -1 : 1;
-                return a.tag < b.tag ? -1 : 1;
-              });
-              state.collectionSelections[line.productId] = candidates
-                .slice(0, cap)
-                .map((u) => u.id);
-            } else {
+            if (product?.trackingType === "StockQuantity") {
               state.collectionQuantities[line.productId] = line.handoverCap;
             }
           });
-        }
-
-        // Drill-in view for Change Units
-        if (state.collectionChangingUnitsFor) {
-          return renderCollectionChangeUnitsView();
         }
 
         // ----- Compute total selection and satisfaction -----
@@ -7080,14 +7070,6 @@ DISPATCH DASHBOARD DEMO SEED
                 if (p.trackingType === "Individual") {
                   const selected =
                     state.collectionSelections[line.productId] || [];
-                  const count = selected.length;
-                  const tags = selected
-                    .map((id) => UNITS.find((u) => u.id === id)?.tag)
-                    .filter(Boolean);
-                  const tagSummary =
-                    tags.length <= 3
-                      ? tags.join(", ")
-                      : `${tags.slice(0, 3).join(", ")}, and ${tags.length - 3} more`;
 
                   return `
                     <div class="card" style="margin-bottom:8px; padding:10px; ${isDeferred ? "opacity:0.5; pointer-events:none;" : ""}">
@@ -7095,22 +7077,33 @@ DISPATCH DASHBOARD DEMO SEED
                         <strong>${p.name}</strong> · ×${line.outstanding}
                         <span style="font-size:11px; color:#888;">[Individual Item]</span>
                       </div>
-                      <div style="margin-top:8px; font-size:13px; display:flex; align-items:center; gap:6px;">
-                        Handing over:
-                        <input type="number" min="0" max="${cap}"
-                          value="${isDeferred ? 0 : count}"
-                          ${isDeferred ? "disabled" : ""}
-                          style="width:70px; padding:4px 6px;"
-                          onchange="onPickupQtyChange('${line.productId}', this.value, ${cap})">
-                        <span style="color:#666;">of ${cap}</span>
+                      <div style="margin-top:8px; font-size:13px;">
+                        Handing over: <strong>${isDeferred ? 0 : selected.length}</strong> of ${cap}
                       </div>
-                      ${
-                        tags.length > 0 && !isDeferred
-                          ? `<div style="margin-top:6px; font-size:11px; color:#666;">${tagSummary}</div>`
-                          : `<div style="margin-top:6px; font-size:11px; color:#666;">No units selected.</div>`
-                      }
-                      <div style="margin-top:8px;">
-                        <button onclick="openCollectionChangeUnits('${line.productId}')" ${isDeferred ? "disabled" : ""} style="font-size:12px;">Change Units</button>
+                      <div style="display:flex; gap:8px; margin-top:8px;">
+                        <input type="text" id="pickupScan-${line.productId}"
+                          placeholder="Scan Tag or Barcode..."
+                          value="${escapeTransferDetailText(state.collectionScanInputs[line.productId] || "")}" 
+                          style="flex:1; font-size:13px;"
+                          ${isDeferred ? "disabled" : ""}
+                          oninput="state.collectionScanInputs['${line.productId}']=this.value"
+                          onkeydown="if(event.key==='Enter'){event.preventDefault();scanPickupUnit('${line.productId}',this.value,${cap})}">
+                        <button ${isDeferred ? "disabled" : ""}
+                          onclick="scanPickupUnit('${line.productId}',document.getElementById('pickupScan-${line.productId}').value,${cap})">Scan</button>
+                        <button style="background:#fef3c7;" ${isDeferred ? "disabled" : ""}
+                          onclick="simulatePickupScan('${line.productId}',${cap})">Auto-Scan</button>
+                      </div>
+                      <div style="background:#f3f4f6; padding:8px; border-radius:4px; font-size:12px; max-height:120px; overflow-y:auto; margin-top:8px;">
+                        ${selected.length === 0
+                          ? `<div class="empty-state">No units scanned yet. Scan a tag to begin.</div>`
+                          : `<div style="font-weight:bold; margin-bottom:4px;">Scanned Units (${selected.length}):</div>${selected.map((unitId) => {
+                              const unitRecord = UNITS.find((u) => u.id === unitId);
+                              if (!unitRecord) return "";
+                              return `<div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:4px; border-bottom:1px dashed #ddd; padding-bottom:4px;">
+                                <span>${escapeTransferDetailText(unitRecord.tag)}</span>
+                                <button onclick="removePickupScan('${line.productId}','${unitRecord.id}')" ${isDeferred ? "disabled" : ""} style="padding:0 6px; font-size:10px; color:#991b1b; border-color:#991b1b;">Remove</button>
+                              </div>`;
+                            }).join("")}`}
                       </div>
                     </div>
                   `;
@@ -7200,8 +7193,106 @@ DISPATCH DASHBOARD DEMO SEED
   `;
       }
 
-      // Handles a change to a pickup quantity input (Individual or
-      // StockQuantity). Enforces the cap and updates the working state.
+      function getPickupScanCandidates(productId, pickupLoc, order) {
+        return UNITS.filter(
+          (unitRecord) =>
+            unitRecord.productId === productId &&
+            unitRecord.locationId === pickupLoc &&
+            (unitRecord.status === "Available" ||
+              (unitRecord.status === "Reserved" &&
+                unitRecord.reservedForOrder === order.orderNumber)),
+        ).sort((a, b) => {
+          const aReserved =
+            a.status === "Reserved" && a.reservedForOrder === order.orderNumber;
+          const bReserved =
+            b.status === "Reserved" && b.reservedForOrder === order.orderNumber;
+          if (aReserved !== bReserved) return aReserved ? -1 : 1;
+          if (a.receivedDate !== b.receivedDate)
+            return a.receivedDate < b.receivedDate ? -1 : 1;
+          return a.tag < b.tag ? -1 : 1;
+        });
+      }
+
+      function scanPickupUnit(productId, value, cap) {
+        const order = state.order;
+        const product = getInvProduct(productId);
+        if (!order || !product || product.trackingType !== "Individual") return;
+
+        const tag = String(value || "").trim().toUpperCase();
+        if (!tag) return;
+
+        const unitRecord = UNITS.find(
+          (unit) => String(unit.tag || "").toUpperCase() === tag,
+        );
+        if (!unitRecord) {
+          alert(`Tag "${tag}" was not found.`);
+          return;
+        }
+        if (unitRecord.productId !== productId) {
+          alert("This tag does not match the product being picked up.");
+          return;
+        }
+
+        const pickupLoc =
+          order.fulfilmentLocationId ||
+          LOCATIONS.find((location) => location.name === order.pickupLocation)?.id;
+        const eligibleIds = new Set(
+          getPickupScanCandidates(productId, pickupLoc, order).map(
+            (unit) => unit.id,
+          ),
+        );
+        if (!eligibleIds.has(unitRecord.id)) {
+          alert("This unit is not available for pickup at this location.");
+          return;
+        }
+
+        const selected = state.collectionSelections[productId] || [];
+        if (selected.includes(unitRecord.id)) {
+          alert("This tag has already been scanned.");
+          return;
+        }
+        if (selected.length >= cap) {
+          alert(`You can scan up to ${cap} unit(s) for pickup.`);
+          return;
+        }
+
+        state.collectionSelections[productId] = [...selected, unitRecord.id];
+        state.collectionScanInputs[productId] = "";
+        render();
+      }
+
+      function simulatePickupScan(productId, cap) {
+        const order = state.order;
+        if (!order) return;
+        const pickupLoc =
+          order.fulfilmentLocationId ||
+          LOCATIONS.find((location) => location.name === order.pickupLocation)?.id;
+        const selected = state.collectionSelections[productId] || [];
+        if (selected.length >= cap) {
+          alert(`You can scan up to ${cap} unit(s) for pickup.`);
+          return;
+        }
+
+        const nextUnit = getPickupScanCandidates(productId, pickupLoc, order).find(
+          (unitRecord) => !selected.includes(unitRecord.id),
+        );
+        if (!nextUnit) {
+          alert("No more eligible units are available for pickup.");
+          return;
+        }
+
+        scanPickupUnit(productId, nextUnit.tag, cap);
+      }
+
+      function removePickupScan(productId, unitId) {
+        state.collectionSelections[productId] = (
+          state.collectionSelections[productId] || []
+        ).filter((selectedId) => selectedId !== unitId);
+        render();
+      }
+
+      // Handles a change to a StockQuantity pickup quantity or the legacy
+      // routing-pickup Individual selection. Confirm Pickup uses tag scans.
       function onPickupQtyChange(productId, rawValue, cap) {
         const o = state.order;
         const product = getInvProduct(productId);
@@ -7699,6 +7790,7 @@ DISPATCH DASHBOARD DEMO SEED
             {
               const items = [];
               handoverLines.forEach((line) => {
+                if (isDeferred) return;
                 const product = getInvProduct(line.productId);
                 if (!product) return;
                 let qty = 0;
@@ -7792,6 +7884,7 @@ DISPATCH DASHBOARD DEMO SEED
 
             // -------- 4. Clear working state and show success screen --------
             state.collectionSelections = {};
+            state.collectionScanInputs = {};
             state.collectionQuantities = {};
             state.collectionUnitSearch = "";
             state.collectionChangingUnitsFor = null;
@@ -8077,7 +8170,7 @@ DISPATCH WIZARD (3-STEP)
             <label class="mt-12">Vehicle *</label>
             <select id="dispatchVehicle" onchange="onWizardVehicleChange(this.value);">
               <option value="">Select vehicle</option>
-              ${vehicles.map((v) => `<option value="${v.plate}" ${w.vehicle === v.plate ? "selected" : ""}>${v.plate} — ${v.type} (${v.capacity} capacity)</option>`).join("")}
+              ${vehicles.map((v) => `<option value="${v.plateNumber}" ${w.vehicle === v.plateNumber ? "selected" : ""}>${v.plateNumber} — ${v.type} (${v.capacity} capacity)</option>`).join("")}
             </select>
             ${vehicles.length === 0 ? '<div style="color:#991b1b; font-size:12px; margin-top:4px;">⚠ No vehicles available.</div>' : ""}
           `
@@ -8563,27 +8656,21 @@ DISPATCH WIZARD HANDLERS
         // Handlers are inlined via onchange/onclick attributes, so nothing to wire up here.
       }
 
-      // ----- Driver/Vehicle cross-population (Anchor and Suggest) -----
-      // Used by the Dispatch Wizard (single-order)
+      // ----- Driver/Vehicle suggestions for a single dispatch -----
       function onWizardDriverChange(driverName) {
         state.dispatchWizard.driver = driverName;
         const driver = DRIVERS.find((d) => d.name === driverName);
-        if (driver && driver.defaultVehicleId) {
+        if (!state.dispatchWizard.vehicle && driver?.defaultVehicleId) {
           const vehicle = VEHICLES.find(
-            (v) => v.id === driver.defaultVehicleId,
+            (v) => v.id === driver.defaultVehicleId && v.status === "Available",
           );
-          if (vehicle) state.dispatchWizard.vehicle = vehicle.plate;
+          if (vehicle) state.dispatchWizard.vehicle = vehicle.plateNumber;
         }
         render();
       }
 
       function onWizardVehicleChange(vehiclePlate) {
         state.dispatchWizard.vehicle = vehiclePlate;
-        const vehicle = VEHICLES.find((v) => v.plate === vehiclePlate);
-        if (vehicle && vehicle.defaultDriverId) {
-          const driver = DRIVERS.find((d) => d.id === vehicle.defaultDriverId);
-          if (driver) state.dispatchWizard.driver = driver.name;
-        }
         render();
       }
 
@@ -13404,8 +13491,8 @@ MOVEMENT LOG PAGE
           product.trackingType === "StockQuantity" ? String(outstanding) : "";
 
         state.recoverySelectedUnits = [];
+        state.recoveryScanInput = "";
         state.recoveryNote = "";
-        state.recoveryUnitSearch = "";
 
         state.activeModal = "transfer-recovery";
 
@@ -13417,32 +13504,13 @@ MOVEMENT LOG PAGE
         state.recoveryLocationId = null;
         state.recoveryQty = "";
         state.recoverySelectedUnits = [];
+        state.recoveryScanInput = "";
         state.recoveryNote = "";
-        state.recoveryUnitSearch = "";
 
         // Close the recovery modal and reveal the discrepancy details page.
         state.activeModal = null;
 
         render();
-      }
-
-      function setRecoveryUnitSelected(unitId, checked) {
-        const selected = new Set(state.recoverySelectedUnits || []);
-
-        if (checked) {
-          selected.add(unitId);
-        } else {
-          selected.delete(unitId);
-        }
-
-        state.recoverySelectedUnits = [...selected];
-
-        // Update the displayed count without rebuilding the modal.
-        const countElement = document.getElementById("recoverySelectedCount");
-
-        if (countElement) {
-          countElement.textContent = state.recoverySelectedUnits.length;
-        }
       }
 
       function getEligibleRecoveryUnits(transfer) {
@@ -13465,37 +13533,76 @@ MOVEMENT LOG PAGE
         });
       }
 
-      function toggleRecoveryUnit(unitId, maxQty) {
+      function handleRecoveryScan(value) {
         const transfer = TRANSFERS.find(
           (item) => item.id === state.recoveryTransferId,
         );
-
         if (!transfer) return;
+
+        const tag = String(value || "").trim().toUpperCase();
+        if (!tag) return;
+
+        const unit = UNITS.find(
+          (unitRecord) => String(unitRecord.tag || "").toUpperCase() === tag,
+        );
+        if (!unit) {
+          alert(`Tag "${tag}" was not found.`);
+          return;
+        }
 
         const eligibleIds = new Set(
           getEligibleRecoveryUnits(transfer).map((unitRecord) => unitRecord.id),
         );
 
-        if (!eligibleIds.has(unitId)) {
-          alert("This unit is no longer eligible for recovery.");
-          render();
+        if (!eligibleIds.has(unit.id)) {
+          alert("This tag is not eligible for recovery on this discrepancy.");
           return;
         }
 
-        let selected = [...(state.recoverySelectedUnits || [])];
-
-        if (selected.includes(unitId)) {
-          selected = selected.filter((id) => id !== unitId);
-        } else {
-          if (selected.length >= maxQty) {
-            alert(`You can select up to ${maxQty} units. Deselect one first.`);
-            return;
-          }
-
-          selected.push(unitId);
+        const selected = state.recoverySelectedUnits || [];
+        if (selected.includes(unit.id)) {
+          alert("This tag has already been scanned.");
+          return;
         }
 
-        state.recoverySelectedUnits = selected;
+        const outstanding = getTransferOutstanding(transfer);
+        if (selected.length >= outstanding) {
+          alert(`You can scan up to ${outstanding} recovered unit(s).`);
+          return;
+        }
+
+        state.recoverySelectedUnits = [...selected, unit.id];
+        state.recoveryScanInput = "";
+        render();
+      }
+
+      function simulateRecoveryScan() {
+        const transfer = TRANSFERS.find(
+          (item) => item.id === state.recoveryTransferId,
+        );
+        if (!transfer) return;
+
+        const selected = state.recoverySelectedUnits || [];
+        if (selected.length >= getTransferOutstanding(transfer)) {
+          alert("The outstanding discrepancy limit has been reached.");
+          return;
+        }
+
+        const nextUnit = getEligibleRecoveryUnits(transfer).find(
+          (unitRecord) => !selected.includes(unitRecord.id),
+        );
+        if (!nextUnit) {
+          alert("No more eligible units are available to scan.");
+          return;
+        }
+
+        handleRecoveryScan(nextUnit.tag);
+      }
+
+      function removeRecoveryScan(unitId) {
+        state.recoverySelectedUnits = (state.recoverySelectedUnits || []).filter(
+          (selectedId) => selectedId !== unitId,
+        );
         render();
       }
 
@@ -13527,7 +13634,7 @@ MOVEMENT LOG PAGE
           product.trackingType === "StockQuantity" ? String(outstanding) : "";
 
         state.writeOffSelectedUnits = [];
-        state.writeOffUnitSearch = "";
+        state.writeOffScanInput = "";
         state.writeOffReason = "";
 
         state.activeModal = "transfer-write-off";
@@ -13539,7 +13646,7 @@ MOVEMENT LOG PAGE
         state.writeOffTransferId = null;
         state.writeOffQty = "";
         state.writeOffSelectedUnits = [];
-        state.writeOffUnitSearch = "";
+        state.writeOffScanInput = "";
         state.writeOffReason = "";
 
         // Close the modal and reveal the discrepancy details page.
@@ -13570,37 +13677,76 @@ MOVEMENT LOG PAGE
         });
       }
 
-      function toggleWriteOffUnit(unitId, maxQty) {
+      function handleWriteOffScan(value) {
         const transfer = TRANSFERS.find(
           (item) => item.id === state.writeOffTransferId,
         );
-
         if (!transfer) return;
+
+        const tag = String(value || "").trim().toUpperCase();
+        if (!tag) return;
+
+        const unit = UNITS.find(
+          (unitRecord) => String(unitRecord.tag || "").toUpperCase() === tag,
+        );
+        if (!unit) {
+          alert(`Tag "${tag}" was not found.`);
+          return;
+        }
 
         const eligibleIds = new Set(
           getEligibleWriteOffUnits(transfer).map((unitRecord) => unitRecord.id),
         );
 
-        if (!eligibleIds.has(unitId)) {
-          alert("This unit is no longer eligible for write-off.");
-          render();
+        if (!eligibleIds.has(unit.id)) {
+          alert("This tag is not eligible for write-off on this discrepancy.");
           return;
         }
 
-        let selected = [...(state.writeOffSelectedUnits || [])];
-
-        if (selected.includes(unitId)) {
-          selected = selected.filter((id) => id !== unitId);
-        } else {
-          if (selected.length >= maxQty) {
-            alert(`You can select up to ${maxQty} units.`);
-            return;
-          }
-
-          selected.push(unitId);
+        const selected = state.writeOffSelectedUnits || [];
+        if (selected.includes(unit.id)) {
+          alert("This tag has already been scanned.");
+          return;
         }
 
-        state.writeOffSelectedUnits = selected;
+        const outstanding = getTransferOutstanding(transfer);
+        if (selected.length >= outstanding) {
+          alert(`You can scan up to ${outstanding} unit(s) to write off.`);
+          return;
+        }
+
+        state.writeOffSelectedUnits = [...selected, unit.id];
+        state.writeOffScanInput = "";
+        render();
+      }
+
+      function simulateWriteOffScan() {
+        const transfer = TRANSFERS.find(
+          (item) => item.id === state.writeOffTransferId,
+        );
+        if (!transfer) return;
+
+        const selected = state.writeOffSelectedUnits || [];
+        if (selected.length >= getTransferOutstanding(transfer)) {
+          alert("The outstanding discrepancy limit has been reached.");
+          return;
+        }
+
+        const nextUnit = getEligibleWriteOffUnits(transfer).find(
+          (unitRecord) => !selected.includes(unitRecord.id),
+        );
+        if (!nextUnit) {
+          alert("No more eligible units are available to write off.");
+          return;
+        }
+
+        handleWriteOffScan(nextUnit.tag);
+      }
+
+      function removeWriteOffScan(unitId) {
+        state.writeOffSelectedUnits = (state.writeOffSelectedUnits || []).filter(
+          (selectedId) => selectedId !== unitId,
+        );
 
         render();
       }
@@ -14317,22 +14463,12 @@ MOVEMENT LOG PAGE
 
         const selectedUnitIds = state.writeOffSelectedUnits || [];
 
-        const search = String(state.writeOffUnitSearch || "").toLowerCase();
-
-        const filteredUnits = eligibleUnits.filter(
-          (unitRecord) =>
-            !search ||
-            String(unitRecord.tag || "")
-              .toLowerCase()
-              .includes(search),
-        );
-
         const unitSelectionContent = isIndividual
           ? `
       <div style="margin-top:16px;">
 
         <label>
-          Select units to write off *
+          Scan units to write off *
         </label>
 
         <div style="
@@ -14341,74 +14477,57 @@ MOVEMENT LOG PAGE
           margin-top:5px;
           margin-bottom:10px;
         ">
-          Select the exact units that have been confirmed
-          as unrecoverable.
+          Scan the exact units that have been confirmed as
+          unrecoverable.
         </div>
 
-        <p style="font-size:12px;color:#666;">
-          ${eligibleUnits.length}
-          eligible unit${eligibleUnits.length === 1 ? "" : "s"}.
-        </p>
-
-        <input
-          type="text"
-          placeholder="Search by tag..."
-          value="${escapeTransferDetailText(state.writeOffUnitSearch)}"
-          style="margin-top:8px;"
-          oninput="
-            state.writeOffUnitSearch = this.value;
-            render();
-          "
-        >
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <input
+            id="writeOffScanInput"
+            type="text"
+            placeholder="Scan Tag or Barcode..."
+            value="${escapeTransferDetailText(state.writeOffScanInput || "")}" 
+            style="flex:1;"
+            oninput="state.writeOffScanInput = this.value"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();handleWriteOffScan(this.value)}"
+          >
+          <button onclick="handleWriteOffScan(document.getElementById('writeOffScanInput').value)">Scan</button>
+          <button style="background:#fef3c7;" onclick="simulateWriteOffScan()">Auto-Scan</button>
+        </div>
 
         <div style="
-          max-height:320px;
+          max-height:200px;
           overflow-y:auto;
-          border:2px solid #1a1a1a;
+          border:1px solid #ddd;
           border-radius:4px;
           padding:8px;
           margin-top:8px;
+          background:#f3f4f6;
         ">
 
           ${
-            filteredUnits.length === 0
+            selectedUnitIds.length === 0
               ? `
               <div class="empty-state">
-                ${
-                  eligibleUnits.length === 0
-                    ? "No units are eligible for write-off."
-                    : "No units match your search."
-                }
+                ${eligibleUnits.length === 0
+                  ? "No units are eligible for write-off."
+                  : "No units scanned yet. Scan a tag to begin."}
               </div>
             `
-              : filteredUnits
-                  .map((unitRecord) => {
-                    const checked = selectedUnitIds.includes(unitRecord.id);
-
+              : selectedUnitIds
+                  .map((unitId) => {
+                    const unitRecord = eligibleUnits.find((item) => item.id === unitId);
+                    if (!unitRecord) return "";
                     return `
-                  <label style="
+                  <div style="
                     display:flex;
                     gap:8px;
                     align-items:center;
                     padding:6px 4px;
                     border-bottom:1px dashed #ddd;
                     font-size:12px;
-                    cursor:pointer;
                   ">
-
-                    <input
-                      type="checkbox"
-                      ${checked ? "checked" : ""}
-                      style="width:auto;"
-                      onchange="
-                        toggleWriteOffUnit(
-                          '${escapeTransferDetailText(unitRecord.id)}',
-                          ${outstanding}
-                        )
-                      "
-                    >
-
-                    <span style="flex:1;">
+                    <span style="flex:1;font-weight:bold;">
                       ${escapeTransferDetailText(unitRecord.tag)}
                     </span>
 
@@ -14419,8 +14538,8 @@ MOVEMENT LOG PAGE
                     <span style="font-size:11px;color:#888;">
                       ${formatDate(unitRecord.receivedDate)}
                     </span>
-
-                  </label>
+                    <button onclick="removeWriteOffScan('${escapeTransferDetailText(unitRecord.id)}')" style="padding:0 6px;font-size:10px;color:#991b1b;border-color:#991b1b;">Remove</button>
+                  </div>
                 `;
                   })
                   .join("")
@@ -14429,8 +14548,7 @@ MOVEMENT LOG PAGE
         </div>
 
         <div style="margin-top:8px;font-size:12px;">
-          ${selectedUnitIds.length} selected
-          (up to ${outstanding})
+          Scanned units: ${selectedUnitIds.length} / ${outstanding}
         </div>
 
       </div>
@@ -14665,24 +14783,12 @@ MOVEMENT LOG PAGE
 
         const selectedUnitIds = state.recoverySelectedUnits || [];
 
-        const recoverySearch = String(
-          state.recoveryUnitSearch || "",
-        ).toLowerCase();
-
-        const filteredRecoveryUnits = eligibleUnits.filter(
-          (unitRecord) =>
-            !recoverySearch ||
-            String(unitRecord.tag || "")
-              .toLowerCase()
-              .includes(recoverySearch),
-        );
-
         const unitSelectionContent = isIndividual
           ? `
       <div style="margin-top:16px;">
 
         <label>
-          Select recovered units *
+          Scan recovered units *
         </label>
 
         <div style="
@@ -14691,77 +14797,57 @@ MOVEMENT LOG PAGE
           margin-top:5px;
           margin-bottom:10px;
         ">
-          Select the tagged items physically found and verified
-          at the recovery location.
+          Scan each tagged item physically found and verified at
+          the recovery location.
         </div>
 
-        <p style="
-          font-size:12px;
-          color:#666;
-          margin-top:4px;
-        ">
-          ${eligibleUnits.length} unit${eligibleUnits.length === 1 ? "" : "s"} available.
-        </p>
-
-        <input
-          type="text"
-          placeholder="🔍 Search by tag..."
-          value="${escapeTransferDetailText(state.recoveryUnitSearch || "")}"
-          style="margin-top:8px;"
-          oninput="
-            state.recoveryUnitSearch = this.value;
-            render();
-          "
-        >
+        <div style="display:flex; gap:8px; margin-top:8px;">
+          <input
+            id="recoveryScanInput"
+            type="text"
+            placeholder="Scan Tag or Barcode..."
+            value="${escapeTransferDetailText(state.recoveryScanInput || "")}" 
+            style="flex:1;"
+            oninput="state.recoveryScanInput = this.value"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();handleRecoveryScan(this.value)}"
+          >
+          <button onclick="handleRecoveryScan(document.getElementById('recoveryScanInput').value)">Scan</button>
+          <button style="background:#fef3c7;" onclick="simulateRecoveryScan()">Auto-Scan</button>
+        </div>
 
         <div style="
-          max-height:320px;
+          max-height:200px;
           overflow-y:auto;
-          border:2px solid #1a1a1a;
+          border:1px solid #ddd;
           border-radius:4px;
           padding:8px;
           margin-top:8px;
+          background:#f3f4f6;
         ">
 
           ${
-            filteredRecoveryUnits.length === 0
+            selectedUnitIds.length === 0
               ? `
                   <div class="empty-state">
-                    ${
-                      eligibleUnits.length === 0
-                        ? "No units are eligible for recovery."
-                        : "No units match your search."
-                    }
+                    ${eligibleUnits.length === 0
+                      ? "No units are eligible for recovery."
+                      : "No units scanned yet. Scan a tag to begin."}
                   </div>
                 `
-              : filteredRecoveryUnits
-                  .map((unitRecord) => {
-                    const checked = selectedUnitIds.includes(unitRecord.id);
-
+              : selectedUnitIds
+                  .map((unitId) => {
+                    const unitRecord = eligibleUnits.find((item) => item.id === unitId);
+                    if (!unitRecord) return "";
                     return `
-                    <label style="
+                    <div style="
                       display:flex;
                       gap:8px;
                       align-items:center;
                       padding:6px 4px;
                       border-bottom:1px dashed #ddd;
                       font-size:12px;
-                      cursor:pointer;
                     ">
-
-                      <input
-                        type="checkbox"
-                        ${checked ? "checked" : ""}
-                        style="width:auto;"
-                        onchange="
-                          toggleRecoveryUnit(
-                            '${unitRecord.id}',
-                            ${outstanding}
-                          )
-                        "
-                      >
-
-                      <span style="flex:1;">
+                      <span style="flex:1;font-weight:bold;">
                         ${escapeTransferDetailText(unitRecord.tag)}
                       </span>
 
@@ -14772,8 +14858,8 @@ MOVEMENT LOG PAGE
                       <span style="font-size:11px;color:#888;">
                         ${formatDate(unitRecord.receivedDate)}
                       </span>
-
-                    </label>
+                      <button onclick="removeRecoveryScan('${unitRecord.id}')" style="padding:0 6px;font-size:10px;color:#991b1b;border-color:#991b1b;">Remove</button>
+                    </div>
                   `;
                   })
                   .join("")
@@ -14782,7 +14868,7 @@ MOVEMENT LOG PAGE
         </div>
 
         <div style="margin-top:8px;font-size:12px;">
-          ${selectedUnitIds.length} selected (up to ${outstanding})
+          Scanned units: ${selectedUnitIds.length} / ${outstanding}
         </div>
 
       </div>
@@ -14988,6 +15074,9 @@ MOVEMENT LOG PAGE
         state.recoveryTransferId = null;
         state.recoveryLocationId = null;
         state.recoveryQty = "";
+        state.recoverySelectedUnits = [];
+        state.recoveryScanInput = "";
+        state.recoveryNote = "";
         state.activeModal = "transfer-discrepancy-details";
 
         render();
@@ -15330,7 +15419,7 @@ DISPATCH WIZARD HELPERS
           (v) => v.status === "Available",
         );
         if (availableVehicles.length === 1)
-          w.vehicle = availableVehicles[0].plate;
+          w.vehicle = availableVehicles[0].plateNumber;
 
         // Auto-pick units for each outstanding individual-item line.
         // Dispatch operates on outstanding quantities, not ordered ones.
@@ -15624,7 +15713,7 @@ DISPATCH WIZARD HELPERS
             }
           }
           if (vehicle) {
-            const v = VEHICLES.find((x) => x.plate === vehicle);
+            const v = VEHICLES.find((x) => x.plateNumber === vehicle);
             if (v && v.status === "On Trip") {
               const stillAssigned = state.inTransitOrders.some(
                 (o) =>
@@ -15946,7 +16035,7 @@ TRIP PAGE (Batch Dispatch)
             <label>Vehicle *</label>
             <select id="tripVehicle" onchange="onTripVehicleChange(this.value);">
               <option value="">Select vehicle</option>
-              ${vehicles.map((v) => `<option value="${v.plate}" ${trip.vehicle === v.plate ? "selected" : ""}>${v.plate} — ${v.type} (${v.capacity} capacity)</option>`).join("")}
+              ${vehicles.map((v) => `<option value="${v.plateNumber}" ${trip.vehicle === v.plateNumber ? "selected" : ""}>${v.plateNumber} — ${v.type} (${v.capacity} capacity)</option>`).join("")}
             </select>
             ${vehicles.length === 0 ? '<div style="color:#991b1b; font-size:12px; margin-top:4px;">⚠ No vehicles available.</div>' : ""}
           </div>
@@ -16688,27 +16777,21 @@ TRIP PAGE (Batch Dispatch)
         // Intentionally empty — all handlers are inline.
       }
 
-      // ----- Driver/Vehicle cross-population (Anchor and Suggest) -----
-      // Used by the Trip page (batch dispatch)
+      // ----- Driver/Vehicle suggestions for a trip dispatch -----
       function onTripDriverChange(driverName) {
         state.trip.driver = driverName;
         const driver = DRIVERS.find((d) => d.name === driverName);
-        if (driver && driver.defaultVehicleId) {
+        if (!state.trip.vehicle && driver?.defaultVehicleId) {
           const vehicle = VEHICLES.find(
-            (v) => v.id === driver.defaultVehicleId,
+            (v) => v.id === driver.defaultVehicleId && v.status === "Available",
           );
-          if (vehicle) state.trip.vehicle = vehicle.plate;
+          if (vehicle) state.trip.vehicle = vehicle.plateNumber;
         }
         render();
       }
 
       function onTripVehicleChange(vehiclePlate) {
         state.trip.vehicle = vehiclePlate;
-        const vehicle = VEHICLES.find((v) => v.plate === vehiclePlate);
-        if (vehicle && vehicle.defaultDriverId) {
-          const driver = DRIVERS.find((d) => d.id === vehicle.defaultDriverId);
-          if (driver) state.trip.driver = driver.name;
-        }
         render();
       }
 
@@ -16839,7 +16922,7 @@ TRIP PAGE (Batch Dispatch)
           const driver = DRIVERS.find((d) => d.name === trip.driver);
           if (driver) driver.status = "On Trip";
 
-          const vehicle = VEHICLES.find((v) => v.plate === trip.vehicle);
+          const vehicle = VEHICLES.find((v) => v.plateNumber === trip.vehicle);
           if (vehicle) vehicle.status = "On Trip";
         }
 
@@ -17506,7 +17589,7 @@ DELIVERY CONFIRMATION
               if (d) d.status = "Available";
             }
             if (vehicle) {
-              const v = VEHICLES.find((x) => x.plate === vehicle);
+              const v = VEHICLES.find((x) => x.plateNumber === vehicle);
               if (v) v.status = "Available";
             }
           }
