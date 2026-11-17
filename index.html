@@ -2006,7 +2006,7 @@
           dispatchNotes: "",
           dispatchLocationId: null,
           changingUnitsFor: null,
-          unitSearch: "",
+          unitScanInputs: {},
           unitSelections: {},
         },
         // Trip state (batch dispatch page)
@@ -2796,6 +2796,16 @@ DISPATCH DASHBOARD DEMO SEED
             'input[id^="pickupScan-"]:not(:disabled)',
           );
           if (pickupScanInput) pickupScanInput.focus();
+        }
+
+        if (
+          state.activeModal === "dispatch" &&
+          state.dispatchWizard?.step === 2
+        ) {
+          const dispatchScanInput = document.querySelector(
+            'input[id^="dispatchScan-"]',
+          );
+          if (dispatchScanInput) dispatchScanInput.focus();
         }
       }
 
@@ -8293,10 +8303,11 @@ DISPATCH WIZARD (3-STEP)
                           <div style="margin-top:6px; font-size:12px;">
                           ${
                             selectedUnits.length === qty
-                              ? `<span class="green">✓ ${selectedUnits.length} units auto-selected (oldest first)</span>`
-                              : `<span class="red">⚠ ${selectedUnits.length} of ${qty} selected — only ${getStockSummary(line.productId, w.dispatchLocationId).available} available at ${getLocation(w.dispatchLocationId)?.name}</span>`
+                              ? `<span class="green">✓ ${selectedUnits.length} of ${qty} units scanned</span>`
+                              : `<span class="red">⚠ ${selectedUnits.length} of ${qty} units scanned — ${getStockSummary(line.productId, w.dispatchLocationId).available} available at ${getLocation(w.dispatchLocationId)?.name}</span>`
                           }
                         </div>
+                        ${renderDispatchUnitScanner(line.productId, qty, selectedUnits)}
                         <div style="margin-top:6px;">
                           <button onclick="openChangeUnits('${line.productId}')" style="font-size:12px;">Change Units</button>
                         </div>
@@ -8372,12 +8383,6 @@ DISPATCH WIZARD (3-STEP)
           return a.tag < b.tag ? -1 : 1;
         });
 
-        // Filter by search term
-        const search = (w.unitSearch || "").toLowerCase();
-        const filteredUnits = unitsAtLocation.filter(
-          (u) => !search || u.tag.toLowerCase().includes(search),
-        );
-
         return `
     <div class="modal-overlay" onclick="if(event.target===this)closeDispatchWizard()">
       <div class="modal">
@@ -8386,45 +8391,20 @@ DISPATCH WIZARD (3-STEP)
           ${renderStepIndicator(2)}
 
                    <p style="font-size:13px; margin-top:8px;">
-            <strong>${product.name}</strong> · Select exactly ${qty} units from ${getLocation(w.dispatchLocationId)?.name}
+            <strong>${product.name}</strong> · Scan exactly ${qty} units from ${getLocation(w.dispatchLocationId)?.name}
           </p>
 
           <p style="font-size:12px; color:#666; margin-top:4px;">
             ${unitsAtLocation.length} unit${unitsAtLocation.length === 1 ? "" : "s"} available at this location.
           </p>
 
-          <input type="text" id="unitSearch"
-            placeholder="🔍 Search by tag..."
-            value="${w.unitSearch || ""}"
-            style="margin-top:8px;"
-            oninput="state.dispatchWizard.unitSearch=this.value; render();">
-
-          <div style="max-height:320px; overflow-y:auto; border:2px solid #1a1a1a; border-radius:4px; padding:8px; margin-top:8px;">
-            ${
-              filteredUnits.length === 0
-                ? `<div class="empty-state">${unitsAtLocation.length === 0 ? "No units available." : "No units match your search."}</div>`
-                : filteredUnits
-                    .map((u) => {
-                      const checked = selected.includes(u.id);
-                      return `
-                    <label style="display:flex; gap:8px; align-items:center; padding:6px 4px; border-bottom:1px dashed #ddd; font-size:12px; cursor:pointer;">
-                      <input type="checkbox" ${checked ? "checked" : ""} style="width:auto;"
-                              onchange="toggleUnitSelection('${productId}', '${u.id}', ${qty})">
-                      <span style="flex:1;">${u.tag}</span>
-                      <span style="font-size:11px; color:#888;">${u.condition || "New"}</span>
-                      <span style="font-size:11px; color:#888;">${formatDate(u.receivedDate)}</span>
-                    </label>
-                  `;
-                    })
-                    .join("")
-            }
-          </div>
+          ${renderDispatchUnitScanner(productId, qty, selected, unitsAtLocation)}
 
           <div style="margin-top:8px; font-size:12px;">
                    ${
                      selected.length === qty
-                       ? `<span class="green">✓ ${selected.length} of ${qty} selected</span>`
-                       : `<span class="red">Select exactly ${qty}. Currently: ${selected.length}</span>`
+                        ? `<span class="green">✓ ${selected.length} of ${qty} scanned</span>`
+                        : `<span class="red">Scan exactly ${qty}. Currently: ${selected.length}</span>`
                    }
           </div>
         </div>
@@ -8565,7 +8545,7 @@ DISPATCH WIZARD HANDLERS
             if (p.trackingType === "Individual") {
               const selected = w.unitSelections[line.productId] || [];
               if (selected.length !== qty) {
-                return alert(`Select exactly ${qty} units for ${p.name}.`);
+                return alert(`Scan exactly ${qty} units for ${p.name}.`);
               }
             } else {
               const s = getStockSummary(line.productId, w.dispatchLocationId);
@@ -8590,28 +8570,27 @@ DISPATCH WIZARD HANDLERS
       }
 
       function onDispatchLocationChange(locationId) {
-        // Warn operator if the location change will reset their auto-picks
+        // Warn before changing the source location clears any scanned units.
         const w = state.dispatchWizard;
-        const hasCustomPicks = Object.values(w.unitSelections).some(
+        const hasScannedUnits = Object.values(w.unitSelections).some(
           (arr) => arr && arr.length > 0,
         );
-        if (hasCustomPicks) {
+        if (hasScannedUnits) {
           if (
             !confirm(
-              "Changing the location will reset your unit selections. Continue?",
+              "Changing the location will clear scanned units. Continue?",
             )
           ) {
             render(); // re-render to restore dropdown value
             return;
           }
         }
-        resetAutoPicksForLocation(locationId);
+        clearDispatchScansForLocation(locationId);
         render();
       }
 
       function openChangeUnits(productId) {
         state.dispatchWizard.changingUnitsFor = productId;
-        state.dispatchWizard.unitSearch = "";
         render();
       }
 
@@ -8620,20 +8599,95 @@ DISPATCH WIZARD HANDLERS
         render();
       }
 
-      function toggleUnitSelection(productId, unitId, maxQty) {
+      function renderDispatchUnitScanner(productId, maxQty, selected, eligibleUnits = null) {
         const w = state.dispatchWizard;
-        let selected = w.unitSelections[productId] || [];
-        if (selected.includes(unitId)) {
-          selected = selected.filter((id) => id !== unitId);
-        } else {
-          if (selected.length >= maxQty) {
-            alert(`You can select up to ${maxQty} units. Deselect one first.`);
-            render();
-            return;
-          }
-          selected.push(unitId);
-        }
-        w.unitSelections[productId] = selected;
+        const order = state.order;
+        const units = eligibleUnits || UNITS.filter(
+          (unit) =>
+            unit.productId === productId &&
+            unit.locationId === w.dispatchLocationId &&
+            unit.status === "Available" &&
+            (!unit.softReservedFor || unit.softReservedFor === order?.orderNumber),
+        ).sort((a, b) => {
+          if (a.receivedDate !== b.receivedDate)
+            return a.receivedDate < b.receivedDate ? -1 : 1;
+          return a.tag < b.tag ? -1 : 1;
+        });
+        const scannedUnits = selected
+          .map((unitId) => UNITS.find((unit) => unit.id === unitId))
+          .filter(Boolean);
+        const inputId = `dispatchScan-${productId}`;
+
+        return `
+          <div style="border:1px solid #ddd;border-radius:4px;padding:8px;margin-top:8px;">
+            <strong style="font-size:12px;">Scan Units to Dispatch</strong>
+            <div style="display:flex;gap:8px;margin-top:6px;">
+              <input type="text" id="${inputId}"
+                placeholder="Scan Tag or Barcode..."
+                value="${escapeTransferDetailText(w.unitScanInputs?.[productId] || "")}"
+                style="flex:1;font-size:13px;"
+                oninput="state.dispatchWizard.unitScanInputs['${productId}']=this.value"
+                onkeydown="if(event.key==='Enter'){event.preventDefault();handleDispatchUnitScan('${productId}',this.value,${maxQty})}">
+              <button onclick="handleDispatchUnitScan('${productId}',document.getElementById('${inputId}').value,${maxQty})">Scan</button>
+              <button style="background:#fef3c7;" onclick="simulateDispatchUnitScan('${productId}',${maxQty})">Auto-Scan</button>
+            </div>
+            <div style="font-size:12px;margin-top:6px;">${units.length} eligible unit${units.length === 1 ? "" : "s"} available.</div>
+            <div style="background:#f3f4f6;padding:8px;border-radius:4px;font-size:12px;max-height:140px;overflow-y:auto;margin-top:6px;">
+              ${scannedUnits.length === 0
+                ? `<div class="empty-state">No units scanned yet. Scan a tag to begin.</div>`
+                : `<div style="font-weight:bold;margin-bottom:4px;">Scanned Units (${scannedUnits.length}):</div>${scannedUnits.map((unit) => `
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px;border-bottom:1px dashed #ddd;padding-bottom:4px;">
+                      <span>${escapeTransferDetailText(unit.tag)}</span>
+                      <span style="font-size:11px;color:#888;">${escapeTransferDetailText(unit.condition || "New")} · ${formatDate(unit.receivedDate)}</span>
+                      <button onclick="removeDispatchUnitScan('${productId}','${unit.id}')" style="padding:0 6px;font-size:10px;color:#991b1b;border-color:#991b1b;">Remove</button>
+                    </div>`).join("")}`}
+            </div>
+            <div style="margin-top:6px;font-size:12px;">Scanned: ${selected.length} / ${maxQty}</div>
+          </div>
+        `;
+      }
+
+      function handleDispatchUnitScan(productId, value, maxQty) {
+        const w = state.dispatchWizard;
+        const order = state.order;
+        const tag = String(value || "").trim().toUpperCase();
+        if (!tag) return;
+        const unit = UNITS.find((candidate) => String(candidate.tag || "").toUpperCase() === tag);
+        if (!unit) return alert(`Tag "${tag}" was not found.`);
+        if (unit.productId !== productId) return alert("This tag does not match the product being dispatched.");
+        const eligible =
+          unit.locationId === w.dispatchLocationId &&
+          unit.status === "Available" &&
+          (!unit.softReservedFor || unit.softReservedFor === order?.orderNumber);
+        if (!eligible) return alert("This unit is not available for dispatch at this location.");
+
+        const selected = w.unitSelections[productId] || [];
+        if (selected.includes(unit.id)) return alert("This tag has already been scanned.");
+        if (selected.length >= maxQty) return alert(`You can scan up to ${maxQty} unit(s) for dispatch.`);
+
+        w.unitSelections[productId] = [...selected, unit.id];
+        w.unitScanInputs[productId] = "";
+        render();
+      }
+
+      function simulateDispatchUnitScan(productId, maxQty) {
+        const selected = state.dispatchWizard.unitSelections[productId] || [];
+        if (selected.length >= maxQty) return alert(`You have already scanned all ${maxQty} required unit(s).`);
+        const unit = UNITS.filter(
+          (candidate) =>
+            candidate.productId === productId &&
+            candidate.locationId === state.dispatchWizard.dispatchLocationId &&
+            candidate.status === "Available" &&
+            (!candidate.softReservedFor || candidate.softReservedFor === state.order?.orderNumber) &&
+            !selected.includes(candidate.id),
+        ).sort((a, b) => a.receivedDate === b.receivedDate ? (a.tag < b.tag ? -1 : 1) : (a.receivedDate < b.receivedDate ? -1 : 1))[0];
+        if (!unit) return alert("No eligible units remain to scan.");
+        handleDispatchUnitScan(productId, unit.tag, maxQty);
+      }
+
+      function removeDispatchUnitScan(productId, unitId) {
+        const w = state.dispatchWizard;
+        w.unitSelections[productId] = (w.unitSelections[productId] || []).filter((id) => id !== unitId);
         render();
       }
 
@@ -8646,7 +8700,7 @@ DISPATCH WIZARD HANDLERS
         const qty = line.outstanding;
         const selected = state.dispatchWizard.unitSelections[productId] || [];
         if (selected.length !== qty) {
-          return alert(`Select exactly ${qty} units.`);
+          return alert(`Scan exactly ${qty} units.`);
         }
         state.dispatchWizard.changingUnitsFor = null;
         render();
@@ -8801,6 +8855,7 @@ DISPATCH WIZARD HANDLERS
           dispatchNotes: "",
           dispatchLocationId: null,
           changingUnitsFor: null,
+          unitScanInputs: {},
           unitSelections: {},
         };
 
@@ -15392,12 +15447,12 @@ DISPATCH WIZARD HELPERS
           dispatchLocationId:
             LOCATIONS.find((l) => l.isDefaultDispatch)?.id || LOCATIONS[0].id,
           changingUnitsFor: null,
-          unitSearch: "",
+          unitScanInputs: {},
           unitSelections: {},
         };
       }
 
-      // Initialize the wizard from the current order (pre-populate with auto-picks)
+      // Initialize the wizard from the current order with no Individual units scanned.
       function initDispatchWizard() {
         resetDispatchWizard();
         const w = state.dispatchWizard;
@@ -15421,43 +15476,14 @@ DISPATCH WIZARD HELPERS
         if (availableVehicles.length === 1)
           w.vehicle = availableVehicles[0].plateNumber;
 
-        // Auto-pick units for each outstanding individual-item line.
-        // Dispatch operates on outstanding quantities, not ordered ones.
-        calcOutstandingLines(o).forEach((line) => {
-          const product = getInvProduct(line.productId);
-          if (!product) return;
-
-          if (product.trackingType === "Individual") {
-            w.unitSelections[line.productId] = autoPickUnits(
-              line.productId,
-              w.dispatchLocationId,
-              line.outstanding,
-              o.orderNumber,
-            );
-          }
-        });
       }
 
-      // When the location changes, re-run auto-picks for all individual items
-      function resetAutoPicksForLocation(locationId) {
+      // When the location changes, clear scanned Individual units.
+      function clearDispatchScansForLocation(locationId) {
         const w = state.dispatchWizard;
-        const o = state.order;
         w.dispatchLocationId = locationId;
         w.unitSelections = {};
-
-        calcOutstandingLines(o).forEach((line) => {
-          const product = getInvProduct(line.productId);
-          if (!product) return;
-
-          if (product.trackingType === "Individual") {
-            w.unitSelections[line.productId] = autoPickUnits(
-              line.productId,
-              locationId,
-              line.outstanding,
-              o.orderNumber,
-            );
-          }
-        });
+        w.unitScanInputs = {};
       }
 
       // ===== PICKUP STOCK HELPERS =====
