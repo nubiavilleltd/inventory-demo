@@ -1984,7 +1984,16 @@
         receiveQuantities: {}, // { [productId]: qty }
         receiveConditions: {}, // { [unitId]: condition }
         receiveDiscrepancyReasons: {}, // { [productId]: reason }
+        
+        // NEW STATE FOR SCANNING FLOW
+        receiveScannedUnits: [], 
+        receiveUnitActions: {}, 
+        receiveUnlistedUnits: [], 
+        showExcessSection: false,
+        
+        // Inventory Page State
         lastViewedProduct: null,
+
         // Dispatch Wizard state (single-order modal)
         dispatchWizard: {
           step: 1,
@@ -10603,14 +10612,13 @@ RECEIVE STOCK MODAL
 
 
 
-            function renderReceiveTransferModal() {
+      function renderReceiveTransferModal() {
         const transfer = TRANSFERS.find((t) => t.id === state.receivingTransferId);
         if (!transfer) return "";
 
         const fromLoc = getLocation(transfer.fromLocationId);
         const toLoc = getLocation(transfer.toLocationId);
 
-        // Determine items array (handle legacy single item structure)
         const items = transfer.items || [{
           productId: transfer.productId,
           qty: transfer.qty,
@@ -10631,51 +10639,118 @@ RECEIVE STOCK MODAL
           `;
 
           if (isStockQty) {
-            // Stock Quantity UI
+            const expected = item.qty;
+            const received = parseInt(state.receiveQuantities[item.productId], 10) || 0;
+            const missing = Math.max(0, expected - received);
+
             bodyHtml += `
               <label>Confirm quantity received *</label>
-              <input type="number" min="0" step="1" max="${item.qty}"
-                value="${state.receiveQuantities[item.productId] || item.qty}"
+              <input type="number" min="0" step="1" max="${expected}"
+                value="${state.receiveQuantities[item.productId] || expected}"
                 oninput="state.receiveQuantities['${item.productId}'] = this.value; render();">
               <div style="font-size:11px; color:#666; margin-top:4px;">
-                Expected: <strong>${item.qty}</strong> ${product.unitOfMeasure || "unit"}(s).
+                Expected: <strong>${expected}</strong> ${product.unitOfMeasure || "unit"}(s).
+                ${missing > 0 ? `<span style="color:#b45309; font-weight:bold; margin-left:8px;">⚠ ${missing} missing</span>` : ''}
               </div>
             `;
           } else {
-            // Individual Items UI
-            const units = UNITS.filter((u) => item.unitIds && item.unitIds.includes(u.id));
-            bodyHtml += `
-              <div style="font-weight:bold; font-size:12px; margin-bottom:8px;">Select units received</div>
-              <div style="max-height:200px; overflow-y:auto; border:1px solid #ccc; border-radius:4px; padding:8px; background:#fff;">
-                ${units.map((u) => {
-                  const checked = (state.receiveSelections[item.productId] || []).includes(u.id);
-                  const currentCondition = state.receiveConditions[u.id] || u.condition || "New";
-                  const isDisabled = !checked;
+            // INDIVIDUAL ITEMS SCANNING UI
+            const manifestUnitIds = item.unitIds || [];
+            const scannedUnits = state.receiveScannedUnits || [];
+            const unlistedUnits = state.receiveUnlistedUnits || [];
+            
+            // Find missing units (in manifest but not scanned)
+            const missingUnits = manifestUnitIds.filter(id => !scannedUnits.includes(id));
 
+            bodyHtml += `
+             <div style="display:flex; gap:8px; margin-bottom:12px;">
+              <input type="text" id="receiveScanInput-${index}" placeholder="Scan Tag or Barcode..." style="flex:1; font-size:13px;" onkeydown="if(event.key==='Enter'){ handleReceiveScan(this.value, ${index}); }">
+              <button onclick="handleReceiveScan(document.getElementById('receiveScanInput-${index}').value, ${index})">Scan</button>
+              <button onclick="simulateReceiveScan(${index})" style="font-size:11px; background:#fef3c7;">Auto-Scan</button>
+            </div>
+
+              <!-- Scanned Items -->
+              <div style="margin-bottom:8px;">
+                <div style="font-weight:bold; font-size:12px; margin-bottom:4px;">Scanned Items (${scannedUnits.length}):</div>
+                ${scannedUnits.length === 0 ? `<div style="font-size:11px; color:#666;">No items scanned yet.</div>` : ''}
+                ${scannedUnits.map(uid => {
+                  const u = UNITS.find(x => x.id === uid);
+                  if (!u) return '';
+                  const actionData = state.receiveUnitActions[uid] || { action: 'Accept', reason: '' };
                   return `
-                    <div style="display:flex; gap:8px; align-items:center; padding:6px 4px; border-bottom:1px dashed #eee; font-size:12px;">
-                      <label style="display:flex; gap:8px; align-items:center; cursor:pointer; flex:1;">
-                        <input type="checkbox" ${checked ? "checked" : ""} style="width:auto;"
-                          onchange="onReceiveUnitToggle('${item.productId}', '${u.id}')">
-                        <span style="flex:1;">${u.tag}</span>
-                      </label>
-                      
-                      <select style="width:110px; padding:2px 4px; font-size:11px; ${isDisabled ? "opacity:0.5;" : ""}"
-                        onchange="state.receiveConditions['${u.id}'] = this.value; render();"
-                        ${isDisabled ? "disabled" : ""}>
-                        <option value="New" ${currentCondition === "New" ? "selected" : ""}>New</option>
-                        <option value="Used" ${currentCondition === "Used" ? "selected" : ""}>Used</option>
-                        <option value="Refurbished" ${currentCondition === "Refurbished" ? "selected" : ""}>Refurbished</option>
-                        <option value="Damaged" ${currentCondition === "Damaged" ? "selected" : ""}>Damaged</option>
-                        <option value="Returned" ${currentCondition === "Returned" ? "selected" : ""}>Returned</option>
-                      </select>
+                    <div style="display:flex; align-items:center; justify-content:space-between; padding:4px 0; border-bottom:1px dashed #eee; font-size:12px;">
+                      <div>✓ ${u.tag} <span style="color:#666;">(${u.condition})</span></div>
+                      <div style="display:flex; gap:8px;">
+                        <select style="padding:2px 4px; font-size:11px;" onchange="state.receiveUnitActions['${uid}'].action = this.value; render();">
+                          <option value="Accept" ${actionData.action === 'Accept' ? 'selected' : ''}>Accept</option>
+                          <option value="Reject" ${actionData.action === 'Reject' ? 'selected' : ''}>Reject</option>
+                        </select>
+                        ${actionData.action === 'Reject' ? `
+                          <select style="padding:2px 4px; font-size:11px;" onchange="state.receiveUnitActions['${uid}'].reason = this.value; render();">
+                            <option value="">-- Reason --</option>
+                            <option value="Damaged" ${actionData.reason === 'Damaged' ? 'selected' : ''}>Damaged</option>
+                            <option value="Wrong Item" ${actionData.reason === 'Wrong Item' ? 'selected' : ''}>Wrong Item</option>
+                          </select>
+                        ` : ''}
+                      </div>
                     </div>
                   `;
-                }).join("")}
+                }).join('')}
               </div>
-              <div style="margin-top:8px; font-size:11px; color:#666;">
-                Selected: ${(state.receiveSelections[item.productId] || []).length} of ${item.qty}
-              </div>
+
+              <!-- Missing Items Preview -->
+              ${missingUnits.length > 0 ? `
+                <div style="margin-top:8px; padding:8px; background:#fef3c7; border-radius:4px; font-size:12px; color:#92400e;">
+                  <strong>⚠ Awaiting Scan (${missingUnits.length}):</strong>
+                  ${missingUnits.map(uid => {
+                    const u = UNITS.find(x => x.id === uid);
+                    return u ? `<div>? ${u.tag}</div>` : '';
+                  }).join('')}
+                </div>
+              ` : ''}
+
+                   <!-- Unlisted/Excess Items Section -->
+              ${!state.showExcessSection ? `
+                <div style="margin-top:16px;">
+                  <button onclick="state.showExcessSection = true; render();" style="font-size:12px; padding:8px 12px; background:#fff; border:1px dashed #b45309; color:#92400e; display:flex; flex-direction:column; align-items:flex-start; width:100%; text-align:left; cursor:pointer;">
+                    <strong>+ Scan Excess Items</strong>
+                    <span style="font-size:11px; font-weight:normal; margin-top:4px;">Use this if the driver delivered more items than what was on the manifest (over-delivery).</span>
+                  </button>
+                </div>
+              ` : `
+                <div style="margin-top:16px; padding:12px; border:2px dashed #b45309; border-radius:6px; background:#fef3c7;">
+                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                    <div style="font-weight:bold; color:#92400e; font-size:13px;">
+                      Excess / Unlisted Items
+                    </div>
+                    <button onclick="state.showExcessSection = false; render();" style="padding:0 6px; font-size:11px; background:transparent; border:none; color:#92400e; cursor:pointer;">
+                      ✕ Hide
+                    </button>
+                  </div>
+                  
+                  <div style="display:flex; gap:8px; margin-bottom:8px;">
+                    <input type="text" id="unlistedScanInput-${index}" placeholder="Scan Excess Tag..." style="flex:1; font-size:12px; border-color:#b45309;" onkeydown="if(event.key==='Enter'){ handleUnlistedScan(this.value, ${index}); }">
+                    <button onclick="handleUnlistedScan(document.getElementById('unlistedScanInput-${index}').value, ${index})" style="font-size:11px; border-color:#b45309; color:#92400e;">Add</button>
+                    <button onclick="simulateUnlistedScan(${index})" style="font-size:11px; background:#fff; border-color:#b45309; color:#92400e;">Auto-Scan</button>
+                  </div>
+                  
+                  ${unlistedUnits.length > 0 ? `
+                    <div style="margin-top:8px; font-size:12px;">
+                      ${unlistedUnits.map(uid => {
+                        const u = UNITS.find(x => x.id === uid);
+                        return u ? `
+                          <div style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px dashed #fcd34d;">
+                            <span>⚠ ${u.tag} (Not on manifest)</span>
+                            <button onclick="state.receiveUnlistedUnits = state.receiveUnlistedUnits.filter(id => id !== '${uid}'); render();" style="padding:0 4px; font-size:10px; border-color:#b45309; color:#92400e;">Remove</button>
+                          </div>
+                        ` : '';
+                      }).join('')}
+                    </div>
+                  ` : `
+                    <div style="font-size:11px; color:#92400e;">No excess items scanned.</div>
+                  `}
+                </div>
+              `}
             `;
           }
 
@@ -10708,7 +10783,114 @@ RECEIVE STOCK MODAL
       }
 
 
+            function handleUnlistedScan(value, itemIndex) {
+        const tag = value.trim().toUpperCase();
+        if (!tag) return;
 
+        const transfer = TRANSFERS.find(t => t.id === state.receivingTransferId);
+        if (!transfer) return;
+
+        const items = transfer.items || [{ productId: transfer.productId, unitIds: transfer.unitIds || [] }];
+        const currentItem = items[itemIndex];
+
+        const unit = UNITS.find(u => u.tag === tag);
+        if (!unit) return alert("Tag not found.");
+        if (unit.productId !== currentItem.productId) return alert("Wrong product scanned.");
+        
+        // Check if already on manifest or already in unlisted
+        if (currentItem.unitIds.includes(unit.id)) return alert("This item is already on the manifest.");
+        if (state.receiveUnlistedUnits.includes(unit.id)) return alert("Already scanned as unlisted.");
+
+        state.receiveUnlistedUnits.push(unit.id);
+        render();
+        setTimeout(() => document.getElementById(`unlistedScanInput-${itemIndex}`)?.focus(), 10);
+      }
+
+      function simulateUnlistedScan(itemIndex) {
+        const transfer = TRANSFERS.find(t => t.id === state.receivingTransferId);
+        if (!transfer) return;
+
+        const items = transfer.items || [{ productId: transfer.productId, unitIds: transfer.unitIds || [] }];
+        const currentItem = items[itemIndex];
+
+        // Find a unit of this product that is NOT on the manifest and NOT already scanned
+        const extraUnit = UNITS.find(u => 
+          u.productId === currentItem.productId && 
+          !currentItem.unitIds.includes(u.id) &&
+          !state.receiveUnlistedUnits.includes(u.id) &&
+          u.locationId === transfer.fromLocationId // Assume it's coming from the same place
+        );
+
+        if (extraUnit) {
+          handleUnlistedScan(extraUnit.tag, itemIndex);
+        } else {
+          alert("No other available units found in the system to simulate an excess delivery.");
+        }
+      }
+
+
+  
+
+
+            function handleReceiveScan(value, itemIndex) {
+        const tag = value.trim().toUpperCase();
+        if (!tag) return;
+
+        const transfer = TRANSFERS.find(t => t.id === state.receivingTransferId);
+        if (!transfer) return;
+
+        // Get the item manifest list
+        const items = transfer.items || [{ productId: transfer.productId, unitIds: transfer.unitIds || [] }];
+        const currentItem = items[itemIndex];
+        
+        const unit = UNITS.find(u => u.tag === tag);
+        if (!unit) return alert("Tag not found.");
+
+        if (unit.productId !== currentItem.productId) return alert("Wrong product scanned.");
+        if (!currentItem.unitIds.includes(unit.id)) return alert("This item is not on the manifest. Use the 'Scan Unlisted Item' button.");
+
+        if (state.receiveScannedUnits.includes(unit.id)) return alert("Already scanned.");
+
+        // Add to scanned list and default to Accept
+        state.receiveScannedUnits.push(unit.id);
+        state.receiveUnitActions[unit.id] = { action: 'Accept', reason: '' };
+
+        // Clear input and re-render
+        render();
+        setTimeout(() => {
+          const input = document.getElementById(`receiveScanInput-${itemIndex}`);
+          if (input) input.focus();
+        }, 10);
+      }
+
+
+                function simulateReceiveScan(itemIndex) {
+        const transfer = TRANSFERS.find(t => t.id === state.receivingTransferId);
+        if (!transfer) return;
+
+        const items = transfer.items || [{ productId: transfer.productId, unitIds: transfer.unitIds || [] }];
+        const currentItem = items[itemIndex];
+        const manifestUnitIds = currentItem.unitIds || [];
+
+        // Find a unit on the manifest that hasn't been scanned yet
+        const nextUnitId = manifestUnitIds.find(id => !state.receiveScannedUnits.includes(id));
+        
+        if (nextUnitId) {
+          const unit = UNITS.find(u => u.id === nextUnitId);
+          if (unit) handleReceiveScan(unit.tag, itemIndex);
+        } else {
+          alert("All manifest items for this product have been scanned.");
+        }
+      }
+
+      function promptScanUnlistedItem(itemIndex) {
+        const tag = prompt("Scan/Enter Unlisted Tag:");
+        if (!tag) return;
+        // We'll just add it to the unlisted array for now
+        // In a full app, we'd verify it matches the product
+        state.receiveUnlistedUnits.push(tag.trim().toUpperCase());
+        render();
+      }
 
             function onReceiveUnitToggle(productId, unitId) {
         if (!state.receiveSelections[productId]) state.receiveSelections[productId] = [];
@@ -11853,202 +12035,112 @@ Outstanding is always calculated from these two, never stored.
             : "Received";
       }
 
-      function commitReceiveTransfer(recordDiscrepancy = false) {
-        const transfer = TRANSFERS.find(
-          (t) => t.id === state.receivingTransferId,
-        );
 
+
+            function commitReceiveTransfer(recordDiscrepancy = false) {
+        const transfer = TRANSFERS.find(t => t.id === state.receivingTransferId);
         if (!transfer) return;
 
-        const product = getInvProduct(transfer.productId);
-        if (!product) return;
+        const items = transfer.items || [{
+          productId: transfer.productId, qty: transfer.qty, unitIds: transfer.unitIds || [],
+          batchId: transfer.batchId, scannedQty: transfer.qty
+        }];
 
-        const isStockQty = product.trackingType === "StockQuantity";
-
-        let qtyReceived = 0;
-        let selectedUnitIds = [];
-        let unitsToReceive = [];
-        let missingUnitIds = [];
-        let shortage = 0;
-
-        if (isStockQty) {
-          const rawQty = String(state.receiveQty ?? "").trim();
-          qtyReceived = Number(rawQty);
-
-          if (
-            rawQty === "" ||
-            !Number.isInteger(qtyReceived) ||
-            qtyReceived < 0
-          ) {
-            return alert(
-              "Enter a valid whole quantity, including zero if nothing arrived.",
-            );
+        // 1. Calculate Discrepancies
+        let hasMissingOrShortage = false;
+        items.forEach(item => {
+          const product = getInvProduct(item.productId);
+          if (product.trackingType === "StockQuantity") {
+            const expected = item.qty;
+            const received = parseInt(state.receiveQuantities[item.productId], 10) || 0;
+            if (received < expected) hasMissingOrShortage = true;
+          } else {
+            const missing = (item.unitIds || []).filter(id => !state.receiveScannedUnits.includes(id));
+            if (missing.length > 0) hasMissingOrShortage = true;
           }
+        });
 
-          if (qtyReceived > transfer.qty) {
-            return alert(
-              `Cannot receive more than the sent quantity (${transfer.qty}).`,
-            );
+        // 2. Warning Prompt
+        if (hasMissingOrShortage && !recordDiscrepancy) {
+          if (confirm("Missing items detected! Are you sure you want to mark these items as MISSING (Unaccounted For)?")) {
+             return commitReceiveTransfer(true); // Recursively call with true to bypass warning
+          } else {
+             return; // Abort
           }
-
-          shortage = transfer.qty - qtyReceived;
-        } else {
-          // Individual items
-          selectedUnitIds = [
-            ...new Set(
-              (state.receiveSelectedUnits || []).filter((id) =>
-                transfer.unitIds.includes(id),
-              ),
-            ),
-          ];
-
-          unitsToReceive = selectedUnitIds
-            .map((uid) => UNITS.find((u) => u.id === uid))
-            .filter(Boolean);
-
-          if (unitsToReceive.length !== selectedUnitIds.length) {
-            return alert(
-              "Some selected units could not be found. Please review the selection.",
-            );
-          }
-
-          const invalidUnit = unitsToReceive.find(
-            (u) =>
-              u.status !== "In Transit" ||
-              u.inTransitTransferId !== transfer.id,
-          );
-
-          if (invalidUnit) {
-            return alert(
-              "Some selected units are no longer associated with this transfer.",
-            );
-          }
-
-          qtyReceived = unitsToReceive.length;
-          shortage = transfer.qty - qtyReceived;
-
-          const receivedUnitIds = new Set(selectedUnitIds);
-
-          missingUnitIds = transfer.unitIds.filter(
-            (id) => !receivedUnitIds.has(id),
-          );
         }
 
-        // A partial receipt requires a reason before any stock is changed.
-        if (shortage > 0 && !recordDiscrepancy) {
-          state.receiveDiscrepancyReason = "";
-          state.activeModal = "discrepancy-receipt";
-          render();
-          return;
-        }
+        // 3. Process the items
+        items.forEach(item => {
+          const product = getInvProduct(item.productId);
 
-        if (shortage > 0 && !state.receiveDiscrepancyReason?.trim()) {
-          return alert("A reason is required to record this discrepancy.");
-        }
-
-        if (isStockQty) {
-          // Add only physically received stock to the destination.
-          if (qtyReceived > 0) {
-            let toRow = STOCK.find(
-              (s) =>
-                s.productId === transfer.productId &&
-                s.locationId === transfer.toLocationId &&
-                s.batchId === transfer.batchId,
-            );
-
-            if (toRow) {
-              toRow.onHand += qtyReceived;
-            } else {
-              STOCK.push({
-                productId: transfer.productId,
-                locationId: transfer.toLocationId,
-                batchId: transfer.batchId,
-                onHand: qtyReceived,
-                reserved: 0,
-              });
+          if (product.trackingType === "StockQuantity") {
+            const received = parseInt(state.receiveQuantities[item.productId], 10) || 0;
+            // Add to destination stock
+            if (received > 0) {
+              let toRow = STOCK.find(s => s.productId === item.productId && s.locationId === transfer.toLocationId && s.batchId === item.batchId);
+              if (toRow) toRow.onHand += received;
+              else STOCK.push({ productId: item.productId, locationId: transfer.toLocationId, batchId: item.batchId, onHand: received, reserved: 0 });
+              
+              logMovement(item.productId, transfer.toLocationId, "transfer_in", received, transfer.transferNumber, null, item.batchId);
             }
-
-            const batch = getBatch(transfer.batchId);
-            const batchLabel = batch
-              ? `${batch.batchNumber} (${batch.supplier})`
-              : "batch";
-
-            logMovement(
-              transfer.productId,
-              transfer.toLocationId,
-              "transfer_in",
-              qtyReceived,
-              `${transfer.transferNumber} · ${batchLabel}`,
-              null,
-              transfer.batchId,
-            );
-          }
-
-          transfer.discrepancyQty = shortage;
-          transfer.discrepancyUnitIds = [];
-          transfer.resolutions = [];
-        } else {
-          // Receive selected individual units at the destination.
-          unitsToReceive.forEach((u) => {
-            const newCondition =
-              state.receiveSelectedConditions[u.id] || u.condition || "New";
-
-            u.status = "Available";
-            u.condition = newCondition;
-
-            // Apply Unsellable logic based on the received condition
-            if (newCondition === "Damaged" || newCondition === "Used") {
-              u.status = "Unsellable";
-            }
-
-            u.locationId = transfer.toLocationId;
-            u.inTransitTransferId = null;
-            u.discrepancyTransferId = null;
-          });
-
-          // Keep unreceived units traceable against the original transfer.
-          missingUnitIds.forEach((uid) => {
-            const u = UNITS.find((unit) => unit.id === uid);
-
-            if (u) {
-              u.status = "Unaccounted For";
-              u.locationId = null;
+            transfer.discrepancyQty = (transfer.discrepancyQty || 0) + (item.qty - received);
+          } else {
+            // Process Scanned Units
+            state.receiveScannedUnits.forEach(uid => {
+              const u = UNITS.find(unit => unit.id === uid);
+              if (!u) return;
+              
+              const actionData = state.receiveUnitActions[uid] || { action: 'Accept' };
+              
+              if (actionData.action === 'Accept') {
+                u.status = "Available";
+                u.locationId = transfer.toLocationId;
+                logMovement(u.productId, transfer.toLocationId, "transfer_in", 1, transfer.transferNumber, u.id, u.batchId);
+              } else if (actionData.action === 'Reject') {
+                u.status = "Return Pending";
+                u.locationId = transfer.toLocationId;
+                logMovement(u.productId, transfer.toLocationId, "transfer_reject", 1, transfer.transferNumber, u.id, u.batchId);
+              }
               u.inTransitTransferId = null;
-              u.discrepancyTransferId = transfer.id;
-            }
-          });
+            });
 
-          // Log only units physically received.
-          if (unitsToReceive.length > 0) {
-            logMovement(
-              transfer.productId,
-              transfer.toLocationId,
-              "transfer_in",
-              unitsToReceive.length,
-              transfer.transferNumber,
-              null,
-              transfer.batchId,
-            );
+            // Process Missing Units
+            const missing = (item.unitIds || []).filter(id => !state.receiveScannedUnits.includes(id));
+            missing.forEach(uid => {
+              const u = UNITS.find(unit => unit.id === uid);
+              if (u) {
+                u.status = "Unaccounted For";
+                u.locationId = null; // Strip location
+                u.inTransitTransferId = null;
+                u.discrepancyTransferId = transfer.id;
+              }
+            });
+            transfer.discrepancyQty = (transfer.discrepancyQty || 0) + missing.length;
           }
+        });
 
-          transfer.discrepancyQty = missingUnitIds.length;
-          transfer.discrepancyUnitIds = missingUnitIds;
-          transfer.resolutions = [];
-        }
+        // 4. Process Unlisted Items (Excess)
+        state.receiveUnlistedUnits.forEach(tag => {
+          const unit = UNITS.find(u => u.tag === tag);
+          if (unit) {
+            unit.status = "Available";
+            unit.locationId = transfer.toLocationId;
+            logMovement(unit.productId, transfer.toLocationId, "transfer_excess", 1, transfer.transferNumber, unit.id, unit.batchId);
+          }
+        });
 
-        // Record the original receipt and discrepancy context.
+        // 5. Finalize
         transfer.receivedAt = new Date().toISOString();
         transfer.receivedBy = "You";
-        transfer.qtyReceived = qtyReceived;
-        transfer.discrepancyReason =
-          shortage > 0 ? state.receiveDiscrepancyReason.trim() : "";
+        transfer.qtyReceived = items.reduce((sum, i) => sum + (getInvProduct(i.productId).trackingType === "StockQuantity" ? (parseInt(state.receiveQuantities[i.productId]) || 0) : i.unitIds.filter(id => state.receiveScannedUnits.includes(id)).length), 0);
+        transfer.discrepancyReason = hasMissingOrShortage ? "Items missing or shorted during receipt." : "";
 
-        // Status follows from the outstanding quantity.
         syncTransferStatus(transfer);
-
         closeReceiveTransferModal();
       }
-
+    
+      
+      
       function attachTransferStockHandlers() {
         document
           .getElementById("confirmTransferBtn")
@@ -14901,6 +14993,9 @@ MOVEMENT LOG PAGE
         render();
       }
 
+
+      
+
       function commitStockQuantityRecovery() {
         const transfer = TRANSFERS.find(
           (t) => t.id === state.recoveryTransferId,
@@ -15018,19 +15113,20 @@ MOVEMENT LOG PAGE
 
 
 
-       function openReceiveTransferModal(transferId) {
+            function openReceiveTransferModal(transferId) {
         const transfer = TRANSFERS.find((t) => t.id === transferId);
         if (!transfer || transfer.status !== "In Transit") return;
 
         state.receivingTransferId = transferId;
+         state.showExcessSection = false;
         
-        // Initialize new multi-item states
-        state.receiveSelections = {};
-        state.receiveQuantities = {};
-        state.receiveConditions = {};
-        state.receiveDiscrepancyReasons = {};
+        // NEW STATE FOR SCANNING FLOW
+        state.receiveScannedUnits = []; // Array of unit IDs scanned
+        state.receiveUnitActions = {}; // { unitId: { action: 'Accept'|'Reject', reason: '' } }
+        state.receiveQuantities = {}; // { productId: qty }
+        state.receiveUnlistedUnits = []; // Array of extra unit IDs scanned
 
-        // Determine items array (handle legacy single item structure)
+        // Determine items array
         const items = transfer.items || [{
           productId: transfer.productId,
           qty: transfer.qty,
@@ -15043,20 +15139,16 @@ MOVEMENT LOG PAGE
           const product = getInvProduct(item.productId);
           if (product?.trackingType === "StockQuantity") {
             state.receiveQuantities[item.productId] = String(item.qty);
-          } else {
-            state.receiveSelections[item.productId] = item.unitIds ? [...item.unitIds] : [];
-            // Seed default conditions
-            (item.unitIds || []).forEach(uid => {
-              const unit = UNITS.find(u => u.id === uid);
-              if (unit) state.receiveConditions[uid] = unit.condition || "New";
-            });
           }
+          // We no longer auto-select units. The operator MUST scan them.
         });
 
         state.activeModal = "receive-transfer";
         render();
       }
-
+      
+      
+      
       function closeReceiveTransferModal() {
         state.receivingTransferId = null;
         state.receiveQty = "";
