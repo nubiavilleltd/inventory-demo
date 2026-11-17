@@ -10693,6 +10693,27 @@ RECEIVE STOCK MODAL
 
 
 
+      function getTransferReceiveItems(transfer) {
+        const items = transfer.items || [{
+          productId: transfer.productId,
+          qty: transfer.qty,
+          unitIds: transfer.unitIds || [],
+          batchId: transfer.batchId,
+          scannedQty: transfer.qty,
+        }];
+        if (transfer.type !== "Return") return items;
+
+        const grouped = new Map();
+        items.forEach((item) => {
+          const existing = grouped.get(item.productId) || { ...item, qty: 0, unitIds: [], batchId: null, scannedQty: 0 };
+          existing.qty += Number(item.qty || (item.unitIds || []).length || 0);
+          existing.scannedQty += Number(item.scannedQty || item.qty || (item.unitIds || []).length || 0);
+          existing.unitIds.push(...(item.unitIds || []));
+          grouped.set(item.productId, existing);
+        });
+        return [...grouped.values()];
+      }
+
       function renderReceiveTransferModal() {
         const transfer = TRANSFERS.find((t) => t.id === state.receivingTransferId);
         if (!transfer) return "";
@@ -10700,13 +10721,7 @@ RECEIVE STOCK MODAL
         const fromLoc = getLocation(transfer.fromLocationId);
         const toLoc = getLocation(transfer.toLocationId);
 
-        const items = transfer.items || [{
-          productId: transfer.productId,
-          qty: transfer.qty,
-          unitIds: transfer.unitIds || [],
-          batchId: transfer.batchId,
-          scannedQty: transfer.qty
-        }];
+        const items = getTransferReceiveItems(transfer);
 
         let bodyHtml = "";
 
@@ -12116,7 +12131,7 @@ Outstanding is always calculated from these two, never stored.
       // Total quantity resolved so far (recoveries and write-offs).
       function getTransferResolvedQty(transfer) {
         return (transfer?.resolutions || []).reduce(
-          (sum, r) => sum + Number(r.qty || 0),
+          (sum, r) => sum + (r.type === "Recovery" || r.type === "Write-off" ? Number(r.qty || 0) : 0),
           0,
         );
       }
@@ -12140,16 +12155,29 @@ Outstanding is always calculated from these two, never stored.
         return (transfer?.excessQuantities || []).filter((item) => Number(item.pendingQty || 0) > 0);
       }
 
+      function getPendingTransferRejectedUnits(transfer) {
+        return (transfer?.rejectedUnitIds || [])
+          .map((unitId) => UNITS.find((unit) => unit.id === unitId))
+          .filter((unit) => unit && unit.incidentTransferId === transfer.id && ["Return Pending", "In Transit"].includes(unit.status));
+      }
+
+      function getReturnableRejectedUnits(transfer) {
+        return getPendingTransferRejectedUnits(transfer)
+          .filter((unit) => unit.status === "Return Pending" && unit.locationId === transfer.toLocationId);
+      }
+
       function hasTransferIncident(transfer) {
         return getTransferDiscrepancyQty(transfer) > 0 ||
           (transfer?.excessUnitIds || []).length > 0 ||
-          (transfer?.excessQuantities || []).length > 0;
+          (transfer?.excessQuantities || []).length > 0 ||
+          (transfer?.rejectedUnitIds || []).length > 0;
       }
 
       function isTransferIncidentResolved(transfer) {
         return getTransferOutstanding(transfer) === 0 &&
           getPendingTransferExcessUnits(transfer).length === 0 &&
-          getPendingTransferExcessQuantities(transfer).length === 0;
+          getPendingTransferExcessQuantities(transfer).length === 0 &&
+          getPendingTransferRejectedUnits(transfer).length === 0;
       }
 
       // The ONE place that sets a transfer's status after it has been
@@ -12170,10 +12198,7 @@ Outstanding is always calculated from these two, never stored.
         const transfer = TRANSFERS.find(t => t.id === state.receivingTransferId);
         if (!transfer) return;
 
-        const items = transfer.items || [{
-          productId: transfer.productId, qty: transfer.qty, unitIds: transfer.unitIds || [],
-          batchId: transfer.batchId, scannedQty: transfer.qty
-        }];
+        const items = getTransferReceiveItems(transfer);
 
         // Recheck excess scans before changing any stock. This prevents stale or
         // invalid scans from moving reserved, unavailable, or unrelated units.
@@ -12215,27 +12240,25 @@ Outstanding is always calculated from these two, never stored.
           return excessQty ? { productId: item.productId, batchId: item.batchId, qty: excessQty, productName: product.name } : null;
         }).filter(Boolean);
         const hasExcessItems = state.receiveUnlistedUnits.length > 0 || excessQuantitySummary.length > 0;
-        const hasIncident = hasMissingOrShortage || hasExcessItems;
+        const rejectedUnits = state.receiveScannedUnits
+          .filter(id => state.receiveUnitActions[id]?.action === "Reject")
+          .map(id => UNITS.find(unit => unit.id === id))
+          .filter(Boolean);
+        const hasRejectedItems = rejectedUnits.length > 0;
+        const hasIncident = hasMissingOrShortage || hasExcessItems || hasRejectedItems;
         if (hasIncident && !recordDiscrepancy) {
-          const missingSummary = items.map(item => {
+          const missingCount = items.reduce((sum, item) => {
             const product = getInvProduct(item.productId);
             if (product?.trackingType === "StockQuantity") {
-              const missingQty = Math.max(0, Number(item.qty || 0) - (parseInt(state.receiveQuantities[item.productId], 10) || 0));
-              return missingQty ? `${product.name}: ${missingQty} short` : "";
+              return sum + Math.max(0, Number(item.qty || 0) - (parseInt(state.receiveQuantities[item.productId], 10) || 0));
             }
-            const missingTags = (item.unitIds || [])
-              .filter(id => !state.receiveScannedUnits.includes(id))
-              .map(id => UNITS.find(unit => unit.id === id)?.tag)
-              .filter(Boolean);
-            return missingTags.length ? `${product?.name || "Items"}: ${missingTags.join(", ")} missing` : "";
-          }).filter(Boolean);
-          const excessTags = state.receiveUnlistedUnits
-            .map(id => UNITS.find(unit => unit.id === id)?.tag)
-            .filter(Boolean);
+            return sum + (item.unitIds || []).filter(id => !state.receiveScannedUnits.includes(id)).length;
+          }, 0);
+          const excessCount = state.receiveUnlistedUnits.length + excessQuantitySummary.reduce((sum, item) => sum + item.qty, 0);
           const summary = [
-            ...missingSummary,
-            ...excessQuantitySummary.map(item => `${item.productName}: ${item.qty} excess unit(s)`),
-            ...(excessTags.length ? [`Excess: ${excessTags.join(", ")}`] : []),
+            ...(missingCount ? [`Missing: ${missingCount} item(s)`] : []),
+            ...(excessCount ? [`Excess: ${excessCount} item(s)`] : []),
+            ...(rejectedUnits.length ? [`Rejected: ${rejectedUnits.length} item(s)`] : []),
           ].join("\n");
           if (confirm(`Receipt differs from the manifest:\n\n${summary}\n\nConfirm receipt and create one incident for this transfer?`)) {
              return commitReceiveTransfer(true);
@@ -12285,11 +12308,32 @@ Outstanding is always calculated from these two, never stored.
               if (actionData.action === 'Accept') {
                 u.status = "Available";
                 u.locationId = transfer.toLocationId;
-                if (transfer.type === "Return") u.incidentTransferId = null;
+                if (transfer.type === "Return" && u.incidentTransferId) {
+                  const incident = TRANSFERS.find((candidate) => candidate.id === u.incidentTransferId);
+                  if (incident) {
+                    if (!Array.isArray(incident.resolutions)) incident.resolutions = [];
+                    incident.resolutions.push({
+                      id: `RES-${Date.now()}-${u.id}`,
+                      type: "Rejected Item Returned",
+                      qty: 1,
+                      locationId: transfer.toLocationId,
+                      unitIds: [u.id],
+                      note: `Returned on transfer ${transfer.transferNumber || transfer.id}.`,
+                      at: new Date().toISOString(),
+                      by: "You",
+                    });
+                  }
+                  u.incidentTransferId = null;
+                }
                 logMovement(u.productId, transfer.toLocationId, "transfer_in", 1, transfer.transferNumber, u.id, u.batchId);
               } else if (actionData.action === 'Reject') {
                 u.status = "Return Pending";
                 u.locationId = transfer.toLocationId;
+                u.incidentTransferId = transfer.id;
+                if (!Array.isArray(transfer.rejectedUnitIds)) transfer.rejectedUnitIds = [];
+                if (!transfer.rejectedUnitIds.includes(u.id)) transfer.rejectedUnitIds.push(u.id);
+                if (!transfer.rejectedUnitReasons) transfer.rejectedUnitReasons = {};
+                transfer.rejectedUnitReasons[u.id] = actionData.reason || "Rejected";
                 logMovement(u.productId, transfer.toLocationId, "transfer_reject", 1, transfer.transferNumber, u.id, u.batchId);
               }
               u.inTransitTransferId = null;
@@ -12332,6 +12376,7 @@ Outstanding is always calculated from these two, never stored.
         transfer.discrepancyReason = [
           hasMissingOrShortage ? "Items missing or shorted during receipt." : "",
           hasExcessItems ? "Unlisted items were received and require incident review." : "",
+          hasRejectedItems ? "Manifest items were rejected at receipt and require return to the source." : "",
         ].filter(Boolean).join(" ");
 
         syncTransferStatus(transfer);
@@ -12578,6 +12623,26 @@ MOVEMENT LOG PAGE
         state.inventoryTransferTab = "discrepancies";
         state.activeModal = null;
 
+        render();
+      }
+
+      function openReturnTransferForIncident(transferId) {
+        const incident = TRANSFERS.find((transfer) => transfer.id === transferId);
+        if (!incident) return;
+        const returnUnits = getReturnableRejectedUnits(incident);
+        if (!returnUnits.length) return alert("There are no rejected items awaiting return for this incident.");
+
+        state.transferDraft = {
+          modalStep: 1,
+          type: "return",
+          fromLocationId: incident.toLocationId,
+          toLocationId: incident.fromLocationId,
+          items: [],
+          notes: `Return rejected items for ${incident.transferNumber || incident.id}`,
+          returnIncidentTransferId: incident.id,
+          returnUnitIds: returnUnits.map((unit) => unit.id),
+        };
+        state.activeModal = "create-transfer";
         render();
       }
 
@@ -12953,6 +13018,41 @@ MOVEMENT LOG PAGE
             }
 
       ${(() => {
+        const rejectedUnits = (transfer.rejectedUnitIds || [])
+          .map((unitId) => UNITS.find((unitRecord) => unitRecord.id === unitId))
+          .filter(Boolean);
+        if (!rejectedUnits.length) return "";
+        const pendingRejected = getPendingTransferRejectedUnits(transfer);
+        const returnableRejected = getReturnableRejectedUnits(transfer);
+        return `
+          <div style="border:1px solid #f2dfb3; border-radius:8px; background:#fffcf5; padding:14px; margin:16px 0 20px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:4px;">
+              <div style="font-weight:bold;">Rejected Manifest Items (${pendingRejected.length} unresolved)</div>
+              ${returnableRejected.length ? `<button class="btn-primary" onclick="openReturnTransferForIncident('${escapeTransferDetailText(transfer.id)}')">Create Return Transfer</button>` : ""}
+            </div>
+            <div style="font-size:12px; color:#666; margin-bottom:10px;">Rejected items remain unresolved until they are sent back to the source and received there.</div>
+            <table style="width:100%; border-collapse:collapse; font-size:13px;">
+              <thead><tr>
+                <th style="text-align:left; padding:8px; border-bottom:2px solid #ccc;">Tag Number</th>
+                <th style="text-align:left; padding:8px; border-bottom:2px solid #ccc;">Condition</th>
+                <th style="text-align:left; padding:8px; border-bottom:2px solid #ccc;">Rejection Reason</th>
+                <th style="text-align:left; padding:8px; border-bottom:2px solid #ccc;">Status</th>
+              </tr></thead>
+              <tbody>${rejectedUnits.map((rejectedUnit) => `
+                <tr>
+                  <td style="padding:8px; border-bottom:1px solid #eee;">${escapeTransferDetailText(rejectedUnit.tag)}</td>
+                  <td style="padding:8px; border-bottom:1px solid #eee;">${escapeTransferDetailText(rejectedUnit.condition || "—")}</td>
+                  <td style="padding:8px; border-bottom:1px solid #eee;">${escapeTransferDetailText(transfer.rejectedUnitReasons?.[rejectedUnit.id] || "—")}</td>
+                  <td style="padding:8px; border-bottom:1px solid #eee;"><span class="badge ${getPendingTransferRejectedUnits(transfer).includes(rejectedUnit) ? "badge-partial" : ""}">${escapeTransferDetailText(rejectedUnit.status === "Available" ? "Returned to source" : rejectedUnit.status)}</span></td>
+                </tr>
+              `).join("")}</tbody>
+            </table>
+            ${returnableRejected.length ? `<div style="font-size:12px; color:#666; margin-top:10px;">Create a Return Stock transfer from ${escapeTransferDetailText(toLoc?.name || "the destination")} to ${escapeTransferDetailText(fromLoc?.name || "the source")}, then scan the tags being sent.</div>` : pendingRejected.length ? `<div style="font-size:12px; color:#666; margin-top:10px;">Return transfer is in transit. The incident will update when the source receives the items.</div>` : ""}
+          </div>
+        `;
+      })()}
+
+      ${(() => {
         const excessUnits = (transfer.excessUnitIds || [])
           .map((unitId) => UNITS.find((unitRecord) => unitRecord.id === unitId))
           .filter(Boolean);
@@ -13256,6 +13356,7 @@ MOVEMENT LOG PAGE
                         <th>Missing Gap</th>
                         <th>Missing Outstanding</th>
                         <th>Excess Pending</th>
+                        <th>Rejected Pending</th>
                         <th>Status</th>
                         <th>Action</th>
                       </tr>
@@ -13302,6 +13403,8 @@ MOVEMENT LOG PAGE
                             </td>
 
                             <td>${getPendingTransferExcessUnits(t).length + getPendingTransferExcessQuantities(t).reduce((sum, item) => sum + Number(item.pendingQty || 0), 0)}</td>
+
+                            <td>${getPendingTransferRejectedUnits(t).length}</td>
 
                             <td>
                               <span class="badge ${isResolved ? "" : "badge-partial"}">
@@ -14352,7 +14455,8 @@ MOVEMENT LOG PAGE
         let returnableUnits = [];
         if (t.type === "return") {
           returnableUnits = UNITS.filter(
-            (u) => u.locationId === fromLoc && u.status === "Return Pending",
+            (u) => u.locationId === fromLoc && u.status === "Return Pending" &&
+              (!Array.isArray(t.returnUnitIds) || t.returnUnitIds.includes(u.id)),
           );
         }
 
@@ -14392,7 +14496,7 @@ MOVEMENT LOG PAGE
                 <div class="row mt-12">
                   <div class="col">
                     <label>${t.type === "push" ? "From Location *" : t.type === "pull" ? "Requesting Location *" : "Returning Location *"}</label>
-                    <select onchange="
+                    <select ${t.returnIncidentTransferId ? "disabled" : ""} onchange="
                       state.transferDraft.fromLocationId=this.value; 
                       if (state.transferDraft.toLocationId === this.value) state.transferDraft.toLocationId = null;
                       state.transferDraft.items = [];
@@ -14408,7 +14512,7 @@ MOVEMENT LOG PAGE
                   </div>
                   <div class="col">
                     <label>${t.type === "push" ? "To Location *" : t.type === "pull" ? "Fulfilling Location *" : "Return To *"}</label>
-                    <select onchange="state.transferDraft.toLocationId=this.value; render();">
+                    <select ${t.returnIncidentTransferId ? "disabled" : ""} onchange="state.transferDraft.toLocationId=this.value; render();">
                       ${LOCATIONS.filter((l) => l.id !== fromLoc)
                         .map(
                           (l) =>
@@ -14428,15 +14532,29 @@ MOVEMENT LOG PAGE
                       ? `
                     <div style="padding:12px; border:1px solid #ccc; border-radius:4px; background:#f9f9f9;">
                       <div style="font-size:12px; color:#92400e; margin-bottom:8px;">
-                        💡 Scan the Return Pending items you are physically sending back from ${getLocation(fromLoc).name}.
+                        💡 ${t.returnIncidentTransferId
+                          ? `Scan the rejected items from incident ${escapeTransferDetailText(TRANSFERS.find((transfer) => transfer.id === t.returnIncidentTransferId)?.transferNumber || t.returnIncidentTransferId)} that you are physically sending back from ${escapeTransferDetailText(getLocation(fromLoc).name)}.`
+                          : `Scan the Return Pending items you are physically sending back from ${escapeTransferDetailText(getLocation(fromLoc).name)}.`}
                       </div>
                       <div style="display:flex; gap:8px; margin-bottom:8px;">
                         <input type="text" id="returnUnitScanInput" placeholder="Scan Tag or Barcode..." style="flex:1; font-size:13px;" onkeydown="if(event.key==='Enter'){event.preventDefault();handleReturnUnitScan(this.value)}">
                         <button onclick="handleReturnUnitScan(document.getElementById('returnUnitScanInput').value)">Scan</button>
                         <button onclick="simulateReturnUnitScan()" style="font-size:11px; background:#fef3c7;">Auto-Scan</button>
                       </div>
+                      ${Array.isArray(t.returnUnitIds) ? `
+                        <div style="border:1px solid #ddd; background:#fff; border-radius:4px; padding:8px; margin-bottom:8px;">
+                          <div style="font-weight:bold; font-size:12px; margin-bottom:4px;">Rejected items available for return (${t.returnUnitIds.length})</div>
+                          ${t.returnUnitIds.map((unitId) => {
+                            const unit = UNITS.find((candidate) => candidate.id === unitId);
+                            const scanned = t.items.some((item) => item.unitId === unitId);
+                            if (!unit) return "";
+                            const status = scanned ? "Scanned" : unit.status === "Return Pending" && unit.locationId === fromLoc ? "Awaiting scan" : unit.status;
+                            return `<div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:6px 2px; border-bottom:1px dashed #eee; font-size:12px;"><span>${escapeTransferDetailText(unit.tag)} · ${escapeTransferDetailText(getInvProduct(unit.productId)?.name || "Item")} · ${escapeTransferDetailText(unit.condition || "—")}</span><span style="display:flex; align-items:center; gap:8px;"><span class="badge ${scanned ? "" : "badge-partial"}" ${scanned ? 'style="background:#dcfce7; color:#166534; border-color:#166534;"' : ""}>${escapeTransferDetailText(status)}</span>${scanned ? `<button onclick="removeReturnUnitFromDraft('${escapeTransferDetailText(unit.id)}')" style="padding:2px 6px; font-size:10px; color:#b91c1c; border-color:#b91c1c;">Remove</button>` : ""}</span></div>`;
+                          }).join("")}
+                        </div>
+                      ` : ""}
                       <div style="max-height:200px; overflow-y:auto; border:1px solid #ccc; background:#fff; border-radius:4px; padding:8px;">
-                        ${t.items.length === 0
+                        ${Array.isArray(t.returnUnitIds) ? "" : t.items.length === 0
                           ? `<div class="empty-state" style="padding:12px; font-size:12px;">${returnableUnits.length ? "No items scanned yet. Scan a Return Pending tag to begin." : "No items currently flagged for return at this location."}</div>`
                           : t.items.map((item) => {
                               const unit = UNITS.find((candidate) => candidate.id === item.unitId);
@@ -14445,7 +14563,7 @@ MOVEMENT LOG PAGE
                               return `<div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 4px; border-bottom:1px dashed #eee; font-size:12px;"><span>✓ ${escapeTransferDetailText(itemProduct?.name || "Stock item")} (${escapeTransferDetailText(unit.tag)}) · ${escapeTransferDetailText(unit.condition || "—")}</span><button onclick="removeReturnUnitFromDraft('${escapeTransferDetailText(unit.id)}')" style="padding:0 6px; font-size:10px; color:#991b1b; border-color:#991b1b;">Remove</button></div>`;
                             }).join("")}
                       </div>
-                      <div style="font-size:11px; color:#666; margin-top:8px;">Scanned: ${t.items.length} of ${returnableUnits.length} Return Pending item(s)</div>
+                      <div style="font-size:11px; color:#666; margin-top:8px;">Scanned: ${t.items.length} of ${Array.isArray(t.returnUnitIds) ? t.returnUnitIds.length : returnableUnits.length} ${Array.isArray(t.returnUnitIds) ? "rejected item(s)" : "Return Pending item(s)"}</div>
                     </div>
                   `
                       : `
@@ -14515,8 +14633,8 @@ MOVEMENT LOG PAGE
             </div>
             <div class="modal-footer">
               <button onclick="state.activeModal=null; render();">Cancel</button>
-              <button class="btn-primary" ${!t.type || t.items.length === 0 ? "disabled" : ""} onclick="state.transferDraft.modalStep=2; render();">
-                ${t.type === "pull" ? "Continue to Review →" : t.type === "return" ? "Continue to Confirm →" : "Continue to Scanning →"}
+              <button class="btn-primary" ${!t.type || t.items.length === 0 ? "disabled" : ""} onclick="${t.type === "return" ? "finalizeTransferDraft()" : "state.transferDraft.modalStep=2; render();"}">
+                ${t.type === "pull" ? "Continue to Review →" : t.type === "return" ? "Create Return Transfer" : "Continue to Scanning →"}
               </button>
             </div>
           </div>
@@ -14552,6 +14670,9 @@ MOVEMENT LOG PAGE
         if (unit.locationId !== fromLoc || unit.status !== "Return Pending") {
           return alert("This item is not flagged as Return Pending at the selected location.");
         }
+        if (Array.isArray(t.returnUnitIds) && !t.returnUnitIds.includes(unit.id)) {
+          return alert("This tag is not part of the rejected items for the selected incident.");
+        }
         if (t.items.some((item) => item.unitId === unit.id)) {
           return alert("This return item has already been scanned.");
         }
@@ -14566,7 +14687,8 @@ MOVEMENT LOG PAGE
         const fromLoc = t.fromLocationId || "loc1";
         const selectedIds = new Set(t.items.map((item) => item.unitId));
         const nextUnit = UNITS.find((unit) =>
-          unit.locationId === fromLoc && unit.status === "Return Pending" && !selectedIds.has(unit.id),
+          unit.locationId === fromLoc && unit.status === "Return Pending" &&
+            (!Array.isArray(t.returnUnitIds) || t.returnUnitIds.includes(unit.id)) && !selectedIds.has(unit.id),
         );
         if (nextUnit) return handleReturnUnitScan(nextUnit.tag);
         alert("No more Return Pending items are available at this location.");
@@ -14756,9 +14878,10 @@ MOVEMENT LOG PAGE
         ? t.items.map((item) => UNITS.find((unit) => unit.id === item.unitId))
         : [];
       if (t.type === "return" && (!t.items.length || returningUnits.some((unit) =>
-        !unit || unit.status !== "Return Pending" || unit.locationId !== fromLoc
+        !unit || unit.status !== "Return Pending" || unit.locationId !== fromLoc ||
+        (unit.incidentTransferId && TRANSFERS.find((incident) => incident.id === unit.incidentTransferId)?.fromLocationId !== toLoc)
       ))) {
-        alert("One or more selected items are no longer flagged for return at this location. Refresh the selection and try again.");
+        alert("One or more selected items are no longer eligible for this return transfer. Return incident-linked items to their original source location, then try again.");
         return;
       }
 
@@ -14791,6 +14914,24 @@ MOVEMENT LOG PAGE
       });
 
       // 2. Create ONE Transfer record containing all items
+      const returnTransferItems = t.type === "return"
+        ? [...t.items.reduce((grouped, draftItem) => {
+            const unit = UNITS.find((candidate) => candidate.id === draftItem.unitId);
+            if (!unit) return grouped;
+            const existing = grouped.get(unit.productId) || {
+              productId: unit.productId,
+              qty: 0,
+              unitIds: [],
+              batchId: null,
+              scannedQty: 0,
+            };
+            existing.qty += 1;
+            existing.scannedQty += 1;
+            existing.unitIds.push(unit.id);
+            grouped.set(unit.productId, existing);
+            return grouped;
+          }, new Map()).values()]
+        : null;
       TRANSFERS.push({
         id: transferId,
         transferNumber,
@@ -14798,7 +14939,7 @@ MOVEMENT LOG PAGE
         status: t.type === 'pull' ? 'Pending Approval' : 'In Transit',
         fromLocationId: fromLoc,
         toLocationId: toLoc,
-        items: t.items.map(i => ({
+        items: returnTransferItems || t.items.map(i => ({
            productId: i.productId,
            qty: i.qty,
            unitIds: t.type === "return" ? [i.unitId] : (i.scannedUnitIds || []),
