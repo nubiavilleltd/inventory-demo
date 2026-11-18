@@ -4172,7 +4172,7 @@ DISPATCH DASHBOARD DEMO SEED
             }
 
           ${
-            o.fulfillment === "Pickup" && o.state === "confirmed"
+            o.fulfillment === "Pickup" && o.state === "confirmed" && calcOutstandingLines(o).length > 0
               ? `
         <button class="btn-primary" id="markReadyBtn">Mark as Ready for Pickup</button>
         <button class="btn-danger" id="cancelOrderBtn">Cancel Order</button>`
@@ -4799,6 +4799,15 @@ DISPATCH DASHBOARD DEMO SEED
           ?.addEventListener("click", () => {
             const o = state.order;
 
+            // Protect against stale or manually-triggered actions on an order
+            // that has already had all of its quantities handed over.
+            if (calcOutstandingLines(o).length === 0) {
+              o.state = "completed";
+              syncOrderSnapshot(o);
+              render();
+              return;
+            }
+
             // Reserve stock at the pickup location
             reserveStockForPickup(o);
 
@@ -4812,6 +4821,7 @@ DISPATCH DASHBOARD DEMO SEED
             logTimeline(
               `Marked Ready for Pickup. Expiry: ${formatDate(o.pickupExpiryDate)}`,
             );
+            syncOrderSnapshot(o);
             render();
           });
 
@@ -7899,6 +7909,10 @@ DISPATCH DASHBOARD DEMO SEED
           );
         }
 
+        // Persist the handover, fulfilment totals, status, and turnover source
+        // data together so reopening the order from the Orders list is current.
+        syncOrderSnapshot(o);
+
         // -------- 4. Show Success Screen --------
         const totalOrdered = (o.fulfilmentLines || []).reduce(
           (s, l) => s + l.ordered,
@@ -8217,6 +8231,11 @@ DISPATCH DASHBOARD DEMO SEED
                 `Partial pickup complete. ${calcOutstandingLines(o).length} line(s) still outstanding.`,
               );
             }
+
+            // The active detail view and the Orders list use separate order
+            // snapshots. Keep the list in sync after every pickup, including
+            // partial and deferred handovers.
+            syncOrderSnapshot(o);
 
             // -------- 4. Clear working state and show success screen --------
             state.collectionSelections = {};
