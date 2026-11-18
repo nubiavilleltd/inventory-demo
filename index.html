@@ -913,6 +913,10 @@
         { id: "loc3", name: "Ikeja Store", isDefaultDispatch: false },
       ];
 
+      function getStoreLocations() {
+        return LOCATIONS.filter((location) => !/warehouse/i.test(location.name));
+      }
+
       // Products now carry tracking type, sku, category, unit, tag prefix, min stock
       // NOTE: this replaces the earlier simple PRODUCTS array
       // (we will rename the old one to make migration easy)
@@ -1838,6 +1842,7 @@
         order: null,
         customer: null,
         currentPage: "order-creation",
+        ordersView: "list",
         currentScenario: "walkin",
         activeModal: null,
         editingAddressId: null,
@@ -2382,18 +2387,53 @@
         );
 
         // Deep-copy the items snapshot so later mutations don't corrupt history
-        const items = (event.items || []).map((item) => ({
-          productId: item.productId,
-          name: item.name,
-          qty: item.qty,
-          tags: item.tags ? [...item.tags] : [],
-          trackingType: item.trackingType,
-        }));
+        const orderSubtotal = (order.items || []).reduce((sum, item) =>
+          sum + (Number(item.unitPrice) || getProduct(item.productId)?.price || 0) * Number(item.qty || 0), 0);
+        const discountFactor = orderSubtotal > 0
+          ? Math.max(0, (orderSubtotal - calcTotals(order).discount) / orderSubtotal)
+          : 1;
+        const items = (event.items || []).map((item) => {
+          const orderItem = (order.items || []).find((line) => line.productId === item.productId);
+          const unitPrice = Number(orderItem?.unitPrice) || getProduct(item.productId)?.price || 0;
+          const eventLocationId = event.locationId
+            || (event.location ? LOCATIONS.find((location) => location.name === event.location)?.id : null)
+            || null;
+          let sourceAllocations = Array.isArray(item.locationAllocations) && item.locationAllocations.length
+            ? item.locationAllocations.map((allocation) => ({
+                locationId: allocation.locationId || null,
+                qty: Number(allocation.qty) || 0,
+              }))
+            : [];
+          if (!sourceAllocations.length && item.trackingType === "Individual" && item.tags?.length) {
+            const unitSources = new Map();
+            item.tags.forEach((tag) => {
+              const unit = UNITS.find((candidate) => candidate.tag === tag);
+              const locationId = unit?.locationId || eventLocationId || null;
+              unitSources.set(locationId, (unitSources.get(locationId) || 0) + 1);
+            });
+            sourceAllocations = [...unitSources.entries()].map(([locationId, qty]) => ({ locationId, qty }));
+          }
+          if (!sourceAllocations.length) {
+            sourceAllocations = [{ locationId: eventLocationId, qty: Number(item.qty) || 0 }];
+          }
+          return {
+            productId: item.productId,
+            name: item.name,
+            qty: item.qty,
+            unitPrice,
+            netUnitPrice: unitPrice * discountFactor,
+            locationAllocations: sourceAllocations,
+            tags: item.tags ? [...item.tags] : [],
+            trackingType: item.trackingType,
+          };
+        });
 
         order.fulfilmentHistory.push({
           timestamp: new Date().toISOString(),
           type: event.type, // 'Pickup' | 'Delivery'
           location: event.location || null, // e.g., "VI Store" or "Main Warehouse"
+          locationId: event.locationId || (event.location ? LOCATIONS.find((location) => location.name === event.location)?.id : null) || null,
+          salesStoreId: order.salesStoreId || null,
           handler: event.handler || {},
           items,
           remainingAfter: Math.max(
@@ -2545,6 +2585,7 @@ DISPATCH DASHBOARD DEMO SEED
             orderNumber,
             invoiceNumber,
             customerId: customer.id,
+            salesStoreId: "loc1",
             fulfillment: "Delivery",
             timing: "Scheduled",
             deliveryMode: seed.deliveryMode,
@@ -2618,6 +2659,7 @@ DISPATCH DASHBOARD DEMO SEED
           orderNumber: genNum("ORD"),
           invoiceNumber: null,
           customerId: customer.id,
+          salesStoreId: "loc1",
           fulfillment: s.fulfillment,
           pickupLocation: s.pickupLocation || "VI Store",
           scheduledDate,
@@ -3151,7 +3193,102 @@ DISPATCH DASHBOARD DEMO SEED
         }
       }
 
+      function buildOrderTurnoverAllocation(order, periodStart = null) {
+        const lines = new Map();
+        let salesStoreId = order.salesStoreId || null;
+        let lastHandover = null;
+
+        (order.fulfilmentHistory || []).forEach((event) => {
+          const timestamp = new Date(event.timestamp);
+          if (!Number.isFinite(timestamp.getTime()) || (periodStart && timestamp < periodStart)) return;
+          lastHandover = !lastHandover || timestamp > lastHandover ? timestamp : lastHandover;
+          salesStoreId = event.salesStoreId || salesStoreId;
+
+          (event.items || []).forEach((item) => {
+            const qty = Number(item.qty) || 0;
+            if (qty <= 0) return;
+            const hasNetUnitPrice = item.netUnitPrice !== null
+              && item.netUnitPrice !== undefined
+              && Number.isFinite(Number(item.netUnitPrice));
+            const unitValue = hasNetUnitPrice
+              ? Number(item.netUnitPrice)
+              : Number(item.unitPrice) || getProduct(item.productId)?.price || 0;
+            if (unitValue <= 0) return;
+
+            const key = item.productId || item.name;
+            const line = lines.get(key) || {
+              productId: item.productId,
+              name: item.name || getProduct(item.productId)?.name || "Item",
+              fulfilledQty: 0,
+              netValue: 0,
+              sources: new Map(),
+            };
+            line.fulfilledQty += qty;
+            line.netValue += qty * unitValue;
+
+            const fallbackLocationId = event.locationId
+              || LOCATIONS.find((location) => location.name === event.location)?.id
+              || null;
+            const allocations = Array.isArray(item.locationAllocations) && item.locationAllocations.length
+              ? item.locationAllocations
+              : [{ locationId: fallbackLocationId, qty }];
+            let remainingQty = qty;
+            allocations.forEach((allocation) => {
+              const allocated = Math.min(remainingQty, Math.max(0, Number(allocation.qty) || 0));
+              if (!allocated) return;
+              const locationId = allocation.locationId || "unrecorded";
+              line.sources.set(locationId, (line.sources.get(locationId) || 0) + allocated);
+              remainingQty -= allocated;
+            });
+            if (remainingQty > 0) {
+              line.sources.set("unrecorded", (line.sources.get("unrecorded") || 0) + remainingQty);
+            }
+            lines.set(key, line);
+          });
+        });
+
+        const itemLines = [...lines.values()].map((line) => {
+          const salesCredit = line.netValue * 0.6;
+          const fulfilmentCredit = line.netValue * 0.4;
+          const sourceQty = [...line.sources.values()].reduce((sum, qty) => sum + qty, 0);
+          const sourceCredits = [...line.sources.entries()].map(([locationId, qty]) => ({
+            locationId,
+            qty,
+            amount: sourceQty > 0 ? fulfilmentCredit * qty / sourceQty : 0,
+          }));
+          const orderedQty = Number(order.items?.find((item) => item.productId === line.productId)?.qty) || line.fulfilledQty;
+          return { ...line, orderedQty, salesCredit, fulfilmentCredit, sourceCredits };
+        });
+
+        const credits = new Map();
+        const addCredit = (locationId, kind, amount) => {
+          const key = locationId || "unrecorded";
+          const row = credits.get(key) || { sales: 0, fulfilment: 0 };
+          row[kind] += amount;
+          credits.set(key, row);
+        };
+        itemLines.forEach((line) => {
+          addCredit(salesStoreId, "sales", line.salesCredit);
+          line.sourceCredits.forEach((source) => addCredit(source.locationId, "fulfilment", source.amount));
+        });
+
+        return {
+          orderNumber: order.orderNumber,
+          salesStoreId,
+          lastHandover,
+          lines: itemLines,
+          itemValue: itemLines.reduce((sum, line) => sum + line.netValue, 0),
+          salesCredit: itemLines.reduce((sum, line) => sum + line.salesCredit, 0),
+          fulfilmentCredit: itemLines.reduce((sum, line) => sum + line.fulfilmentCredit, 0),
+          credits,
+        };
+      }
+
       function renderOrdersList(c) {
+        if (state.ordersView === "turnover") {
+          renderSalesTurnover(c);
+          return;
+        }
         const totalOrders = ORDERS.length;
         const pendingDispatch = ORDERS.filter(
           (o) => o.state === "confirmed" && o.fulfillment === "Delivery",
@@ -3174,9 +3311,14 @@ DISPATCH DASHBOARD DEMO SEED
         <h2 style="font-size:20px;">Orders</h2>
         <div style="font-size:12px; color:#555;">Manage customer orders, dispatch, billing and payments</div>
       </div>
-          <button class="btn-primary" onclick="state.activeTab='orders'; state.currentPage='order-creation'; state.currentScenario='walkin'; render();">
+          <button class="btn-primary" onclick="startNewOrder();">
         + New Order
       </button>
+    </div>
+
+    <div class="toggle-group" style="margin:0 0 14px;">
+      <button class="toggle-btn active" onclick="state.ordersView='list'; render();">Orders</button>
+      <button class="toggle-btn" onclick="state.ordersView='turnover'; render();">Sales Turnover</button>
     </div>
 
     <div class="row">
@@ -3247,9 +3389,119 @@ DISPATCH DASHBOARD DEMO SEED
   `;
       }
 
+      function renderSalesTurnover(c) {
+        const period = state.turnoverPeriod || "all";
+        const now = new Date();
+        const periodStart = period === "month"
+          ? new Date(now.getFullYear(), now.getMonth(), 1)
+          : period === "30days"
+            ? new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+            : null;
+        const totals = new Map();
+        const selectedLocationId = state.turnoverLocationId || "all";
+
+        const turnoverOrders = new Map();
+        [...ORDERS, ...(state.dispatchPool || []), ...(state.inTransitOrders || []), ...(state.trip?.orders || [])]
+          .forEach((order) => {
+            if (order?.orderNumber) turnoverOrders.set(order.orderNumber, order);
+          });
+
+        const entries = [...turnoverOrders.values()]
+          .map((order) => ({ order, allocation: buildOrderTurnoverAllocation(order, periodStart) }))
+          .filter(({ allocation }) => allocation.itemValue > 0)
+          .filter(({ allocation }) => selectedLocationId === "all" || allocation.credits.has(selectedLocationId));
+
+        entries.forEach(({ order, allocation }) => {
+          allocation.credits.forEach((credit, id) => {
+            const row = totals.get(id) || { sales: 0, fulfilment: 0, orders: new Set() };
+            row.sales += credit.sales;
+            row.fulfilment += credit.fulfilment;
+            row.orders.add(order.orderNumber);
+            totals.set(id, row);
+          });
+        });
+
+        const fulfilledSales = entries.reduce((sum, entry) => sum + entry.allocation.itemValue, 0);
+        const salesCredit = entries.reduce((sum, entry) => sum + entry.allocation.salesCredit, 0);
+        const fulfilmentCredit = entries.reduce((sum, entry) => sum + entry.allocation.fulfilmentCredit, 0);
+        const contributingOrders = entries.length;
+        const rows = [...totals.entries()].map(([id, row]) => ({
+          id,
+          name: id === "unrecorded" ? "Not recorded" : getLocation(id)?.name || "Other location",
+          ...row,
+        })).sort((a, b) => a.name.localeCompare(b.name));
+        const displayRows = rows;
+
+        c.innerHTML = `
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+            <div><h2 style="font-size:20px;">Orders</h2><div style="font-size:12px; color:#555;">Sales turnover allocation by store</div></div>
+            <button class="btn-primary" onclick="startNewOrder();">+ New Order</button>
+          </div>
+          <div class="toggle-group" style="margin:0 0 14px;">
+            <button class="toggle-btn" onclick="state.ordersView='list'; render();">Orders</button>
+            <button class="toggle-btn active" onclick="state.ordersView='turnover'; render();">Sales Turnover</button>
+          </div>
+          <div class="row" style="align-items:end; margin-bottom:14px;">
+            <div class="col" style="max-width:240px;"><label>Period</label>
+              <select id="turnoverPeriodSelect">
+                <option value="all" ${period === "all" ? "selected" : ""}>All time</option>
+                <option value="month" ${period === "month" ? "selected" : ""}>This month</option>
+                <option value="30days" ${period === "30days" ? "selected" : ""}>Last 30 days</option>
+              </select>
+            </div>
+            <div class="col" style="max-width:280px;"><label>Location / Store involved</label>
+              <select id="turnoverLocationSelect">
+                <option value="all" ${selectedLocationId === "all" ? "selected" : ""}>All locations</option>
+                ${LOCATIONS.map((location) => `<option value="${location.id}" ${selectedLocationId === location.id ? "selected" : ""}>${location.name}</option>`).join("")}
+              </select>
+            </div>
+          </div>
+          <div class="row">
+            <div class="col"><div class="card" style="text-align:center;"><div style="font-size:11px;color:#555;">Fulfilled item sales</div><strong style="font-size:21px;">${money(fulfilledSales)}</strong></div></div>
+            <div class="col"><div class="card" style="text-align:center;"><div style="font-size:11px;color:#555;">Sales Store share (60%)</div><strong style="font-size:21px;">${money(salesCredit)}</strong></div></div>
+            <div class="col"><div class="card" style="text-align:center;"><div style="font-size:11px;color:#555;">Supplying Store share (40%)</div><strong style="font-size:21px;">${money(fulfilmentCredit)}</strong></div></div>
+            <div class="col"><div class="card" style="text-align:center;"><div style="font-size:11px;color:#555;">Orders with fulfilment</div><strong style="font-size:21px;">${contributingOrders}</strong></div></div>
+          </div>
+          <div class="card" style="padding:0;">
+            <table><thead><tr><th style="padding-left:12px;">Store</th><th>Sales share (60%)</th><th>Fulfilment share (40%)</th><th>Total credited</th><th>Orders</th></tr></thead>
+              <tbody>${displayRows.length ? displayRows.map((row) => `<tr><td style="padding-left:12px;font-weight:bold;">${row.name}</td><td>${money(row.sales)}</td><td>${money(row.fulfilment)}</td><td><strong>${money(row.sales + row.fulfilment)}</strong></td><td>${row.orders.size}</td></tr>`).join("") : `<tr><td colspan="5" style="text-align:center;padding:24px;color:#666;">No fulfilled item sales recorded for this period and location.</td></tr>`}</tbody>
+            </table>
+          </div>
+          <h3 style="margin:18px 0 8px;">Order-level allocation</h3>
+          <div class="card" style="padding:0;overflow-x:auto;">
+            <table><thead><tr><th style="padding-left:12px;">Order</th><th>Last handover</th><th>Sales Store</th><th>Net item value</th><th>Sales share (60%)</th><th>Delivery share by location (40%)</th><th>Action</th></tr></thead>
+              <tbody>${entries.length ? entries.slice().sort((a, b) => (b.allocation.lastHandover || 0) - (a.allocation.lastHandover || 0)).map(({ order, allocation }) => {
+                const supplierSummary = [...allocation.credits.entries()]
+                  .filter(([id, credit]) => credit.fulfilment > 0)
+                  .map(([id, credit]) => `${id === "unrecorded" ? "Not recorded" : getLocation(id)?.name || "Other location"}: ${money(credit.fulfilment)}`)
+                  .join("; ") || "—";
+                return `<tr><td style="padding-left:12px;font-weight:bold;">${allocation.orderNumber}</td><td>${allocation.lastHandover ? formatDate(allocation.lastHandover.toISOString().split("T")[0]) : "—"}</td><td>${allocation.salesStoreId ? getLocation(allocation.salesStoreId)?.name || "Other location" : "Not recorded"}</td><td>${money(allocation.itemValue)}</td><td>${money(allocation.salesCredit)}</td><td>${supplierSummary}</td><td><button onclick="loadOrderForViewing('${allocation.orderNumber}')" style="font-size:11px;padding:2px 8px;">View Order</button></td></tr>`;
+              }).join("") : `<tr><td colspan="7" style="text-align:center;padding:24px;color:#666;">No fulfilled item sales recorded for this period and location.</td></tr>`}</tbody>
+            </table>
+          </div>
+          <div style="font-size:12px;color:#666;margin-top:8px;">Turnover uses fulfilled net item value. The Sales Store receives 60%; each supplying location receives a share of the 40% delivery credit based on the quantity it supplied for each product. Delivery fees are excluded. A location filter shows orders involving that location and all locations credited by those orders.</div>
+        `;
+        document.getElementById("turnoverPeriodSelect")?.addEventListener("change", (event) => {
+          state.turnoverPeriod = event.target.value;
+          render();
+        });
+        document.getElementById("turnoverLocationSelect")?.addEventListener("change", (event) => {
+          state.turnoverLocationId = event.target.value;
+          render();
+        });
+      }
+
+      function startNewOrder() {
+        state.activeTab = "orders";
+        state.isEditing = false;
+        initScenario("walkin");
+        render();
+      }
+
       // Helper to load an order from the history into the active state
       function loadOrderForViewing(orderNumber) {
-        const order = ORDERS.find((o) => o.orderNumber === orderNumber);
+        const orderSources = [...ORDERS, ...(state.dispatchPool || []), ...(state.inTransitOrders || []), ...(state.trip?.orders || [])];
+        const order = orderSources.find((o) => o.orderNumber === orderNumber);
         if (!order) return;
 
         // Deep copy so we don't accidentally mutate the global list directly
@@ -3301,6 +3553,16 @@ DISPATCH DASHBOARD DEMO SEED
             <button class="toggle-btn ${o.fulfillment === "Pickup" ? "active" : ""}" data-fulfillment="Pickup" ${locked ? "disabled" : ""}>Pickup</button>
             <button class="toggle-btn ${o.fulfillment === "Delivery" ? "active" : ""}" data-fulfillment="Delivery" ${locked ? "disabled" : ""}>Delivery</button>
           </div>
+        </div>
+      </div>
+
+      <div class="row mt-8">
+        <div class="col">
+          <label>Sales Store *</label>
+          <select id="salesStoreSelect" ${locked ? "disabled" : ""}>
+            ${getStoreLocations().map((location) => `<option value="${location.id}" ${(o.salesStoreId || getStoreLocations()[0]?.id) === location.id ? "selected" : ""}>${location.name}</option>`).join("")}
+          </select>
+          <div style="font-size:11px; color:#666; margin-top:4px;">Demo: choose the store capturing this order. In the live app, this will come from the signed-in user’s store.</div>
         </div>
       </div>
 
@@ -3541,6 +3803,7 @@ DISPATCH DASHBOARD DEMO SEED
           cust = state.customer;
         if (!o) return;
         const t = calcTotals(o);
+        const turnoverAllocation = buildOrderTurnoverAllocation(o);
 
         c.innerHTML = `
     <div class="card">
@@ -3552,6 +3815,7 @@ DISPATCH DASHBOARD DEMO SEED
         <span class="badge ${stateBadge(o)}">${stateLabel(o)}</span>
       </div>
           <div class="row mt-8">
+        <div class="col"><label>Sales Store</label><strong>${getLocation(o.salesStoreId)?.name || "Not recorded"}</strong></div>
                 <div class="col">
           <label>Invoice</label>
           <strong style="${o.invoiceStatus === "voided" ? "text-decoration:line-through; color:#888;" : ""}">${o.invoiceNumber || "—"}</strong>
@@ -3695,6 +3959,32 @@ DISPATCH DASHBOARD DEMO SEED
         }
         <div class="summary-row ${t.outstanding > 0 ? "red" : "green"}"><span>Amount Due</span><span>${money(t.outstanding)}</span></div>
       </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Sales Turnover Allocation</div>
+      <div style="font-size:12px;color:#666;margin-bottom:8px;">Only fulfilled quantities are allocated. ${getLocation(turnoverAllocation.salesStoreId)?.name || "Sales Store not recorded"} receives 60% of fulfilled net item value; the 40% delivery share is split among supplying locations by quantity.</div>
+      ${turnoverAllocation.lines.length ? `
+        <div style="overflow-x:auto;">
+          <table>
+            <thead><tr><th>Product</th><th>Fulfilled / Ordered</th><th>Net value fulfilled</th><th>Sales share (60%)</th><th>Delivery share by supplying location (40%)</th></tr></thead>
+            <tbody>
+              ${o.items.map((item) => {
+                const product = getProduct(item.productId);
+                const line = turnoverAllocation.lines.find((entry) => entry.productId === item.productId);
+                const fulfilledQty = line?.fulfilledQty || 0;
+                const pendingQty = Math.max(0, Number(item.qty) - fulfilledQty);
+                const sourceBreakdown = line?.sourceCredits.map((source) => {
+                  const locationName = source.locationId === "unrecorded" ? "Not recorded" : getLocation(source.locationId)?.name || "Other location";
+                  return `<div>${locationName}: ${source.qty} unit(s) · ${money(source.amount)}</div>`;
+                }).join("") || "Pending fulfilment";
+                return `<tr><td>${product?.name || item.productId}</td><td>${fulfilledQty} / ${item.qty}${pendingQty ? ` <span style="color:#92400e;">(${pendingQty} pending)</span>` : ""}</td><td>${money(line?.netValue || 0)}</td><td>${money(line?.salesCredit || 0)}</td><td>${sourceBreakdown}</td></tr>`;
+              }).join("")}
+            </tbody>
+            <tfoot><tr style="font-weight:bold;"><td>Order total</td><td></td><td>${money(turnoverAllocation.itemValue)}</td><td>${money(turnoverAllocation.salesCredit)}</td><td>${money(turnoverAllocation.fulfilmentCredit)}</td></tr></tfoot>
+          </table>
+        </div>
+      ` : `<div style="padding:12px;color:#666;">No items have been handed over yet, so no turnover has been allocated.</div>`}
     </div>
 
     ${
@@ -4203,6 +4493,10 @@ DISPATCH DASHBOARD DEMO SEED
       /* ============ HANDLERS: ORDER CREATION ============ */
       function attachOrderCreationHandlers() {
         const o = state.order;
+        document.getElementById("salesStoreSelect")?.addEventListener("change", (e) => {
+          state.order.salesStoreId = e.target.value;
+        });
+
         document
           .getElementById("customerSelect")
           ?.addEventListener("change", (e) => {
@@ -4578,6 +4872,7 @@ DISPATCH DASHBOARD DEMO SEED
               orderNumber: genNum("ORD"),
               invoiceNumber: null,
               customerId: cust.id,
+              salesStoreId: "loc1",
               fulfillment: "Pickup",
               pickupLocation: "VI Store",
               scheduledDate: todayISO(),
@@ -7562,6 +7857,7 @@ DISPATCH DASHBOARD DEMO SEED
               type: "Pickup",
               location:
                 getLocation(o.fulfilmentLocationId)?.name || o.pickupLocation,
+              locationId: o.fulfilmentLocationId || LOCATIONS.find((location) => location.name === o.pickupLocation)?.id || null,
               handler: isDeferred
                 ? {
                     name: null,
@@ -7862,6 +8158,7 @@ DISPATCH DASHBOARD DEMO SEED
                   location: o.fulfilmentLocationId
                     ? getLocation(o.fulfilmentLocationId)?.name
                     : o.pickupLocation,
+                  locationId: o.fulfilmentLocationId || LOCATIONS.find((location) => location.name === o.pickupLocation)?.id || null,
                   handler: isDeferred
                     ? {
                         name: null,
@@ -8778,6 +9075,8 @@ DISPATCH WIZARD HANDLERS
 
           recordFulfilmentEvent(o, {
             type: "Delivery",
+            location: getLocation(w.dispatchLocationId)?.name || null,
+            locationId: w.dispatchLocationId || null,
             handler:
               w.deliveryMode === "Company Fleet"
                 ? { driver: w.driver, vehicle: w.vehicle }
@@ -17809,6 +18108,8 @@ TRIP PAGE (Batch Dispatch)
 
             recordFulfilmentEvent(order, {
               type: "Delivery",
+              location: getLocation(trip.dispatchLocationId)?.name || null,
+              locationId: trip.dispatchLocationId || null,
               handler:
                 trip.mode === "Company Fleet"
                   ? { driver: trip.driver, vehicle: trip.vehicle }
