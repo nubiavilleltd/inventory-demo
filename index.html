@@ -1977,7 +1977,6 @@
         writeOffTransferId: null,
         writeOffQty: "",
         writeOffSelectedUnits: [],
-        writeOffScanInput: "",
         writeOffReason: "",
         excessResolutionTransferId: null,
         excessResolutionAction: null,
@@ -2854,13 +2853,6 @@ DISPATCH DASHBOARD DEMO SEED
             "recoveryScanInput",
           );
           if (recoveryScanInput) recoveryScanInput.focus();
-        }
-
-        if (state.activeModal === "transfer-write-off") {
-          const writeOffScanInput = document.getElementById(
-            "writeOffScanInput",
-          );
-          if (writeOffScanInput) writeOffScanInput.focus();
         }
 
         if (state.activeModal === "picked-up-by") {
@@ -9360,7 +9352,9 @@ INVENTORY LIST PAGE
         const conditionCount = (condition) => UNITS.filter((unit) => (unit.condition || "New") === condition).length;
         const writeOffCount = allRows.filter((row) => row.status === "Written Off").reduce((sum, row) => sum + row.qty, 0);
         const locations = [...new Set(UNITS.map((unit) => unit.locationId).filter(Boolean))];
-        const statuses = [...new Set(allRows.map((row) => row.status))].sort();
+        const statuses = [...new Set(allRows.map((row) => row.status))]
+          .filter((status) => !["Removed", "Unsellable"].includes(status))
+          .sort();
         const clearFilters = "state.inventoryCategoryFilters = { search: '', condition: 'All', status: 'All', location: 'All' }; render();";
 
         c.innerHTML = `
@@ -9859,7 +9853,7 @@ INVENTORY LIST PAGE
                 <label>Status</label>
                 <select onchange="state.inventoryFilters.status = this.value; render();">
                   <option value="All" ${state.inventoryFilters.status === "All" ? "selected" : ""}>All</option>
-                  ${["Available", "Reserved", "Sold", "Removed", "Unaccounted For", "Unsellable", "Incident Pending", "Return Pending", "In Transit", "Written Off"].map((st) => `<option value="${st}" ${state.inventoryFilters.status === st ? "selected" : ""}>${st}</option>`).join("")}
+                  ${["Available", "Reserved", "Sold", "Unaccounted For", "Incident Pending", "Return Pending", "In Transit", "Written Off"].map((st) => `<option value="${st}" ${state.inventoryFilters.status === st ? "selected" : ""}>${st}</option>`).join("")}
                 </select>
               </div>
               <div>
@@ -10195,25 +10189,6 @@ INVENTORY LIST PAGE
           if (!row) return 0;
           return Math.max(0, row.onHand - (row.reserved || 0));
         }
-      }
-
-      // Get the oldest N Available units at a location (FIFO).
-      // Excludes soft-reserved units.
-      function getTransferCandidates(productId, locationId, qty) {
-        return UNITS.filter(
-          (u) =>
-            u.productId === productId &&
-            u.locationId === locationId &&
-            u.status === "Available" &&
-            !u.softReservedFor,
-        )
-          .sort((a, b) => {
-            if (a.receivedDate !== b.receivedDate)
-              return a.receivedDate < b.receivedDate ? -1 : 1;
-            return a.tag < b.tag ? -1 : 1;
-          })
-          .slice(0, qty)
-          .map((u) => u.id);
       }
 
       // Execute the transfer. Assumes validation already happened.
@@ -12925,22 +12900,9 @@ Outstanding is always calculated from these two, never stored.
           const alt = LOCATIONS.find((l) => l.id !== fromId);
           state.transferToId = alt ? alt.id : null;
         }
-        // Reset quantity/units — the availability changed
+        // Reset quantity and manual scans when the source changes.
         state.transferQty = "";
         state.transferSelectedUnits = [];
-        // Re-seed if individual
-        const product = getInvProduct(state.inventoryProductId);
-        if (product && product.trackingType === "Individual") {
-          const avail = getTransferableStock(product.id, fromId);
-          if (avail > 0) {
-            state.transferQty = String(Math.min(1, avail));
-            state.transferSelectedUnits = getTransferCandidates(
-              product.id,
-              fromId,
-              1,
-            );
-          }
-        }
         render();
       }
 
@@ -12969,23 +12931,9 @@ Outstanding is always calculated from these two, never stored.
       }
 
       function onTransferQtyChange(rawValue) {
-        const qty = Math.max(0, parseInt(rawValue, 10) || 0);
         state.transferQty = rawValue;
-        // Changing qty invalidates any manual unit selection — re-seed FIFO
+        // Changing a stock quantity never selects individual units.
         state.transferChangingUnitsFor = false;
-        const product = getInvProduct(state.inventoryProductId);
-        if (product && product.trackingType === "Individual") {
-          const available = getTransferableStock(
-            product.id,
-            state.transferFromId,
-          );
-          const cappedQty = Math.min(qty, available);
-          state.transferSelectedUnits = getTransferCandidates(
-            product.id,
-            state.transferFromId,
-            cappedQty,
-          );
-        }
         render();
       }
 
@@ -14568,7 +14516,6 @@ MOVEMENT LOG PAGE
           product.trackingType === "StockQuantity" ? String(outstanding) : "";
 
         state.writeOffSelectedUnits = [];
-        state.writeOffScanInput = "";
         state.writeOffReason = "";
 
         state.activeModal = "transfer-write-off";
@@ -14580,7 +14527,6 @@ MOVEMENT LOG PAGE
         state.writeOffTransferId = null;
         state.writeOffQty = "";
         state.writeOffSelectedUnits = [];
-        state.writeOffScanInput = "";
         state.writeOffReason = "";
 
         // Close the modal and reveal the discrepancy details page.
@@ -14611,77 +14557,32 @@ MOVEMENT LOG PAGE
         });
       }
 
-      function handleWriteOffScan(value) {
+      function toggleWriteOffUnit(unitId, isSelected) {
         const transfer = TRANSFERS.find(
           (item) => item.id === state.writeOffTransferId,
         );
         if (!transfer) return;
-
-        const tag = String(value || "").trim().toUpperCase();
-        if (!tag) return;
-
-        const unit = UNITS.find(
-          (unitRecord) => String(unitRecord.tag || "").toUpperCase() === tag,
-        );
-        if (!unit) {
-          alert(`Tag "${tag}" was not found.`);
-          return;
-        }
 
         const eligibleIds = new Set(
           getEligibleWriteOffUnits(transfer).map((unitRecord) => unitRecord.id),
         );
-
-        if (!eligibleIds.has(unit.id)) {
-          alert("This tag is not eligible for write-off on this discrepancy.");
+        if (!eligibleIds.has(unitId)) {
+          alert("This unit is no longer outstanding on this discrepancy.");
           return;
         }
 
-        const selected = state.writeOffSelectedUnits || [];
-        if (selected.includes(unit.id)) {
-          alert("This tag has already been scanned.");
-          return;
+        const selected = new Set(state.writeOffSelectedUnits || []);
+        if (isSelected) {
+          if (!selected.has(unitId) && selected.size >= getTransferOutstanding(transfer)) {
+            alert(`You can write off up to ${getTransferOutstanding(transfer)} unit(s).`);
+            return;
+          }
+          selected.add(unitId);
+        } else {
+          selected.delete(unitId);
         }
 
-        const outstanding = getTransferOutstanding(transfer);
-        if (selected.length >= outstanding) {
-          alert(`You can scan up to ${outstanding} unit(s) to write off.`);
-          return;
-        }
-
-        state.writeOffSelectedUnits = [...selected, unit.id];
-        state.writeOffScanInput = "";
-        render();
-      }
-
-      function simulateWriteOffScan() {
-        const transfer = TRANSFERS.find(
-          (item) => item.id === state.writeOffTransferId,
-        );
-        if (!transfer) return;
-
-        const selected = state.writeOffSelectedUnits || [];
-        if (selected.length >= getTransferOutstanding(transfer)) {
-          alert("The outstanding discrepancy limit has been reached.");
-          return;
-        }
-
-        const nextUnit = getEligibleWriteOffUnits(transfer).find(
-          (unitRecord) => !selected.includes(unitRecord.id),
-        );
-        if (!nextUnit) {
-          alert("No more eligible units are available to write off.");
-          return;
-        }
-
-        handleWriteOffScan(nextUnit.tag);
-      }
-
-      function removeWriteOffScan(unitId) {
-        state.writeOffSelectedUnits = (state.writeOffSelectedUnits || []).filter(
-          (selectedId) => selectedId !== unitId,
-        );
-
+        state.writeOffSelectedUnits = [...selected];
         render();
       }
 
@@ -15848,7 +15749,7 @@ MOVEMENT LOG PAGE
       <div style="margin-top:16px;">
 
         <label>
-          Scan units to write off *
+          Select units to write off *
         </label>
 
         <div style="
@@ -15857,22 +15758,7 @@ MOVEMENT LOG PAGE
           margin-top:5px;
           margin-bottom:10px;
         ">
-          Scan the exact units that have been confirmed as
-          unrecoverable.
-        </div>
-
-        <div style="display:flex;gap:8px;margin-top:8px;">
-          <input
-            id="writeOffScanInput"
-            type="text"
-            placeholder="Scan Tag or Barcode..."
-            value="${escapeTransferDetailText(state.writeOffScanInput || "")}" 
-            style="flex:1;"
-            oninput="state.writeOffScanInput = this.value"
-            onkeydown="if(event.key==='Enter'){event.preventDefault();handleWriteOffScan(this.value)}"
-          >
-          <button onclick="handleWriteOffScan(document.getElementById('writeOffScanInput').value)">Scan</button>
-          <button style="background:#fef3c7;" onclick="simulateWriteOffScan()">Auto-Scan</button>
+          Choose the outstanding tagged units confirmed as unrecoverable.
         </div>
 
         <div style="
@@ -15885,19 +15771,15 @@ MOVEMENT LOG PAGE
           background:#f3f4f6;
         ">
 
-          ${
-            selectedUnitIds.length === 0
+          ${eligibleUnits.length === 0
               ? `
               <div class="empty-state">
-                ${eligibleUnits.length === 0
-                  ? "No units are eligible for write-off."
-                  : "No units scanned yet. Scan a tag to begin."}
+                No outstanding units are eligible for write-off.
               </div>
             `
-              : selectedUnitIds
-                  .map((unitId) => {
-                    const unitRecord = eligibleUnits.find((item) => item.id === unitId);
-                    if (!unitRecord) return "";
+              : eligibleUnits
+                  .map((unitRecord) => {
+                    const isSelected = selectedUnitIds.includes(unitRecord.id);
                     return `
                   <div style="
                     display:flex;
@@ -15907,6 +15789,7 @@ MOVEMENT LOG PAGE
                     border-bottom:1px dashed #ddd;
                     font-size:12px;
                   ">
+                    <input type="checkbox" ${isSelected ? "checked" : ""} onchange="toggleWriteOffUnit('${escapeTransferDetailText(unitRecord.id)}', this.checked)" aria-label="Select ${escapeTransferDetailText(unitRecord.tag)} to write off">
                     <span style="flex:1;font-weight:bold;">
                       ${escapeTransferDetailText(unitRecord.tag)}
                     </span>
@@ -15918,7 +15801,6 @@ MOVEMENT LOG PAGE
                     <span style="font-size:11px;color:#888;">
                       ${formatDate(unitRecord.receivedDate)}
                     </span>
-                    <button onclick="removeWriteOffScan('${escapeTransferDetailText(unitRecord.id)}')" style="padding:0 6px;font-size:10px;color:#991b1b;border-color:#991b1b;">Remove</button>
                   </div>
                 `;
                   })
@@ -15928,7 +15810,7 @@ MOVEMENT LOG PAGE
         </div>
 
         <div style="margin-top:8px;font-size:12px;">
-          Scanned units: ${selectedUnitIds.length} / ${outstanding}
+          Selected units: ${selectedUnitIds.length} / ${outstanding}
         </div>
 
       </div>
