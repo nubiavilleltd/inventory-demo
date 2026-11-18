@@ -1949,7 +1949,8 @@
         addOrdersSelected: {},
 
         // Inventory page state
-        inventoryView: "list", // 'list' | 'product' | 'unit' | 'batch' | 'movements' | 'transfers-in-transit'
+        inventoryView: "list", // 'list' | 'product' | 'unit' | 'batch' | 'movements' | 'transfers-in-transit' | 'item-categories'
+        inventoryCategoryFilters: { search: "", condition: "All", status: "All", location: "All" },
         inventoryTransferTab: "awaiting-receipt",
         discrepancyFilter: "all", // 'all' | 'outstanding' | 'resolved'
         selectedTransferDiscrepancyId: null,
@@ -2761,6 +2762,8 @@ DISPATCH DASHBOARD DEMO SEED
             renderMovementsList(c);
           } else if (state.inventoryView === "transfers-in-transit") {
             renderTransfersInTransit(c);
+          } else if (state.inventoryView === "item-categories") {
+            renderInventoryItemCategories(c);
           } else if (state.inventoryView === "discrepancy-details") {
             renderTransferDiscrepancyDetailsPage(c);
           } else if (state.inventoryView === "stock-request-details") {
@@ -9202,6 +9205,7 @@ INVENTORY LIST PAGE
       </div>
     <div>
         <button onclick="state.inventoryView='movements'; render();">Movement Log</button>
+        <button onclick="state.inventoryView='item-categories'; render();">Items by Condition / Status</button>
         <button onclick="state.inventoryView='transfers-in-transit'; state.inventoryTransferTab='awaiting-receipt'; render();">
           Stock Transfers (${TRANSFERS.filter((t) => ["In Transit", "Partially Received"].includes(t.status)).length})
         </button>
@@ -9303,6 +9307,99 @@ INVENTORY LIST PAGE
       </table>
     </div>
   `;
+      }
+
+      function renderInventoryItemCategories(c) {
+        const filters = state.inventoryCategoryFilters;
+        const individualRows = UNITS.map((unit) => ({
+          id: unit.id,
+          tag: unit.tag,
+          productId: unit.productId,
+          condition: unit.condition || "New",
+          status: unit.status || "Available",
+          locationId: unit.locationId,
+          batchId: unit.batchId,
+          receivedDate: unit.receivedDate,
+          qty: 1,
+          trackingType: "Individual",
+          unit,
+        }));
+        const stockWriteOffRows = TRANSFERS.flatMap((transfer) =>
+          getInvProduct(transfer.productId)?.trackingType === "StockQuantity"
+            ? (transfer.resolutions || [])
+            .filter((resolution) => resolution.type === "Write-off" && Number(resolution.qty || 0) > 0)
+            .map((resolution) => ({
+              id: resolution.id,
+              tag: `${transfer.transferNumber || transfer.id} · Stock quantity`,
+              productId: transfer.productId,
+              condition: "—",
+              status: "Written Off",
+              locationId: resolution.locationId,
+              batchId: transfer.batchId,
+              receivedDate: resolution.at,
+              qty: Number(resolution.qty || 0),
+              trackingType: "Stock Quantity",
+              transfer,
+            }))
+            : [],
+        );
+        const allRows = [...individualRows, ...stockWriteOffRows];
+        const filteredRows = allRows.filter((row) => {
+          const product = getInvProduct(row.productId);
+          const search = String(filters.search || "").trim().toLowerCase();
+          const batch = row.batchId ? getBatch(row.batchId) : null;
+          const matchesSearch = !search ||
+            String(row.tag || "").toLowerCase().includes(search) ||
+            String(product?.name || "").toLowerCase().includes(search) ||
+            String(batch?.batchNumber || "").toLowerCase().includes(search);
+          return matchesSearch &&
+            (filters.condition === "All" || row.condition === filters.condition) &&
+            (filters.status === "All" || row.status === filters.status) &&
+            (filters.location === "All" || row.locationId === filters.location);
+        });
+        const conditionCount = (condition) => UNITS.filter((unit) => (unit.condition || "New") === condition).length;
+        const writeOffCount = allRows.filter((row) => row.status === "Written Off").reduce((sum, row) => sum + row.qty, 0);
+        const locations = [...new Set(UNITS.map((unit) => unit.locationId).filter(Boolean))];
+        const statuses = [...new Set(allRows.map((row) => row.status))].sort();
+        const clearFilters = "state.inventoryCategoryFilters = { search: '', condition: 'All', status: 'All', location: 'All' }; render();";
+
+        c.innerHTML = `
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:12px; flex-wrap:wrap;">
+            <div>
+              <button onclick="state.inventoryView='list'; render();">← Back to Inventory</button>
+              <h2 style="font-size:20px; margin:12px 0 2px;">Items by Condition / Status</h2>
+              <div style="font-size:12px; color:#555;">Review tagged units and stock quantity write-offs across locations.</div>
+            </div>
+            <button onclick="${clearFilters}">Clear Filters</button>
+          </div>
+
+          <div class="row">
+            <div class="col"><button class="card" style="width:100%; text-align:center; cursor:pointer;" onclick="${clearFilters}"><div style="font-size:11px;color:#555;">Items in this view</div><strong style="font-size:22px;">${allRows.reduce((sum, row) => sum + row.qty, 0)}</strong></button></div>
+            <div class="col"><button class="card" style="width:100%; text-align:center; cursor:pointer;" onclick="state.inventoryCategoryFilters.condition='Damaged'; state.inventoryCategoryFilters.status='All'; render();"><div style="font-size:11px;color:#555;">Damaged</div><strong style="font-size:22px;color:#991b1b;">${conditionCount("Damaged")}</strong></button></div>
+            <div class="col"><button class="card" style="width:100%; text-align:center; cursor:pointer;" onclick="state.inventoryCategoryFilters.condition='Returned'; state.inventoryCategoryFilters.status='All'; render();"><div style="font-size:11px;color:#555;">Returned</div><strong style="font-size:22px;color:#92400e;">${conditionCount("Returned")}</strong></button></div>
+            <div class="col"><button class="card" style="width:100%; text-align:center; cursor:pointer;" onclick="state.inventoryCategoryFilters.condition='All'; state.inventoryCategoryFilters.status='Written Off'; render();"><div style="font-size:11px;color:#555;">Written off</div><strong style="font-size:22px;color:#991b1b;">${writeOffCount}</strong></button></div>
+          </div>
+
+          <div class="card">
+            <div class="row" style="align-items:flex-end;">
+              <div class="col" style="flex:2; min-width:190px;"><label>Search</label><input value="${escapeTransferDetailText(filters.search || "")}" placeholder="Tag, product, or batch..." oninput="state.inventoryCategoryFilters.search=this.value; render();"></div>
+              <div class="col"><label>Condition</label><select onchange="state.inventoryCategoryFilters.condition=this.value; render();"><option value="All">All</option>${["New", "Damaged", "Returned"].map((value) => `<option value="${value}" ${filters.condition === value ? "selected" : ""}>${value}</option>`).join("")}</select></div>
+              <div class="col"><label>Status</label><select onchange="state.inventoryCategoryFilters.status=this.value; render();"><option value="All">All</option>${statuses.map((value) => `<option value="${escapeTransferDetailText(value)}" ${filters.status === value ? "selected" : ""}>${escapeTransferDetailText(value)}</option>`).join("")}</select></div>
+              <div class="col"><label>Location</label><select onchange="state.inventoryCategoryFilters.location=this.value; render();"><option value="All">All</option>${locations.map((locationId) => `<option value="${escapeTransferDetailText(locationId)}" ${filters.location === locationId ? "selected" : ""}>${escapeTransferDetailText(getLocation(locationId)?.name || "Unknown")}</option>`).join("")}</select></div>
+            </div>
+          </div>
+
+          <div class="card" style="padding:0; overflow-x:auto;">
+            <table><thead><tr><th>Tag / Reference</th><th>Product</th><th>Tracking</th><th>Qty</th><th>Condition</th><th>Status</th><th>Location</th><th>Received / Resolved</th><th></th></tr></thead>
+              <tbody>${filteredRows.length ? filteredRows.map((row) => {
+                const product = getInvProduct(row.productId);
+                const batch = row.batchId ? getBatch(row.batchId) : null;
+                const unitId = row.unit?.id;
+                return `<tr><td>${unitId ? `<a href="#" onclick="event.preventDefault(); state.inventoryView='unit'; state.inventoryUnitId='${escapeTransferDetailText(unitId)}'; render();">${escapeTransferDetailText(row.tag)}</a>` : escapeTransferDetailText(row.tag)}</td><td>${escapeTransferDetailText(product?.name || "Unknown product")}${batch ? `<div style="font-size:11px;color:#666;">${escapeTransferDetailText(batch.batchNumber)}</div>` : ""}</td><td>${row.trackingType}</td><td>${row.qty}</td><td>${escapeTransferDetailText(row.condition)}</td><td><span class="badge ${row.status === "Written Off" || row.status === "Damaged" ? "badge-cancelled" : row.status === "Returned" || row.status === "Unaccounted For" ? "badge-partial" : row.status === "Available" ? "badge-paid" : "badge-draft"}">${escapeTransferDetailText(row.status)}</span></td><td>${escapeTransferDetailText(getLocation(row.locationId)?.name || "—")}</td><td>${formatDate(row.receivedDate)}</td><td>${row.transfer ? `<button onclick="state.activeTab='inventory'; state.inventoryView='discrepancy-details'; state.selectedTransferDiscrepancyId='${escapeTransferDetailText(row.transfer.id)}'; render();">View discrepancy</button>` : `<button onclick="state.inventoryView='product'; state.inventoryProductId='${escapeTransferDetailText(row.productId)}'; render();">View product</button>`}</td></tr>`;
+              }).join("") : `<tr><td colspan="9" class="empty-state">No items match these filters.</td></tr>`}</tbody>
+            </table>
+          </div>
+        `;
       }
 
       /* ============================================================
@@ -9748,7 +9845,7 @@ INVENTORY LIST PAGE
                 <label>Condition</label>
                 <select onchange="state.inventoryFilters.condition = this.value; render();">
                   <option value="All" ${state.inventoryFilters.condition === "All" ? "selected" : ""}>All</option>
-                  ${["New", "Used", "Refurbished", "Damaged", "Returned"].map((c) => `<option value="${c}" ${state.inventoryFilters.condition === c ? "selected" : ""}>${c}</option>`).join("")}
+                  ${["New", "Damaged", "Returned"].map((c) => `<option value="${c}" ${state.inventoryFilters.condition === c ? "selected" : ""}>${c}</option>`).join("")}
                 </select>
               </div>
               <div class="col" style="flex: 1; min-width: 100px;">
@@ -9762,7 +9859,7 @@ INVENTORY LIST PAGE
                 <label>Status</label>
                 <select onchange="state.inventoryFilters.status = this.value; render();">
                   <option value="All" ${state.inventoryFilters.status === "All" ? "selected" : ""}>All</option>
-                  ${["Available", "Reserved", "Sold", "Removed", "Unaccounted For"].map((st) => `<option value="${st}" ${state.inventoryFilters.status === st ? "selected" : ""}>${st}</option>`).join("")}
+                  ${["Available", "Reserved", "Sold", "Removed", "Unaccounted For", "Unsellable", "Incident Pending", "Return Pending", "In Transit", "Written Off"].map((st) => `<option value="${st}" ${state.inventoryFilters.status === st ? "selected" : ""}>${st}</option>`).join("")}
                 </select>
               </div>
               <div>
@@ -10339,8 +10436,6 @@ RECEIVE STOCK MODAL
             <label class="mt-12">Condition *</label>
             <select id="receiveCondition">
               <option value="New" selected>New</option>
-              <option value="Used">Used</option>
-              <option value="Refurbished">Refurbished</option>
               <option value="Damaged">Damaged</option>
               <option value="Returned">Returned</option>
             </select>
@@ -13120,13 +13215,21 @@ MOVEMENT LOG PAGE
         const isResolved = isTransferIncidentResolved(transfer);
         const unit = product?.unitOfMeasure || "unit";
 
-        // NEW: Fetch the exact units that are currently missing
+        // Keep the original discrepancy units visible after they are recovered
+        // or written off, even when their current inventory status changes.
+        const missingUnitResolutionById = new Map();
+        (transfer.resolutions || []).forEach((resolution) => {
+          if (!["Recovery", "Write-off"].includes(resolution.type)) return;
+          (resolution.unitIds || []).forEach((unitId) => {
+            missingUnitResolutionById.set(unitId, resolution);
+          });
+        });
         const missingUnits =
           product?.trackingType === "Individual"
             ? UNITS.filter(
                 (u) =>
-                  u.discrepancyTransferId === transfer.id &&
-                  u.status === "Unaccounted For",
+                  u.discrepancyTransferId === transfer.id ||
+                  missingUnitResolutionById.has(u.id),
               )
             : [];
 
@@ -13369,7 +13472,7 @@ MOVEMENT LOG PAGE
 
 
             ${
-              outstanding > 0
+              originalGap > 0
                 ? `
       <div style="
         border:1px solid #e2e8f0;
@@ -13380,7 +13483,7 @@ MOVEMENT LOG PAGE
       ">
         <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
           <div>
-            <div style="font-weight:bold;">Missing Items (${outstanding} outstanding)</div>
+            <div style="font-weight:bold;">Missing Items (${outstanding} outstanding, ${resolvedQty} resolved)</div>
             <div style="font-size:12px; color:#666; margin-top:4px;">Manifest items not confirmed at receipt.</div>
           </div>
           ${outstanding > 0 ? `
@@ -13404,8 +13507,19 @@ MOVEMENT LOG PAGE
           </thead>
           <tbody>
             ${missingUnits
-              .map(
-                (u) => `
+              .map((u) => {
+                const resolution = missingUnitResolutionById.get(u.id);
+                const displayedStatus = resolution?.type === "Write-off"
+                  ? "Written Off"
+                  : resolution?.type === "Recovery"
+                    ? "Recovered"
+                    : u.status;
+                const displayedStatusClass = displayedStatus === "Written Off"
+                  ? "badge-cancelled"
+                  : displayedStatus === "Recovered"
+                    ? "badge-paid"
+                    : "badge-partial";
+                return `
               <tr>
                 <td style="padding:8px; border-bottom:1px solid #eee;">
                   <a href="#" style="color:#1e40af; text-decoration:underline;" onclick="event.preventDefault(); state.activeTab='inventory'; state.inventoryView='unit'; state.inventoryUnitId='${u.id}'; render();">${escapeTransferDetailText(u.tag)}</a>
@@ -13414,11 +13528,11 @@ MOVEMENT LOG PAGE
                   <span class="badge badge-condition-${(u.condition || "New").toLowerCase()}">${escapeTransferDetailText(u.condition || "New")}</span>
                 </td>
                 <td style="padding:8px; border-bottom:1px solid #eee;">
-                  <span class="badge badge-partial">${escapeTransferDetailText(u.status)}</span>
+                  <span class="badge ${displayedStatusClass}">${escapeTransferDetailText(displayedStatus)}</span>
                 </td>
               </tr>
-            `,
-              )
+            `;
+              })
               .join("")}
           </tbody>
         </table>
@@ -13432,19 +13546,26 @@ MOVEMENT LOG PAGE
               <th style="text-align:left; padding:8px; border-bottom:2px solid #ccc;">Status</th>
             </tr>
           </thead>
-          <tbody>
-            <tr>
-              <td style="padding:8px; border-bottom:1px solid #eee;">
-                ${escapeTransferDetailText(product.name)} (Stock Quantity)
-              </td>
-              <td style="padding:8px; border-bottom:1px solid #eee;">
-                N/A
-              </td>
-              <td style="padding:8px; border-bottom:1px solid #eee;">
-                <span class="badge badge-partial">Unaccounted For</span>
-              </td>
-            </tr>
-          </tbody>
+          <tbody>${(() => {
+            const recoveryQty = (transfer.resolutions || [])
+              .filter((resolution) => resolution.type === "Recovery")
+              .reduce((sum, resolution) => sum + Number(resolution.qty || 0), 0);
+            const writeOffQty = (transfer.resolutions || [])
+              .filter((resolution) => resolution.type === "Write-off")
+              .reduce((sum, resolution) => sum + Number(resolution.qty || 0), 0);
+            const rows = [
+              { qty: outstanding, status: "Unaccounted For", className: "badge-partial" },
+              { qty: recoveryQty, status: "Recovered", className: "badge-paid" },
+              { qty: writeOffQty, status: "Written Off", className: "badge-cancelled" },
+            ].filter((row) => row.qty > 0);
+            return rows.map((row) => `
+              <tr>
+                <td style="padding:8px; border-bottom:1px solid #eee;">${escapeTransferDetailText(product.name)} · ${row.qty} ${escapeTransferDetailText(unit)}(s)</td>
+                <td style="padding:8px; border-bottom:1px solid #eee;">N/A</td>
+                <td style="padding:8px; border-bottom:1px solid #eee;"><span class="badge ${row.className}">${row.status}</span></td>
+              </tr>
+            `).join("");
+          })()}</tbody>
         </table>
         `
         }
@@ -16542,8 +16663,6 @@ EDIT UNIT CONDITION MODAL
             document.getElementById('unsellableWarning').style.display = isUnsellable ? 'block' : 'none';
           ">
             <option value="New"         ${unit.condition === "New" ? "selected" : ""}>New</option>
-            <option value="Used"        ${unit.condition === "Used" ? "selected" : ""}>Used</option>
-            <option value="Refurbished" ${unit.condition === "Refurbished" ? "selected" : ""}>Refurbished</option>
             <option value="Damaged"     ${unit.condition === "Damaged" ? "selected" : ""}>Damaged</option>
             <option value="Returned"    ${unit.condition === "Returned" ? "selected" : ""}>Returned</option>
           </select>
