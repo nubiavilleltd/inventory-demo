@@ -2839,7 +2839,7 @@ DISPATCH DASHBOARD DEMO SEED
           state.transferDraft.modalStep === 1 &&
           state.transferDraft.type === "return"
         ) {
-          const returnScanInput = document.getElementById("returnUnitScanInput");
+          const returnScanInput = document.getElementById("returnScanInput");
           if (returnScanInput) returnScanInput.focus();
         }
 
@@ -11216,7 +11216,7 @@ RECEIVE STOCK MODAL
         bodyHtml += state.showExcessSection ? `
           <div style="margin-top:16px; padding:12px; border:2px dashed #b45309; border-radius:6px; background:#fffbeb;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-              <div><strong style="color:#92400e;">Excess / Unlisted Items</strong><div style="font-size:12px;color:#78350f;">Record anything received beyond the transfer manifest.</div></div>
+              <div><strong style="color:#92400e;">Excess / Unlisted Items</strong><div style="font-size:12px;color:#78350f;">Record anything received beyond the manifest. Quantity-tracked excess is deducted from its source batch and held for review.</div></div>
               <button onclick="state.showExcessSection=false; render();" style="padding:0 6px;">Hide</button>
             </div>
             <div style="padding:8px; background:#fff; border-radius:4px; margin-bottom:10px;">
@@ -11234,7 +11234,7 @@ RECEIVE STOCK MODAL
                 <strong>Extra Stock Quantity</strong>
                 <div style="font-size:12px;color:#166534;margin:3px 0 6px;">Batch identified: ${escapeTransferDetailText(excessBatch.batchNumber)} · ${escapeTransferDetailText(getInvProduct(excessBatch.productId)?.name || "Stock item")}</div>
                 <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-                  <input type="number" min="1" step="1" id="excessBatchQty" placeholder="Extra quantity" value="${escapeTransferDetailText(state.receiveExcessQuantity || "")}" style="width:150px;" oninput="state.receiveExcessQuantity=this.value;">
+                  <input type="number" min="1" max="${getReceiveExcessBatchAvailable(excessBatch.id, TRANSFERS.find((candidate) => candidate.id === state.receivingTransferId))}" step="1" id="excessBatchQty" placeholder="Extra quantity" value="${escapeTransferDetailText(state.receiveExcessQuantity || "")}" style="width:150px;" oninput="state.receiveExcessQuantity=this.value;">
                   <button onclick="addReceiveExcessQuantity()">Add Quantity</button>
                 </div>
               ` : ""}
@@ -11341,20 +11341,43 @@ RECEIVE STOCK MODAL
       function handleReceiveExcessBatchScan(value) {
         const code = String(value || "").trim().toUpperCase();
         if (!code) return;
+        const transfer = TRANSFERS.find((candidate) => candidate.id === state.receivingTransferId);
         const batch = BATCHES.find((candidate) => String(candidate.batchNumber || "").trim().toUpperCase() === code);
         if (!batch) return alert("Batch barcode not found. Only a known batch can be recorded as quantity-tracked excess.");
         if (getInvProduct(batch.productId)?.trackingType !== "StockQuantity") return alert("This batch belongs to an individually tracked product. Scan its unit tags instead.");
+        if (!transfer) return alert("The transfer being received could not be found.");
+        const availableAtSource = getReceiveExcessBatchAvailable(batch.id, transfer);
+        if (availableAtSource <= 0) return alert("This batch has no unreserved quantity available at the transfer's source location.");
         state.receiveExcessBatchId = batch.id;
         state.receiveExcessQuantity = "";
         render();
         setTimeout(() => document.getElementById("excessBatchQty")?.focus(), 10);
       }
 
+      function getReceiveExcessBatchAvailable(batchId, transfer) {
+        if (!batchId || !transfer) return 0;
+        const batch = getBatch(batchId);
+        if (!batch || getInvProduct(batch.productId)?.trackingType !== "StockQuantity") return 0;
+        const sourceRow = STOCK.find((row) =>
+          row.productId === batch.productId &&
+          row.locationId === transfer.fromLocationId &&
+          row.batchId === batchId,
+        );
+        if (!sourceRow) return 0;
+        const alreadyQueued = (state.receiveExcessQuantities || [])
+          .filter((entry) => entry.batchId === batchId)
+          .reduce((sum, entry) => sum + Number(entry.qty || 0), 0);
+        return Math.max(0, Number(sourceRow.onHand || 0) - Number(sourceRow.reserved || 0) - alreadyQueued);
+      }
+
       function addReceiveExcessQuantity() {
+        const transfer = TRANSFERS.find((candidate) => candidate.id === state.receivingTransferId);
         const batch = BATCHES.find((candidate) => candidate.id === state.receiveExcessBatchId);
         const qty = Number(state.receiveExcessQuantity);
-        if (!batch || getInvProduct(batch.productId)?.trackingType !== "StockQuantity") return alert("Scan a valid Stock Quantity batch first.");
+        if (!transfer || !batch || getInvProduct(batch.productId)?.trackingType !== "StockQuantity") return alert("Scan a valid Stock Quantity batch first.");
         if (!Number.isInteger(qty) || qty < 1) return alert("Enter a whole number greater than zero.");
+        const available = getReceiveExcessBatchAvailable(batch.id, transfer);
+        if (qty > available) return alert(`Only ${available} unreserved ${getInvProduct(batch.productId)?.unitOfMeasure || "unit"}(s) remain in this batch at the transfer's source location.`);
         const existing = state.receiveExcessQuantities.find((entry) => entry.batchId === batch.id);
         if (existing) existing.qty += qty;
         else state.receiveExcessQuantities.push({ productId: batch.productId, batchId: batch.id, qty });
@@ -12697,6 +12720,36 @@ Outstanding is always calculated from these two, never stored.
         if (!transfer) return;
 
         const items = getTransferReceiveItems(transfer);
+        const excessQuantitySummary = (state.receiveExcessQuantities || []).filter((item) => Number(item.qty) > 0);
+
+        // Unlisted quantity was not deducted when the manifest left. Debit it
+        // from the source batch now, after confirming the batch can cover it.
+        const excessByBatch = new Map();
+        excessQuantitySummary.forEach((entry) => {
+          const product = getInvProduct(entry.productId);
+          const batch = getBatch(entry.batchId);
+          if (!Number.isInteger(Number(entry.qty)) || Number(entry.qty) <= 0 || !product || product.trackingType !== "StockQuantity" || !batch || batch.productId !== entry.productId) {
+            excessByBatch.set(`${entry.productId}:${entry.batchId}`, { ...entry, invalid: true });
+            return;
+          }
+          const key = `${entry.productId}:${entry.batchId}`;
+          const existing = excessByBatch.get(key) || { ...entry, qty: 0 };
+          if (existing.invalid) return;
+          existing.qty += Number(entry.qty || 0);
+          excessByBatch.set(key, existing);
+        });
+        for (const entry of excessByBatch.values()) {
+          const sourceRow = STOCK.find((row) =>
+            row.productId === entry.productId &&
+            row.locationId === transfer.fromLocationId &&
+            row.batchId === entry.batchId,
+          );
+          const available = Math.max(0, Number(sourceRow?.onHand || 0) - Number(sourceRow?.reserved || 0));
+          if (entry.invalid || !sourceRow || entry.qty > available) {
+            alert(`Cannot record ${entry.qty || "this"} excess unit(s): batch ${getBatch(entry.batchId)?.batchNumber || entry.batchId} has only ${available} unreserved unit(s) at the transfer's source location. Refresh the receipt and review the quantity.`);
+            return;
+          }
+        }
 
         // Recheck excess scans before changing any stock. This prevents stale or
         // invalid scans from moving reserved, unavailable, or unrelated units.
@@ -12730,7 +12783,6 @@ Outstanding is always calculated from these two, never stored.
         });
 
         // 2. Warning Prompt
-        const excessQuantitySummary = (state.receiveExcessQuantities || []).filter((item) => Number(item.qty) > 0);
         const hasExcessItems = state.receiveUnlistedUnits.length > 0 || excessQuantitySummary.length > 0;
         const rejectedUnits = state.receiveScannedUnits
           .filter(id => state.receiveUnitActions[id]?.action === "Reject")
@@ -12873,6 +12925,21 @@ Outstanding is always calculated from these two, never stored.
           if (!Array.isArray(transfer.excessQuantities)) transfer.excessQuantities = [];
           excessQuantitySummary.forEach((entry, index) => {
             const qty = Number(entry.qty);
+            const sourceRow = STOCK.find((row) =>
+              row.productId === entry.productId &&
+              row.locationId === transfer.fromLocationId &&
+              row.batchId === entry.batchId,
+            );
+            sourceRow.onHand = Number(sourceRow.onHand || 0) - qty;
+            logMovement(
+              entry.productId,
+              transfer.fromLocationId,
+              "transfer_out",
+              -qty,
+              `${transfer.transferNumber} · excess quantity reported at receipt`,
+              null,
+              entry.batchId,
+            );
             transfer.excessQuantities.push({
               id: `EXQ-${Date.now()}-${index}-${entry.productId}-${entry.batchId}`,
               productId: entry.productId,
@@ -15105,53 +15172,34 @@ MOVEMENT LOG PAGE
                           : `Scan the Return Pending items you are physically sending back from ${escapeTransferDetailText(getLocation(fromLoc).name)}.`}
                       </div>
                       <div style="display:flex; gap:8px; margin-bottom:8px;">
-                        <input type="text" id="returnUnitScanInput" placeholder="Scan Tag or Barcode..." style="flex:1; font-size:13px;" onkeydown="if(event.key==='Enter'){event.preventDefault();handleReturnUnitScan(this.value)}">
-                        <button onclick="handleReturnUnitScan(document.getElementById('returnUnitScanInput').value)">Scan</button>
+                        <input type="text" id="returnScanInput" placeholder="Scan item tag or batch barcode..." style="flex:1; font-size:13px;" onkeydown="if(event.key==='Enter'){event.preventDefault();handleReturnScan(this.value)}">
+                        <button onclick="handleReturnScan(document.getElementById('returnScanInput').value)">Scan</button>
                         <button onclick="simulateReturnUnitScan()" style="font-size:11px; background:#fef3c7;">Auto-Scan</button>
                       </div>
-                      ${Array.isArray(t.returnUnitIds) ? `
-                        <div style="border:1px solid #ddd; background:#fff; border-radius:4px; padding:8px; margin-bottom:8px;">
-                          <div style="font-weight:bold; font-size:12px; margin-bottom:4px;">Rejected items available for return (${t.returnUnitIds.length})</div>
-                          ${t.returnUnitIds.map((unitId) => {
-                            const unit = UNITS.find((candidate) => candidate.id === unitId);
-                            const scanned = t.items.some((item) => item.unitId === unitId);
-                            if (!unit) return "";
-                            const status = scanned ? "Scanned" : unit.status === "Return Pending" && unit.locationId === fromLoc ? "Awaiting scan" : unit.status;
-                            return `<div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:6px 2px; border-bottom:1px dashed #eee; font-size:12px;"><span>${escapeTransferDetailText(unit.tag)} · ${escapeTransferDetailText(getInvProduct(unit.productId)?.name || "Item")} · ${escapeTransferDetailText(unit.condition || "—")}</span><span style="display:flex; align-items:center; gap:8px;"><span class="badge ${scanned ? "" : "badge-partial"}" ${scanned ? 'style="background:#dcfce7; color:#166534; border-color:#166534;"' : ""}>${escapeTransferDetailText(status)}</span>${scanned ? `<button onclick="removeReturnUnitFromDraft('${escapeTransferDetailText(unit.id)}')" style="padding:2px 6px; font-size:10px; color:#b91c1c; border-color:#b91c1c;">Remove</button>` : ""}</span></div>`;
-                          }).join("")}
-                        </div>
-                      ` : ""}
-                      <div style="max-height:200px; overflow-y:auto; border:1px solid #ccc; background:#fff; border-radius:4px; padding:8px;">
-                        ${Array.isArray(t.returnUnitIds) ? "" : t.items.length === 0
-                          ? `<div class="empty-state" style="padding:12px; font-size:12px;">${returnableUnits.length ? "No items scanned yet. Scan a Return Pending tag to begin." : "No items currently flagged for return at this location."}</div>`
-                          : t.items.map((item) => {
-                              const unit = UNITS.find((candidate) => candidate.id === item.unitId);
-                              const itemProduct = getInvProduct(item.productId);
-                              if (!unit) return "";
-                              return `<div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 4px; border-bottom:1px dashed #eee; font-size:12px;"><span>✓ ${escapeTransferDetailText(itemProduct?.name || "Stock item")} (${escapeTransferDetailText(unit.tag)}) · ${escapeTransferDetailText(unit.condition || "—")}</span><button onclick="removeReturnUnitFromDraft('${escapeTransferDetailText(unit.id)}')" style="padding:0 6px; font-size:10px; color:#991b1b; border-color:#991b1b;">Remove</button></div>`;
-                            }).join("")}
+                      <div style="max-height:280px; overflow-y:auto; border:1px solid #ccc; background:#fff; border-radius:4px; padding:8px;">
+                        <div style="font-weight:bold; font-size:12px; margin-bottom:4px;">Rejected items available for return</div>
+                        ${Array.isArray(t.returnUnitIds) ? t.returnUnitIds.map((unitId) => {
+                          const unit = UNITS.find((candidate) => candidate.id === unitId);
+                          if (!unit) return "";
+                          const selected = t.items.some((item) => item.unitId === unitId);
+                          const status = selected ? "Selected" : "Awaiting scan";
+                          return `<div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:6px 2px; border-bottom:1px dashed #eee; font-size:12px;"><span>${escapeTransferDetailText(unit.tag)} · ${escapeTransferDetailText(getInvProduct(unit.productId)?.name || "Item")} · ${escapeTransferDetailText(unit.condition || "—")}</span><span style="display:flex; align-items:center; gap:8px;"><span class="badge ${selected ? "" : "badge-partial"}" ${selected ? 'style="background:#dcfce7; color:#166534; border-color:#166534;"' : ""}>${status}</span>${selected ? `<button onclick="removeReturnUnitFromDraft('${escapeTransferDetailText(unit.id)}')" style="padding:2px 6px; font-size:10px; color:#b91c1c; border-color:#b91c1c;">Remove</button>` : ""}</span></div>`;
+                        }).join("") : ""}
+                        ${(t.returnQuantityIds || []).map((quantityId) => {
+                          const incident = TRANSFERS.find((transfer) => transfer.id === t.returnIncidentTransferId);
+                          const excess = incident?.excessQuantities?.find((entry) => entry.id === quantityId);
+                          if (!excess) return "";
+                          const product = getInvProduct(excess.productId);
+                          const batch = getBatch(excess.batchId);
+                          const draftQty = t.items.filter((entry) => entry.excessQuantityId === quantityId).reduce((sum, entry) => sum + Number(entry.qty || 0), 0);
+                          const remaining = Math.max(0, Number(excess.returnPendingQty || 0) - draftQty);
+                          const active = t.returnQuantityId === excess.id;
+                          const status = draftQty ? `Selected: ${draftQty}` : active ? "Enter quantity" : "Awaiting scan";
+                          return `<div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:6px 2px; border-bottom:1px dashed #eee; font-size:12px;"><span>${escapeTransferDetailText(product?.name || "Stock item")} · ${escapeTransferDetailText(batch?.batchNumber || excess.batchId)} · ${remaining} available</span><span style="display:flex; align-items:center; gap:8px;"><span class="badge ${draftQty ? "" : "badge-partial"}" ${draftQty ? 'style="background:#dcfce7; color:#166534; border-color:#166534;"' : ""}>${status}</span>${active && remaining > 0 ? `<input type="number" min="1" max="${remaining}" id="returnQuantityInput" placeholder="Qty" value="${escapeTransferDetailText(t.returnQty || "")}" style="width:78px; font-size:12px;" oninput="state.transferDraft.returnQty=this.value" onkeydown="if(event.key==='Enter'){event.preventDefault();addReturnQuantityToDraft()}"><button onclick="addReturnQuantityToDraft()" style="padding:2px 7px;">Add</button>` : ""}${draftQty ? `<button onclick="removeReturnQuantityFromDraft('${escapeTransferDetailText(quantityId)}')" style="padding:2px 6px; font-size:10px; color:#b91c1c; border-color:#b91c1c;">Remove</button>` : ""}</span></div>`;
+                        }).join("")}
+                        ${!(t.returnUnitIds || []).length && !(t.returnQuantityIds || []).length ? `<div class="empty-state" style="padding:12px; font-size:12px;">${returnableUnits.length ? "No items flagged for return at this location." : "No items currently flagged for return at this location."}</div>` : ""}
                       </div>
-                      <div style="font-size:11px; color:#666; margin-top:8px;">Tags scanned: ${t.items.filter((item) => item.unitId).length} of ${Array.isArray(t.returnUnitIds) ? t.returnUnitIds.length : returnableUnits.length}${Array.isArray(t.returnQuantityIds) ? ` · Quantity selected: ${t.items.filter((item) => item.excessQuantityId).reduce((sum, item) => sum + Number(item.qty || 0), 0)}` : ""}</div>
-                      ${Array.isArray(t.returnQuantityIds) ? `
-                        <div style="margin-top:12px; padding:10px; border:1px solid #ddd; border-radius:4px; background:#fff;">
-                          <strong style="font-size:12px;">Rejected stock quantities available for return</strong>
-                          <div style="display:flex; gap:8px; margin-top:8px; align-items:center;">
-                            <input type="text" id="returnBatchScanInput" placeholder="Scan Batch Barcode..." value="${escapeTransferDetailText(t.returnBatchId || "")}" style="flex:1; font-size:13px;" oninput="state.transferDraft.returnBatchId=this.value" onkeydown="if(event.key==='Enter'){event.preventDefault();handleReturnBatchScan(this.value)}">
-                            <button onclick="handleReturnBatchScan(document.getElementById('returnBatchScanInput').value)">Scan Batch</button>
-                            <input type="number" min="1" id="returnQuantityInput" placeholder="Qty" value="${escapeTransferDetailText(t.returnQty || "")}" style="width:85px; font-size:13px;" oninput="state.transferDraft.returnQty=this.value">
-                            <button onclick="addReturnQuantityToDraft()">Add</button>
-                          </div>
-                          ${(t.returnQuantityIds || []).map((quantityId) => {
-                            const incident = TRANSFERS.find((transfer) => transfer.id === t.returnIncidentTransferId);
-                            const excess = incident?.excessQuantities?.find((entry) => entry.id === quantityId);
-                            if (!excess) return "";
-                            const product = getInvProduct(excess.productId);
-                            const batch = getBatch(excess.batchId);
-                            const draftQty = t.items.filter((entry) => entry.excessQuantityId === quantityId).reduce((sum, entry) => sum + Number(entry.qty || 0), 0);
-                            return `<div style="display:flex; justify-content:space-between; padding:7px 2px; border-bottom:1px dashed #eee; font-size:12px;"><span>${escapeTransferDetailText(product?.name || "Stock item")} · ${escapeTransferDetailText(batch?.batchNumber || excess.batchId)} · ${Math.max(0, Number(excess.returnPendingQty || 0) - draftQty)} available</span><span>${draftQty ? `<button onclick="removeReturnQuantityFromDraft('${escapeTransferDetailText(quantityId)}')" style="padding:2px 6px; font-size:10px; color:#b91c1c; border-color:#b91c1c;">Remove ${draftQty}</button>` : ""}</span></div>`;
-                          }).join("")}
-                        </div>
-                      ` : ""}
+                      <div style="font-size:11px; color:#666; margin-top:8px;">Selected: ${t.items.filter((item) => item.unitId).length} tagged item(s) · ${t.items.filter((item) => item.excessQuantityId).reduce((sum, item) => sum + Number(item.qty || 0), 0)} stock unit(s)</div>
                     </div>
                   `
                       : `
@@ -15269,11 +15317,30 @@ MOVEMENT LOG PAGE
         render();
       }
 
+      function handleReturnScan(value) {
+        const t = state.transferDraft;
+        const code = String(value || "").trim().toUpperCase();
+        if (!t || t.type !== "return" || !code) return;
+
+        const unit = UNITS.find((candidate) => String(candidate.tag || "").trim().toUpperCase() === code);
+        if (unit) return handleReturnUnitScan(unit.tag);
+
+        const batch = BATCHES.find((candidate) =>
+          String(candidate.batchNumber || "").trim().toUpperCase() === code ||
+          String(candidate.id || "").trim().toUpperCase() === code,
+        );
+        if (batch) return handleReturnBatchScan(batch.batchNumber || batch.id);
+        alert(`Item tag or batch barcode "${code}" was not found.`);
+      }
+
       function handleReturnBatchScan(value) {
         const t = state.transferDraft;
         const batchCode = String(value || "").trim().toUpperCase();
         if (!t || t.type !== "return" || !batchCode) return;
-        const batch = BATCHES.find((entry) => String(entry.batchNumber || entry.id || "").trim().toUpperCase() === batchCode);
+        const batch = BATCHES.find((entry) =>
+          String(entry.batchNumber || "").trim().toUpperCase() === batchCode ||
+          String(entry.id || "").trim().toUpperCase() === batchCode,
+        );
         if (!batch) return alert(`Batch "${batchCode}" was not found.`);
         const incident = TRANSFERS.find((entry) => entry.id === t.returnIncidentTransferId);
         const quantity = incident?.excessQuantities?.find((entry) =>
@@ -15281,6 +15348,7 @@ MOVEMENT LOG PAGE
         );
         if (!quantity) return alert("This batch has no rejected stock quantity available for return on this incident.");
         t.returnBatchId = batch.id;
+        t.returnQuantityId = quantity.id;
         t.returnQty = "";
         render();
         setTimeout(() => document.getElementById("returnQuantityInput")?.focus(), 0);
@@ -15290,13 +15358,14 @@ MOVEMENT LOG PAGE
         const t = state.transferDraft;
         if (!t || t.type !== "return" || !t.returnBatchId) return alert("Scan a batch barcode first.");
         const incident = TRANSFERS.find((entry) => entry.id === t.returnIncidentTransferId);
-        const excess = incident?.excessQuantities?.find((entry) => entry.batchId === t.returnBatchId && (t.returnQuantityIds || []).includes(entry.id));
+        const excess = incident?.excessQuantities?.find((entry) => entry.id === t.returnQuantityId && (t.returnQuantityIds || []).includes(entry.id));
         const qty = Number(t.returnQty);
         if (!excess || !Number.isInteger(qty) || qty < 1) return alert("Enter a whole quantity greater than zero.");
         const alreadyDrafted = t.items.filter((entry) => entry.excessQuantityId === excess.id).reduce((sum, entry) => sum + Number(entry.qty || 0), 0);
         if (qty + alreadyDrafted > Number(excess.returnPendingQty || 0)) return alert("The return quantity exceeds the amount still pending at this location.");
         t.items.push({ productId: excess.productId, qty, scannedQty: qty, batchId: excess.batchId, isBatch: true, excessQuantityId: excess.id, incidentTransferId: incident.id });
         t.returnBatchId = "";
+        t.returnQuantityId = "";
         t.returnQty = "";
         render();
       }
@@ -15317,7 +15386,14 @@ MOVEMENT LOG PAGE
             (!Array.isArray(t.returnUnitIds) || t.returnUnitIds.includes(unit.id)) && !selectedIds.has(unit.id),
         );
         if (nextUnit) return handleReturnUnitScan(nextUnit.tag);
-        alert("No more Return Pending items are available at this location.");
+        const incident = TRANSFERS.find((entry) => entry.id === t.returnIncidentTransferId);
+        const nextQuantity = (t.returnQuantityIds || []).map((id) => incident?.excessQuantities?.find((entry) => entry.id === id)).find((excess) => {
+          if (!excess || Number(excess.returnPendingQty || 0) <= 0) return false;
+          const selected = t.items.filter((item) => item.excessQuantityId === excess.id).reduce((sum, item) => sum + Number(item.qty || 0), 0);
+          return selected < Number(excess.returnPendingQty || 0);
+        });
+        if (nextQuantity) return handleReturnBatchScan(getBatch(nextQuantity.batchId)?.batchNumber || nextQuantity.batchId);
+        alert("All rejected items available at this location have been selected.");
       }
 
       function removeReturnUnitFromDraft(unitId) {
