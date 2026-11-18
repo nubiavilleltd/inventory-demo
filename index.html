@@ -11220,24 +11220,24 @@ RECEIVE STOCK MODAL
               <button onclick="state.showExcessSection=false; render();" style="padding:0 6px;">Hide</button>
             </div>
             <div style="padding:8px; background:#fff; border-radius:4px; margin-bottom:10px;">
-              <strong>Individual items</strong>
-              <div style="display:flex; gap:8px; margin-top:6px;">
-                <input type="text" id="unlistedScanInput" placeholder="Scan extra item tag..." style="flex:1;" onkeydown="if(event.key==='Enter'){handleUnlistedScan(this.value)}">
-                <button onclick="handleUnlistedScan(document.getElementById('unlistedScanInput').value)">Add Tag</button>
+              <strong>Scan extra item or batch</strong>
+              <div style="font-size:12px;color:#666;margin:3px 0 6px;">A unit tag adds an Individual Item. A Stock Quantity batch barcode opens the extra quantity field.</div>
+              <div style="display:flex; gap:8px; margin-top:6px; flex-wrap:wrap;">
+                <input type="text" id="receiveExcessScanInput" placeholder="Scan tag or batch barcode..." style="flex:1;min-width:180px;" onkeydown="if(event.key==='Enter'){event.preventDefault();handleReceiveExcessScan(this.value)}">
+                <button onclick="handleReceiveExcessScan(document.getElementById('receiveExcessScanInput').value)">Add / Identify</button>
                 <button style="background:#fef3c7;" onclick="simulateUnlistedScan()">Auto-Scan</button>
               </div>
               ${excessUnits.length ? excessUnits.map((unit) => `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px dashed #fcd34d;">⚠ ${escapeTransferDetailText(getInvProduct(unit.productId)?.name || "Item")} · ${escapeTransferDetailText(unit.tag)} <button onclick="state.receiveUnlistedUnits=state.receiveUnlistedUnits.filter(id=>id!=='${escapeTransferDetailText(unit.id)}');render();" style="padding:0 6px;color:#991b1b;">Remove</button></div>`).join("") : `<div style="font-size:12px;color:#777;margin-top:6px;">No extra tagged items added.</div>`}
             </div>
             <div style="padding:8px; background:#fff; border-radius:4px;">
-              <strong>Stock Quantity items</strong>
-              <div style="font-size:12px;color:#666;margin:3px 0 6px;">Scan a known batch barcode, then enter the extra quantity received.</div>
-              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-                <input type="text" id="excessBatchScanInput" placeholder="Scan batch barcode..." style="flex:1;min-width:180px;" onkeydown="if(event.key==='Enter'){handleReceiveExcessBatchScan(this.value)}">
-                <button onclick="handleReceiveExcessBatchScan(document.getElementById('excessBatchScanInput').value)">Scan Batch</button>
-                <span style="font-size:12px;color:#166534;">${excessBatch ? `Batch: ${escapeTransferDetailText(excessBatch.batchNumber)} · ${escapeTransferDetailText(getInvProduct(excessBatch.productId)?.name || "Stock item")}` : "No batch scanned"}</span>
-                <input type="number" min="1" step="1" id="excessBatchQty" placeholder="Extra qty" value="${escapeTransferDetailText(state.receiveExcessQuantity || "")}" style="width:110px;" oninput="state.receiveExcessQuantity=this.value;">
-                <button ${excessBatch ? "" : "disabled"} onclick="addReceiveExcessQuantity()">Add Quantity</button>
-              </div>
+              ${excessBatch ? `
+                <strong>Extra Stock Quantity</strong>
+                <div style="font-size:12px;color:#166534;margin:3px 0 6px;">Batch identified: ${escapeTransferDetailText(excessBatch.batchNumber)} · ${escapeTransferDetailText(getInvProduct(excessBatch.productId)?.name || "Stock item")}</div>
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                  <input type="number" min="1" step="1" id="excessBatchQty" placeholder="Extra quantity" value="${escapeTransferDetailText(state.receiveExcessQuantity || "")}" style="width:150px;" oninput="state.receiveExcessQuantity=this.value;">
+                  <button onclick="addReceiveExcessQuantity()">Add Quantity</button>
+                </div>
+              ` : ""}
               ${excessQuantities.length ? excessQuantities.map((entry, index) => `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px dashed #fcd34d;">⚠ ${escapeTransferDetailText(getInvProduct(entry.productId)?.name || "Stock item")} · ${escapeTransferDetailText(getBatch(entry.batchId)?.batchNumber || "Batch")} · ${Number(entry.qty)} ${escapeTransferDetailText(getInvProduct(entry.productId)?.unitOfMeasure || "unit")}(s) <button onclick="state.receiveExcessQuantities.splice(${index},1);render();" style="padding:0 6px;color:#991b1b;">Remove</button></div>`).join("") : `<div style="font-size:12px;color:#777;margin-top:6px;">No extra quantities added.</div>`}
             </div>
           </div>
@@ -11309,7 +11309,20 @@ RECEIVE STOCK MODAL
 
         state.receiveUnlistedUnits.push(unit.id);
         render();
-        setTimeout(() => document.getElementById("unlistedScanInput")?.focus(), 10);
+        setTimeout(() => document.getElementById("receiveExcessScanInput")?.focus(), 10);
+      }
+
+      function handleReceiveExcessScan(value) {
+        const code = String(value || "").trim().toUpperCase();
+        if (!code) return;
+
+        const unit = UNITS.find((candidate) => String(candidate.tag || "").trim().toUpperCase() === code);
+        if (unit) return handleUnlistedScan(code);
+
+        const batch = BATCHES.find((candidate) => String(candidate.batchNumber || "").trim().toUpperCase() === code);
+        if (batch) return handleReceiveExcessBatchScan(code);
+
+        alert(`Tag or batch barcode "${code}" not found.`);
       }
 
       function simulateUnlistedScan() {
@@ -11348,6 +11361,7 @@ RECEIVE STOCK MODAL
         state.receiveExcessBatchId = null;
         state.receiveExcessQuantity = "";
         render();
+        setTimeout(() => document.getElementById("receiveExcessScanInput")?.focus(), 10);
       }
 
 
@@ -15764,6 +15778,7 @@ MOVEMENT LOG PAGE
         <div style="
           max-height:200px;
           overflow-y:auto;
+          overflow-x:auto;
           border:1px solid #ddd;
           border-radius:4px;
           padding:8px;
@@ -15782,15 +15797,18 @@ MOVEMENT LOG PAGE
                     const isSelected = selectedUnitIds.includes(unitRecord.id);
                     return `
                   <div style="
-                    display:flex;
+                    display:grid;
+                    grid-template-columns:24px minmax(180px, 1fr) 72px 104px;
                     gap:8px;
                     align-items:center;
+                    min-width:420px;
                     padding:6px 4px;
                     border-bottom:1px dashed #ddd;
                     font-size:12px;
+                    white-space:nowrap;
                   ">
-                    <input type="checkbox" ${isSelected ? "checked" : ""} onchange="toggleWriteOffUnit('${escapeTransferDetailText(unitRecord.id)}', this.checked)" aria-label="Select ${escapeTransferDetailText(unitRecord.tag)} to write off">
-                    <span style="flex:1;font-weight:bold;">
+                    <input type="checkbox" style="width:16px;height:16px;margin:0;justify-self:center;flex:none;" ${isSelected ? "checked" : ""} onchange="toggleWriteOffUnit('${escapeTransferDetailText(unitRecord.id)}', this.checked)" aria-label="Select ${escapeTransferDetailText(unitRecord.tag)} to write off">
+                    <span style="min-width:0;font-weight:bold;overflow:hidden;text-overflow:ellipsis;">
                       ${escapeTransferDetailText(unitRecord.tag)}
                     </span>
 
