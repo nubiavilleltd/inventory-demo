@@ -3478,9 +3478,9 @@ DISPATCH DASHBOARD DEMO SEED
               <tbody>${displayRows.length ? displayRows.map((row) => `<tr><td style="padding-left:12px;font-weight:bold;">${row.name}</td><td>${money(row.sales)}</td><td>${money(row.fulfilment)}</td><td><strong>${money(row.sales + row.fulfilment)}</strong></td><td>${row.orders.size}</td></tr>`).join("") : `<tr><td colspan="5" style="text-align:center;padding:24px;color:#666;">No fulfilled item sales recorded for this period and location.</td></tr>`}</tbody>
             </table>
           </div>
-          <h3 style="margin:18px 0 8px;">Order and item allocation</h3>
+          <h3 style="margin:18px 0 8px;">Order-level allocation</h3>
           <div class="card" style="padding:0;overflow-x:auto;">
-            <table><thead><tr><th style="padding-left:12px;">Order / product</th><th>Last handover</th><th>Sales Store</th><th>Paid</th><th>Handed over</th><th>Value allocated in period</th><th>Awaiting handover</th><th>Allocation credits</th><th>Action</th></tr></thead>
+            <table><thead><tr><th style="padding-left:12px;">Order</th><th>Sales Store</th><th>Paid</th><th>Handed over</th><th>Value allocated in period</th><th>Awaiting handover</th><th>Allocation split</th><th>Action</th></tr></thead>
               <tbody>${entries.length ? entries.slice().sort((a, b) => (b.allocation.lastHandover || 0) - (a.allocation.lastHandover || 0)).map(({ order, allocation }) => {
                 const fullAllocation = currentFulfilment.get(order.orderNumber);
                 const fullFulfilledQty = fullAllocation?.lines.reduce((sum, line) => sum + line.fulfilledQty, 0) || 0;
@@ -3491,24 +3491,11 @@ DISPATCH DASHBOARD DEMO SEED
                   .filter(([id, credit]) => credit.fulfilment > 0)
                   .map(([id, credit]) => `${id === "unrecorded" ? "Not recorded" : getLocation(id)?.name || "Other location"}: ${money(credit.fulfilment)}`)
                   .join("; ") || "—";
-                const productRows = (order.items || []).map((item) => {
-                  const product = getProduct(item.productId);
-                  const line = fullAllocation?.lines.find((entry) => entry.productId === item.productId);
-                  const fulfilled = line?.fulfilledQty || 0;
-                  const pending = Math.max(0, (Number(item.qty) || 0) - fulfilled);
-                  const periodLine = allocation.lines.find((entry) => entry.productId === item.productId);
-                  const itemQty = Number(item.qty) || 0;
-                  const itemGrossValue = itemQty * (product?.price || Number(item.unitPrice) || 0);
-                  const itemDiscount = orderTotals.subtotal > 0 ? orderTotals.discount * itemGrossValue / orderTotals.subtotal : 0;
-                  const pendingItemValue = Math.max(0, itemGrossValue - itemDiscount - (line?.netValue || 0));
-                  const sources = periodLine?.sourceCredits.map((source) => `${source.locationId === "unrecorded" ? "Not recorded" : getLocation(source.locationId)?.name || "Other location"}: ${money(source.amount)}`).join("; ") || "No allocation in period";
-                  return `<tr style="background:#fafafa;"><td style="padding-left:28px;">↳ ${product?.name || item.productId}</td><td>—</td><td>—</td><td>—</td><td>${fulfilled} / ${item.qty}</td><td>${money(periodLine?.netValue || 0)}</td><td>${pending ? `${pending} item(s) · ${money(pendingItemValue)} pending` : "—"}</td><td>${sources}</td><td></td></tr>`;
-                }).join("");
-                return `<tr><td style="padding-left:12px;font-weight:bold;">${allocation.orderNumber}</td><td>${allocation.lastHandover ? formatDate(allocation.lastHandover.toISOString().split("T")[0]) : "—"}</td><td>${allocation.salesStoreId ? getLocation(allocation.salesStoreId)?.name || "Other location" : "Not recorded"}</td><td>${money(orderTotals.paid)}</td><td>${fullFulfilledQty} / ${orderedQty}</td><td>${money(allocation.itemValue)}</td><td>${Math.max(0, orderedQty - fullFulfilledQty)} item(s) · ${money(pendingValue)}</td><td>Sales: ${money(allocation.salesCredit)}; ${supplierSummary}</td><td><button onclick="loadOrderForViewing('${allocation.orderNumber}')" style="font-size:11px;padding:2px 8px;">View Order</button></td></tr>${productRows}`;
-              }).join("") : `<tr><td colspan="9" style="text-align:center;padding:24px;color:#666;">No fulfilled item sales recorded for this period and location.</td></tr>`}</tbody>
+                return `<tr><td style="padding-left:12px;font-weight:bold;">${allocation.orderNumber}<div style="font-size:11px;color:#666;font-weight:normal;">Last handover: ${allocation.lastHandover ? formatDate(allocation.lastHandover.toISOString().split("T")[0]) : "—"}</div></td><td>${allocation.salesStoreId ? getLocation(allocation.salesStoreId)?.name || "Other location" : "Not recorded"}</td><td>${money(orderTotals.paid)}</td><td>${fullFulfilledQty} / ${orderedQty}</td><td>${money(allocation.itemValue)}</td><td>${Math.max(0, orderedQty - fullFulfilledQty)} item(s) · ${money(pendingValue)}</td><td>Sales: ${money(allocation.salesCredit)}<div style="font-size:11px;color:#666;">Suppliers: ${supplierSummary}</div></td><td><button onclick="loadOrderForViewing('${allocation.orderNumber}')" style="font-size:11px;padding:2px 8px;">View Order</button></td></tr>`;
+              }).join("") : `<tr><td colspan="8" style="text-align:center;padding:24px;color:#666;">No fulfilled item sales recorded for this period and location.</td></tr>`}</tbody>
             </table>
           </div>
-          <div style="font-size:12px;color:#666;margin-top:8px;">Paid totals show payments recorded on the orders listed. Fulfilled value and allocation credits follow handovers in the selected period; pending quantities and values show each listed order's current status. The Sales Store receives 60% of fulfilled net item value; supplying locations share 40% by quantity. Delivery fees are excluded.</div>
+          <div style="font-size:12px;color:#666;margin-top:8px;">This overview summarizes each order; open an order to see its item breakdown. Paid totals show payments recorded on the orders listed. Fulfilled value and allocation credits follow handovers in the selected period; pending quantities and values show each listed order's current status. The Sales Store receives 60% of fulfilled net item value; supplying locations share 40% by quantity. Delivery fees are excluded.</div>
         `;
         document.getElementById("turnoverPeriodSelect")?.addEventListener("change", (event) => {
           state.turnoverPeriod = event.target.value;
