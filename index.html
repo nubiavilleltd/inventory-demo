@@ -3420,6 +3420,20 @@ DISPATCH DASHBOARD DEMO SEED
         const salesCredit = entries.reduce((sum, entry) => sum + entry.allocation.salesCredit, 0);
         const fulfilmentCredit = entries.reduce((sum, entry) => sum + entry.allocation.fulfilmentCredit, 0);
         const contributingOrders = entries.length;
+        const paidOnOrdersShown = entries.reduce((sum, entry) => sum + calcTotals(entry.order).paid, 0);
+        const currentFulfilment = new Map(entries.map(({ order }) => [
+          order.orderNumber,
+          buildOrderTurnoverAllocation(order),
+        ]));
+        const awaitingHandoverValue = entries.reduce((sum, { order }) => {
+          const totals = calcTotals(order);
+          return sum + Math.max(0, totals.subtotal - totals.discount - (currentFulfilment.get(order.orderNumber)?.itemValue || 0));
+        }, 0);
+        const awaitingHandoverQty = entries.reduce((sum, { order }) => {
+          const fulfilledQty = currentFulfilment.get(order.orderNumber)?.lines.reduce((lineSum, line) => lineSum + line.fulfilledQty, 0) || 0;
+          const orderedQty = (order.items || []).reduce((lineSum, item) => lineSum + (Number(item.qty) || 0), 0);
+          return sum + Math.max(0, orderedQty - fulfilledQty);
+        }, 0);
         const rows = [...totals.entries()].map(([id, row]) => ({
           id,
           name: id === "unrecorded" ? "Not recorded" : getLocation(id)?.name || "Other location",
@@ -3452,7 +3466,9 @@ DISPATCH DASHBOARD DEMO SEED
             </div>
           </div>
           <div class="row">
-            <div class="col"><div class="card" style="text-align:center;"><div style="font-size:11px;color:#555;">Fulfilled item sales</div><strong style="font-size:21px;">${money(fulfilledSales)}</strong></div></div>
+            <div class="col"><div class="card" style="text-align:center;"><div style="font-size:11px;color:#555;">Paid on orders shown</div><strong style="font-size:21px;">${money(paidOnOrdersShown)}</strong></div></div>
+            <div class="col"><div class="card" style="text-align:center;"><div style="font-size:11px;color:#555;">Fulfilled value allocated in period</div><strong style="font-size:21px;">${money(fulfilledSales)}</strong></div></div>
+            <div class="col"><div class="card" style="text-align:center;"><div style="font-size:11px;color:#555;">Awaiting handover on shown orders</div><strong style="font-size:21px;">${money(awaitingHandoverValue)}</strong><div style="font-size:11px;color:#666;">${awaitingHandoverQty} item(s)</div></div></div>
             <div class="col"><div class="card" style="text-align:center;"><div style="font-size:11px;color:#555;">Sales Store share (60%)</div><strong style="font-size:21px;">${money(salesCredit)}</strong></div></div>
             <div class="col"><div class="card" style="text-align:center;"><div style="font-size:11px;color:#555;">Supplying Store share (40%)</div><strong style="font-size:21px;">${money(fulfilmentCredit)}</strong></div></div>
             <div class="col"><div class="card" style="text-align:center;"><div style="font-size:11px;color:#555;">Orders with fulfilment</div><strong style="font-size:21px;">${contributingOrders}</strong></div></div>
@@ -3462,19 +3478,37 @@ DISPATCH DASHBOARD DEMO SEED
               <tbody>${displayRows.length ? displayRows.map((row) => `<tr><td style="padding-left:12px;font-weight:bold;">${row.name}</td><td>${money(row.sales)}</td><td>${money(row.fulfilment)}</td><td><strong>${money(row.sales + row.fulfilment)}</strong></td><td>${row.orders.size}</td></tr>`).join("") : `<tr><td colspan="5" style="text-align:center;padding:24px;color:#666;">No fulfilled item sales recorded for this period and location.</td></tr>`}</tbody>
             </table>
           </div>
-          <h3 style="margin:18px 0 8px;">Order-level allocation</h3>
+          <h3 style="margin:18px 0 8px;">Order and item allocation</h3>
           <div class="card" style="padding:0;overflow-x:auto;">
-            <table><thead><tr><th style="padding-left:12px;">Order</th><th>Last handover</th><th>Sales Store</th><th>Net item value</th><th>Sales share (60%)</th><th>Delivery share by location (40%)</th><th>Action</th></tr></thead>
+            <table><thead><tr><th style="padding-left:12px;">Order / product</th><th>Last handover</th><th>Sales Store</th><th>Paid</th><th>Handed over</th><th>Value allocated in period</th><th>Awaiting handover</th><th>Allocation credits</th><th>Action</th></tr></thead>
               <tbody>${entries.length ? entries.slice().sort((a, b) => (b.allocation.lastHandover || 0) - (a.allocation.lastHandover || 0)).map(({ order, allocation }) => {
+                const fullAllocation = currentFulfilment.get(order.orderNumber);
+                const fullFulfilledQty = fullAllocation?.lines.reduce((sum, line) => sum + line.fulfilledQty, 0) || 0;
+                const orderedQty = (order.items || []).reduce((sum, item) => sum + (Number(item.qty) || 0), 0);
+                const orderTotals = calcTotals(order);
+                const pendingValue = Math.max(0, orderTotals.subtotal - orderTotals.discount - (fullAllocation?.itemValue || 0));
                 const supplierSummary = [...allocation.credits.entries()]
                   .filter(([id, credit]) => credit.fulfilment > 0)
                   .map(([id, credit]) => `${id === "unrecorded" ? "Not recorded" : getLocation(id)?.name || "Other location"}: ${money(credit.fulfilment)}`)
                   .join("; ") || "—";
-                return `<tr><td style="padding-left:12px;font-weight:bold;">${allocation.orderNumber}</td><td>${allocation.lastHandover ? formatDate(allocation.lastHandover.toISOString().split("T")[0]) : "—"}</td><td>${allocation.salesStoreId ? getLocation(allocation.salesStoreId)?.name || "Other location" : "Not recorded"}</td><td>${money(allocation.itemValue)}</td><td>${money(allocation.salesCredit)}</td><td>${supplierSummary}</td><td><button onclick="loadOrderForViewing('${allocation.orderNumber}')" style="font-size:11px;padding:2px 8px;">View Order</button></td></tr>`;
-              }).join("") : `<tr><td colspan="7" style="text-align:center;padding:24px;color:#666;">No fulfilled item sales recorded for this period and location.</td></tr>`}</tbody>
+                const productRows = (order.items || []).map((item) => {
+                  const product = getProduct(item.productId);
+                  const line = fullAllocation?.lines.find((entry) => entry.productId === item.productId);
+                  const fulfilled = line?.fulfilledQty || 0;
+                  const pending = Math.max(0, (Number(item.qty) || 0) - fulfilled);
+                  const periodLine = allocation.lines.find((entry) => entry.productId === item.productId);
+                  const itemQty = Number(item.qty) || 0;
+                  const itemGrossValue = itemQty * (product?.price || Number(item.unitPrice) || 0);
+                  const itemDiscount = orderTotals.subtotal > 0 ? orderTotals.discount * itemGrossValue / orderTotals.subtotal : 0;
+                  const pendingItemValue = Math.max(0, itemGrossValue - itemDiscount - (line?.netValue || 0));
+                  const sources = periodLine?.sourceCredits.map((source) => `${source.locationId === "unrecorded" ? "Not recorded" : getLocation(source.locationId)?.name || "Other location"}: ${money(source.amount)}`).join("; ") || "No allocation in period";
+                  return `<tr style="background:#fafafa;"><td style="padding-left:28px;">↳ ${product?.name || item.productId}</td><td>—</td><td>—</td><td>—</td><td>${fulfilled} / ${item.qty}</td><td>${money(periodLine?.netValue || 0)}</td><td>${pending ? `${pending} item(s) · ${money(pendingItemValue)} pending` : "—"}</td><td>${sources}</td><td></td></tr>`;
+                }).join("");
+                return `<tr><td style="padding-left:12px;font-weight:bold;">${allocation.orderNumber}</td><td>${allocation.lastHandover ? formatDate(allocation.lastHandover.toISOString().split("T")[0]) : "—"}</td><td>${allocation.salesStoreId ? getLocation(allocation.salesStoreId)?.name || "Other location" : "Not recorded"}</td><td>${money(orderTotals.paid)}</td><td>${fullFulfilledQty} / ${orderedQty}</td><td>${money(allocation.itemValue)}</td><td>${Math.max(0, orderedQty - fullFulfilledQty)} item(s) · ${money(pendingValue)}</td><td>Sales: ${money(allocation.salesCredit)}; ${supplierSummary}</td><td><button onclick="loadOrderForViewing('${allocation.orderNumber}')" style="font-size:11px;padding:2px 8px;">View Order</button></td></tr>${productRows}`;
+              }).join("") : `<tr><td colspan="9" style="text-align:center;padding:24px;color:#666;">No fulfilled item sales recorded for this period and location.</td></tr>`}</tbody>
             </table>
           </div>
-          <div style="font-size:12px;color:#666;margin-top:8px;">Turnover uses fulfilled net item value. The Sales Store receives 60%; each supplying location receives a share of the 40% delivery credit based on the quantity it supplied for each product. Delivery fees are excluded. A location filter shows orders involving that location and all locations credited by those orders.</div>
+          <div style="font-size:12px;color:#666;margin-top:8px;">Paid totals show payments recorded on the orders listed. Fulfilled value and allocation credits follow handovers in the selected period; pending quantities and values show each listed order's current status. The Sales Store receives 60% of fulfilled net item value; supplying locations share 40% by quantity. Delivery fees are excluded.</div>
         `;
         document.getElementById("turnoverPeriodSelect")?.addEventListener("change", (event) => {
           state.turnoverPeriod = event.target.value;
@@ -3799,6 +3833,9 @@ DISPATCH DASHBOARD DEMO SEED
         if (!o) return;
         const t = calcTotals(o);
         const turnoverAllocation = buildOrderTurnoverAllocation(o);
+        const orderedQty = (o.items || []).reduce((sum, item) => sum + (Number(item.qty) || 0), 0);
+        const fulfilledQty = turnoverAllocation.lines.reduce((sum, line) => sum + line.fulfilledQty, 0);
+        const pendingHandoverValue = Math.max(0, t.subtotal - t.discount - turnoverAllocation.itemValue);
 
         c.innerHTML = `
     <div class="card">
@@ -3957,12 +3994,19 @@ DISPATCH DASHBOARD DEMO SEED
     </div>
 
     <div class="card">
-      <div class="card-title">Sales Turnover Allocation</div>
-      <div style="font-size:12px;color:#666;margin-bottom:8px;">Only fulfilled quantities are allocated. ${getLocation(turnoverAllocation.salesStoreId)?.name || "Sales Store not recorded"} receives 60% of fulfilled net item value; the 40% delivery share is split among supplying locations by quantity.</div>
+      <div class="card-title">Turnover Allocation by Fulfilment</div>
+      <div style="font-size:12px;color:#666;margin-bottom:12px;">Allocation follows items handed over, not payment received.</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px 24px;padding:12px;background:#f7f7f7;border-radius:6px;margin-bottom:12px;">
+        <div><span style="color:#666;">Paid:</span> <strong>${money(t.paid)}</strong></div>
+        <div><span style="color:#666;">Handed over:</span> <strong>${fulfilledQty} of ${orderedQty}</strong></div>
+        <div><span style="color:#666;">Allocated so far:</span> <strong>${money(turnoverAllocation.itemValue)}</strong></div>
+        <div><span style="color:#666;">Awaiting handover:</span> <strong>${Math.max(0, orderedQty - fulfilledQty)} item(s) · ${money(pendingHandoverValue)} not yet allocated</strong></div>
+      </div>
+      <div style="font-size:12px;color:#666;margin-bottom:8px;">${getLocation(turnoverAllocation.salesStoreId)?.name || "Sales Store not recorded"} receives 60% of the value handed over; the supplying location(s) receive the remaining 40%, split by quantity.</div>
       ${turnoverAllocation.lines.length ? `
         <div style="overflow-x:auto;">
           <table>
-            <thead><tr><th>Product</th><th>Fulfilled / Ordered</th><th>Net value fulfilled</th><th>Sales share (60%)</th><th>Delivery share by supplying location (40%)</th></tr></thead>
+            <thead><tr><th>Product</th><th>Handed over</th><th>Value of items handed over</th><th>Sales Store share (60%)</th><th>Supplying location share (40%)</th></tr></thead>
             <tbody>
               ${o.items.map((item) => {
                 const product = getProduct(item.productId);
@@ -3976,7 +4020,7 @@ DISPATCH DASHBOARD DEMO SEED
                 return `<tr><td>${product?.name || item.productId}</td><td>${fulfilledQty} / ${item.qty}${pendingQty ? ` <span style="color:#92400e;">(${pendingQty} pending)</span>` : ""}</td><td>${money(line?.netValue || 0)}</td><td>${money(line?.salesCredit || 0)}</td><td>${sourceBreakdown}</td></tr>`;
               }).join("")}
             </tbody>
-            <tfoot><tr style="font-weight:bold;"><td>Order total</td><td></td><td>${money(turnoverAllocation.itemValue)}</td><td>${money(turnoverAllocation.salesCredit)}</td><td>${money(turnoverAllocation.fulfilmentCredit)}</td></tr></tfoot>
+            <tfoot><tr style="font-weight:bold;"><td>Total allocated so far</td><td></td><td>${money(turnoverAllocation.itemValue)}</td><td>${money(turnoverAllocation.salesCredit)}</td><td>${money(turnoverAllocation.fulfilmentCredit)}</td></tr></tfoot>
           </table>
         </div>
       ` : `<div style="padding:12px;color:#666;">No items have been handed over yet, so no turnover has been allocated.</div>`}
