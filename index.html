@@ -1925,6 +1925,7 @@
         collectionSelections: {},
         pickupScanInput: "",
         pickupHandoverLocationId: null,
+        pickupDemoScanProductId: "",
         // StockQuantity handover quantities: { [productId]: number }
         collectionQuantities: {},
         deferAllItems: false,
@@ -7097,6 +7098,10 @@ DISPATCH DASHBOARD DEMO SEED
           })
           .filter(Boolean);
         const handoverLines = pickupLines.filter((line) => line.handoverCap > 0);
+        const pickupDemoScanLines = handoverLines.filter((line) => getInvProduct(line.productId)?.trackingType === "Individual");
+        if (!pickupDemoScanLines.some((line) => line.productId === state.pickupDemoScanProductId)) {
+          state.pickupDemoScanProductId = pickupDemoScanLines[0]?.productId || "";
+        }
 
         // StockQuantity lines retain their default handover quantity.
         // Individual units are added only when their tags are scanned.
@@ -7202,17 +7207,20 @@ DISPATCH DASHBOARD DEMO SEED
             <div style="font-weight:bold; font-size:13px; margin-bottom:8px;">Items on this order</div>
 
             ${(() => {
-              const individualLines = handoverLines.filter((line) => getInvProduct(line.productId)?.trackingType === "Individual");
+              const individualLines = pickupDemoScanLines;
               if (!individualLines.length) return "";
               const individualSelected = individualLines.reduce((sum, line) => sum + (state.collectionSelections[line.productId] || []).length, 0);
               return `
                 <div class="card" style="margin-bottom:8px; padding:10px; ${isDeferred ? "opacity:0.5; pointer-events:none;" : ""}">
                   <strong>Scan items from this order</strong>
-                  <div style="font-size:12px; color:#666; margin:4px 0 8px;">One scanner accepts tags for any individual item below · ${individualSelected} scanned</div>
+                  <div style="font-size:12px; color:#666; margin:4px 0 8px;">The scanner accepts tags for any eligible individual item in this order · ${individualSelected} scanned</div>
                   <div style="display:flex; gap:8px;">
                     <input type="text" id="pickupSharedScan" placeholder="Scan Tag or Barcode..." value="${escapeTransferDetailText(state.pickupScanInput || "")}" style="flex:1; font-size:13px;" ${isDeferred ? "disabled" : ""} oninput="state.pickupScanInput=this.value" onkeydown="if(event.key==='Enter'){event.preventDefault();scanPickupUnitAcrossOrder(this.value)}">
                     <button ${isDeferred ? "disabled" : ""} onclick="scanPickupUnitAcrossOrder(document.getElementById('pickupSharedScan').value)">Scan</button>
-                    <button style="background:#fef3c7;" ${isDeferred ? "disabled" : ""} onclick="simulatePickupScanAcrossOrder()">Auto-Scan</button>
+                  </div>
+                  <div style="display:flex; align-items:flex-end; gap:8px; margin-top:8px; padding:8px; background:#fffbeb; border-radius:4px;">
+                    <div style="flex:1;"><label for="pickupDemoScanProduct" style="font-size:11px; margin:0 0 3px;">Demo product to Auto-Scan</label><select id="pickupDemoScanProduct" onchange="state.pickupDemoScanProductId=this.value" ${isDeferred ? "disabled" : ""}>${individualLines.map((line) => `<option value="${line.productId}" ${line.productId === state.pickupDemoScanProductId ? "selected" : ""}>${getInvProduct(line.productId)?.name || "Order item"}</option>`).join("")}</select></div>
+                    <button style="background:#fef3c7;" ${isDeferred ? "disabled" : ""} onclick="simulatePickupScanAcrossOrder()">Auto-Scan Selected Product</button>
                   </div>
                 </div>
               `;
@@ -7338,6 +7346,7 @@ DISPATCH DASHBOARD DEMO SEED
 
       function onPickupHandoverLocationChange(locationId) {
         state.pickupHandoverLocationId = locationId || null;
+        state.pickupDemoScanProductId = "";
         state.collectionSelections = {};
         state.collectionQuantities = {};
         state.pickupScanInput = "";
@@ -7388,17 +7397,18 @@ DISPATCH DASHBOARD DEMO SEED
         const order = state.order;
         if (!order) return;
         const pickupLoc = state.pickupHandoverLocationId || order.fulfilmentLocationId || LOCATIONS.find((location) => location.name === order.pickupLocation)?.id;
+        const productId = state.pickupDemoScanProductId;
+        const line = calcOutstandingLines(order).find((candidate) => candidate.productId === productId);
+        const product = getInvProduct(productId);
+        if (!line || product?.trackingType !== "Individual") return alert("Select an individual product from this order to Auto-Scan.");
         const alreadySelected = new Set(Object.values(state.collectionSelections).flat());
-        for (const line of calcOutstandingLines(order)) {
-          if (getInvProduct(line.productId)?.trackingType !== "Individual") continue;
-          const selected = state.collectionSelections[line.productId] || [];
-          const candidates = getPickupScanCandidates(line.productId, pickupLoc, order);
-          const cap = Math.min(line.outstanding, candidates.length);
-          if (selected.length >= cap) continue;
-          const next = candidates.find((candidate) => !alreadySelected.has(candidate.id));
-          if (next) return scanPickupUnitAcrossOrder(next.tag);
-        }
-        alert("No more eligible individual items are available for pickup here.");
+        const selected = state.collectionSelections[productId] || [];
+        const candidates = getPickupScanCandidates(productId, pickupLoc, order);
+        const cap = Math.min(line.outstanding, candidates.length);
+        if (selected.length >= cap) return alert(`No more ${product.name} units are available to pick up here.`);
+        const next = candidates.find((candidate) => !alreadySelected.has(candidate.id));
+        if (next) return scanPickupUnitAcrossOrder(next.tag);
+        alert(`No more ${product.name} units are available to pick up here.`);
       }
 
       function removePickupScan(productId, unitId) {
